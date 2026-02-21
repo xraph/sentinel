@@ -10,39 +10,39 @@ const footerLinks = {
     { label: "Architecture", href: "/docs/architecture" },
     { label: "Configuration", href: "/docs/concepts/configuration" },
   ],
-  Components: [
-    { label: "Ingestion", href: "/docs/subsystems/recording" },
-    { label: "Retrieval", href: "/docs/subsystems/verification" },
-    { label: "Chunker", href: "/docs/subsystems/erasure" },
-    { label: "Embedder", href: "/docs/subsystems/compliance" },
-    { label: "Extensions", href: "/docs/subsystems/plugins" },
+  Evaluation: [
+    { label: "Entities", href: "/docs/concepts/entities" },
+    { label: "Human Model", href: "/docs/human-model/overview" },
+    { label: "Runs", href: "/docs/execution/runs" },
+    { label: "Baselines", href: "/docs/execution/checkpoints" },
+    { label: "Red Team", href: "/docs/execution/memory" },
   ],
-  Stores: [
-    { label: "Memory", href: "/docs/stores/memory" },
-    { label: "PostgreSQL", href: "/docs/stores/postgres" },
-    { label: "SQLite", href: "/docs/stores/sqlite" },
-    { label: "pgvector", href: "/docs/stores/bun" },
+  Infrastructure: [
+    { label: "PostgreSQL", href: "/docs/infrastructure/postgres" },
+    { label: "Plugins", href: "/docs/infrastructure/plugins" },
+    { label: "Observability", href: "/docs/infrastructure/observability" },
     { label: "Custom Store", href: "/docs/guides/custom-store" },
+    { label: "HTTP API", href: "/docs/api-reference/http-api" },
   ],
   Community: [
     {
       label: "GitHub",
-      href: "https://github.com/xraph/weave",
+      href: "https://github.com/xraph/sentinel",
       external: true,
     },
     {
       label: "Issues",
-      href: "https://github.com/xraph/weave/issues",
+      href: "https://github.com/xraph/sentinel/issues",
       external: true,
     },
     {
       label: "Discussions",
-      href: "https://github.com/xraph/weave/discussions",
+      href: "https://github.com/xraph/sentinel/discussions",
       external: true,
     },
     {
       label: "Contributing",
-      href: "https://github.com/xraph/weave/blob/main/CONTRIBUTING.md",
+      href: "https://github.com/xraph/sentinel/blob/main/CONTRIBUTING.md",
       external: true,
     },
   ],
@@ -58,16 +58,16 @@ export function Footer() {
           <div className="col-span-2 md:col-span-1">
             <Link href="/" className="inline-flex items-center gap-2 mb-4">
               <ThemedLogo />
-              <span className="font-bold text-lg">Weave</span>
+              <span className="font-bold text-lg">Sentinel</span>
             </Link>
             <p className="text-sm text-fd-muted-foreground leading-relaxed max-w-xs">
-              Composable RAG pipeline engine for Go. Ingest documents, generate
-              embeddings, and retrieve semantic context at scale.
+              Composable AI evaluation and testing framework for Go. Score
+              outputs, detect regressions, and red team your models at scale.
             </p>
             {/* Social links */}
             <div className="flex items-center gap-3 mt-6">
               <a
-                href="https://github.com/xraph/weave"
+                href="https://github.com/xraph/sentinel"
                 target="_blank"
                 rel="noreferrer"
                 className="text-fd-muted-foreground hover:text-fd-foreground transition-colors"

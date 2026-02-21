@@ -1,6 +1,6 @@
-# Dispatch Documentation
+# Sentinel Documentation
 
-Documentation site for [Dispatch](https://github.com/xraph/dispatch) — a composable webhook delivery engine for Go.
+Documentation site for [Sentinel](https://github.com/xraph/sentinel) — a composable AI evaluation and testing framework for Go.
 
 Built with [Fumadocs](https://fumadocs.dev) and Next.js.
 

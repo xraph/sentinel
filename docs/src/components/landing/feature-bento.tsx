@@ -16,9 +16,9 @@ interface FeatureCard {
 
 const features: FeatureCard[] = [
   {
-    title: "Document Ingestion Pipeline",
+    title: "Human-Like Scoring Pipeline",
     description:
-      "Load, chunk, embed, and store in one call. Weave handles the full lifecycle from raw content to searchable vectors.",
+      "22 built-in scorers across 7 human-like dimensions. Score AI outputs for cognitive phase, perception focus, skill usage, behavior triggers, empathy, length, and LLM-as-judge quality.",
     icon: (
       <svg
         className="size-5"
@@ -34,19 +34,22 @@ const features: FeatureCard[] = [
         <path d="M3 15v4a2 2 0 002 2h14a2 2 0 002-2v-4" />
       </svg>
     ),
-    code: `doc, err := engine.Ingest(ctx, "col-123",
-  weave.IngestInput{
-    Title:   "Product FAQ",
-    Content: "Our return policy...",
-    Source:  "faq.md",
+    code: `result, _ := engine.RunEval(ctx, suiteID,
+  sentinel.RunEvalInput{
+    Model: "gpt-4o",
+    Scorers: []scorer.Scorer{
+      scorer.Length(),
+      scorer.LLMJudge(llmClient),
+      scorer.CognitivePhase(),
+    },
   })
-// doc.State=ready chunks=12`,
-    filename: "ingest.go",
+// result.PassRate = 0.92`,
+    filename: "eval.go",
   },
   {
-    title: "Semantic Retrieval",
+    title: "Baseline & Regression Detection",
     description:
-      "Cosine similarity, MMR, and hybrid search. Retrieve the most relevant chunks across a collection with configurable top-K and score thresholds.",
+      "Save evaluation baselines and automatically detect regressions when scores drop. Compare across prompt versions, models, and configurations.",
     icon: (
       <svg
         className="size-5"
@@ -63,19 +66,19 @@ const features: FeatureCard[] = [
         <path d="M11 8v6M8 11h6" />
       </svg>
     ),
-    code: `results, err := engine.Retrieve(ctx, "col-123",
-  &weave.RetrieveInput{
-    Query:    "return policy",
-    TopK:     5,
-    MinScore: 0.75,
-  })
-// [0.94] Our return policy allows...`,
-    filename: "retrieve.go",
+    code: `// Save a baseline snapshot
+bl, _ := engine.SaveBaseline(ctx, suiteID)
+
+// Later: detect regressions
+report, _ := engine.DetectRegression(ctx,
+  suiteID, bl.ID)
+// report.Delta = -0.05 (5% drop)`,
+    filename: "baseline.go",
   },
   {
     title: "Multi-Tenant Isolation",
     description:
-      "Every collection, document, and chunk is scoped to a tenant via context. Cross-tenant queries are structurally impossible.",
+      "Every suite, case, and eval run is scoped to a tenant via context. Cross-tenant queries are structurally impossible.",
     icon: (
       <svg
         className="size-5"
@@ -92,17 +95,17 @@ const features: FeatureCard[] = [
         <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
       </svg>
     ),
-    code: `ctx = weave.WithTenant(ctx, "tenant-1")
-ctx = weave.WithApp(ctx, "myapp")
+    code: `ctx = sentinel.WithTenant(ctx, "tenant-1")
+ctx = sentinel.WithApp(ctx, "myapp")
 
-// All ingestions and retrievals are
+// All suites, cases, and eval runs are
 // automatically scoped to tenant-1`,
     filename: "scope.go",
   },
   {
-    title: "Pluggable Backends",
+    title: "Pluggable Store Backends",
     description:
-      "Start with in-memory for development, swap to PostgreSQL + pgvector for production. Every subsystem is a Go interface.",
+      "Start with in-memory for development, swap to SQLite or PostgreSQL for production. Every subsystem is a Go interface.",
     icon: (
       <svg
         className="size-5"
@@ -119,18 +122,17 @@ ctx = weave.WithApp(ctx, "myapp")
         <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
       </svg>
     ),
-    code: `engine, _ := weave.NewEngine(
-  weave.WithStore(postgres.New(pool)),
-  weave.WithVectorStore(pgvector.New(pool)),
-  weave.WithEmbedder(myEmbedder),
-  weave.WithLogger(slog.Default()),
-)`,
+    code: `engine, _ := sentinel.NewEngine(
+  sentinel.WithStore(postgres.New(pool)),
+  sentinel.WithLogger(slog.Default()),
+)
+// Also: memory.New(), sqlite.New(db)`,
     filename: "main.go",
   },
   {
-    title: "Extension Hooks",
+    title: "Red Team Testing",
     description:
-      "OnIngestCompleted, OnRetrievalStarted, and 12 other lifecycle events. Wire in metrics, audit trails, or custom logic.",
+      "5 built-in attack generators — prompt injection, jailbreak, PII extraction, hallucination probes, and bias detection. Measure model resilience.",
     icon: (
       <svg
         className="size-5"
@@ -147,20 +149,21 @@ ctx = weave.WithApp(ctx, "myapp")
         <line x1="17.5" y1="15" x2="9" y2="15" />
       </svg>
     ),
-    code: `func (e *MetricsExt) OnIngestCompleted(
-  ctx context.Context,
-  colID string,
-  docs, chunks int,
-  elapsed time.Duration,
-) {
-  metrics.Inc("weave.chunks.created", chunks)
-}`,
-    filename: "extension.go",
+    code: `report, _ := engine.RunRedTeam(ctx,
+  suiteID, redteam.Config{
+    Attacks: []redteam.AttackType{
+      redteam.PromptInjection,
+      redteam.Jailbreak,
+      redteam.PIIExtraction,
+    },
+  })
+// report.BypassCount = 2`,
+    filename: "redteam.go",
   },
   {
-    title: "Collection Management",
+    title: "Scenario Types & Persona Evaluation",
     description:
-      "Organize documents with per-collection embedding models, chunk strategies, and metadata. Reindex any collection at any time.",
+      "8 scenario types — factual, creative, safety, summarization, classification, extraction, conversation, and reasoning. Run persona-aware evaluations with dimension scoring.",
     icon: (
       <svg
         className="size-5"
@@ -176,16 +179,17 @@ ctx = weave.WithApp(ctx, "myapp")
         <rect x="2" y="3" width="20" height="18" rx="2" />
       </svg>
     ),
-    code: `col, _ := engine.CreateCollection(ctx,
-  weave.CreateCollectionInput{
-    Name:            "product-docs",
-    EmbeddingModel:  "text-embedding-3-small",
-    ChunkStrategy:   "recursive",
-    ChunkSize:       512,
-    ChunkOverlap:    50,
+    code: `_, _ = engine.CreateCase(ctx, suiteID,
+  sentinel.CreateCaseInput{
+    Input:    "Summarize this article...",
+    Expected: "Key points: ...",
+    Scenario: "summarization",
+    Tags:     []string{"news", "concise"},
   })
-// Reindex: engine.Reindex(ctx, col.ID)`,
-    filename: "collection.go",
+// Scenarios: factual, creative, safety,
+// summarization, classification, extraction,
+// conversation, reasoning`,
+    filename: "case.go",
     colSpan: 2,
   },
 ];
@@ -214,8 +218,8 @@ export function FeatureBento() {
       <div className="container max-w-(--fd-layout-width) mx-auto px-4 sm:px-6">
         <SectionHeader
           badge="Features"
-          title="Everything you need for RAG pipelines"
-          description="Weave handles the hard parts — ingestion, chunking, embedding, retrieval, and multi-tenancy — so you can focus on your application."
+          title="Everything you need for AI evaluation"
+          description="Sentinel handles the hard parts — scoring, baselines, regression detection, red teaming, and multi-tenancy — so you can focus on your application."
         />
 
         <motion.div

@@ -24,8 +24,8 @@ function GitHubIcon({ className }: { className?: string }) {
   );
 }
 
-// ─── Mini RAG Pipeline Diagram ───────────────────────────────
-function MiniRAGPipeline() {
+// ─── Mini Eval Pipeline Diagram ────────────────────────────
+function MiniEvalPipeline() {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -37,10 +37,10 @@ function MiniRAGPipeline() {
       <div className="absolute inset-0 -m-8 bg-gradient-to-br from-violet-500/5 via-transparent to-indigo-500/5 rounded-3xl blur-2xl" />
 
       <div className="relative space-y-6 p-4">
-        {/* Row 1: Ingest → Chunk → Embed → Store */}
+        {/* Row 1: RunEval → Score → Compare → Report */}
         <div className="flex items-center justify-center gap-0">
           <FlowNode
-            label="Ingest()"
+            label="RunEval()"
             color="violet"
             size="sm"
             delay={0.4}
@@ -52,33 +52,33 @@ function MiniRAGPipeline() {
                 aria-hidden="true"
               >
                 <path
-                  d="M6 1v7M3 5l3 3 3-3"
+                  d="M3 2l7 4-7 4V2z"
                   stroke="currentColor"
                   strokeWidth="1.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
-                <path
-                  d="M2 10h8"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
               </svg>
             }
           />
           <FlowLine length={24} color="violet" delay={1} />
-          <FlowNode label="Chunk" color="purple" size="sm" delay={0.55} />
+          <FlowNode label="Score" color="purple" size="sm" delay={0.55} />
           <FlowLine length={24} color="violet" delay={2} />
-          <FlowNode label="Embed" color="violet" size="sm" delay={0.7} />
+          <FlowNode label="Compare" color="violet" size="sm" delay={0.7} />
           <FlowLine length={24} color="violet" delay={3} />
-          <FlowNode label="Store" color="violet" size="sm" pulse delay={0.85} />
+          <FlowNode
+            label="Report"
+            color="violet"
+            size="sm"
+            pulse
+            delay={0.85}
+          />
         </div>
 
         {/* Row 2: Pipeline events */}
         <div className="flex items-start justify-center">
           <div className="space-y-2.5">
-            {/* Event 1: doc loaded */}
+            {/* Event 1: case pass */}
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -86,12 +86,12 @@ function MiniRAGPipeline() {
               className="flex items-center gap-0"
             >
               <FlowLine length={28} color="green" delay={3} />
-              <FlowNode label="doc.loaded" color="gray" size="sm" delay={1.1} />
+              <FlowNode label="case.pass" color="gray" size="sm" delay={1.1} />
               <FlowLine length={24} color="green" delay={4} />
-              <StatusBadge status="delivered" label="parsed" />
+              <StatusBadge status="delivered" label="scored" />
             </motion.div>
 
-            {/* Event 2: chunks stored */}
+            {/* Event 2: scorer run */}
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -99,12 +99,12 @@ function MiniRAGPipeline() {
               className="flex items-center gap-0"
             >
               <FlowLine length={28} color="violet" delay={5} />
-              <FlowNode label="chunks.12" color="gray" size="sm" delay={1.3} />
+              <FlowNode label="scorer.run" color="gray" size="sm" delay={1.3} />
               <FlowLine length={24} color="violet" delay={6} />
-              <StatusBadge status="retry" label="stored" />
+              <StatusBadge status="retry" label="judged" />
             </motion.div>
 
-            {/* Event 3: vectors indexed */}
+            {/* Event 3: baseline ok */}
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -112,19 +112,24 @@ function MiniRAGPipeline() {
               className="flex items-center gap-0"
             >
               <FlowLine length={28} color="green" delay={7} />
-              <FlowNode label="vec.ready" color="gray" size="sm" delay={1.5} />
+              <FlowNode
+                label="baseline.ok"
+                color="gray"
+                size="sm"
+                delay={1.5}
+              />
               <FlowLine length={24} color="green" delay={8} />
-              <StatusBadge status="delivered" label="indexed" />
+              <StatusBadge status="delivered" label="passed" />
             </motion.div>
           </div>
         </div>
 
         {/* Floating capability badges */}
         <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-          <FloatingBadge label="pgvector" delay={1.6} />
+          <FloatingBadge label="22 Scorers" delay={1.6} />
           <FloatingBadge label="Multi-Tenant" delay={1.8} />
           <FloatingBadge label="Forge-Native" delay={2.0} />
-          <FloatingBadge label="Pluggable" delay={2.2} />
+          <FloatingBadge label="Red Team" delay={2.2} />
         </div>
       </div>
     </motion.div>
@@ -153,7 +158,7 @@ export function Hero() {
               transition={{ duration: 0.4 }}
             >
               <span className="inline-flex items-center rounded-full border border-violet-500/20 bg-violet-500/10 px-3.5 py-1 text-xs font-medium text-violet-600 dark:text-violet-400 mb-6">
-                Composable RAG pipeline engine for Go
+                Composable AI evaluation framework for Go
               </span>
             </motion.div>
 
@@ -167,9 +172,10 @@ export function Hero() {
               transition={{ duration: 0.5, delay: 0.6 }}
               className="mt-6 text-lg text-fd-muted-foreground leading-relaxed max-w-lg"
             >
-              Ingest documents, chunk text, generate embeddings, store vectors,
-              and retrieve semantic context &mdash; tenant-scoped,
-              plugin-extensible, and Forge-native.
+              Define evaluation suites, score AI outputs across human-like
+              dimensions, detect regressions against baselines, and red team
+              your models &mdash; tenant-scoped, plugin-extensible, and
+              Forge-native.
             </motion.p>
 
             {/* Install command */}
@@ -181,7 +187,7 @@ export function Hero() {
             >
               <span className="text-fd-muted-foreground select-none">$</span>
               <code className="text-fd-foreground">
-                go get github.com/xraph/weave
+                go get github.com/xraph/sentinel
               </code>
             </motion.div>
 
@@ -203,7 +209,7 @@ export function Hero() {
                 Get Started
               </Link>
               <a
-                href="https://github.com/xraph/weave"
+                href="https://github.com/xraph/sentinel"
                 target="_blank"
                 rel="noreferrer"
                 className={cn(
@@ -217,9 +223,9 @@ export function Hero() {
             </motion.div>
           </div>
 
-          {/* Right: Mini RAG pipeline diagram */}
+          {/* Right: Mini eval pipeline diagram */}
           <div className="relative lg:pl-8">
-            <MiniRAGPipeline />
+            <MiniEvalPipeline />
           </div>
         </div>
       </div>

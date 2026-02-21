@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { SectionHeader } from "./section-header";
 
-// ─── Cycling Ingestion Action ─────────────────────────────────
-const pipelineActions = ["doc.ingest", "query.retrieve", "col.reindex"];
+// ─── Cycling Eval Action ────────────────────────────────────
+const pipelineActions = ["eval.run", "scorer.judge", "baseline.compare"];
 
 function CyclingPipelineAction() {
   const [index, setIndex] = useState(0);
@@ -203,8 +203,8 @@ function EventRow({
   );
 }
 
-// ─── RAG Pipeline Diagram ─────────────────────────────────────
-function RAGPipelineDiagram() {
+// ─── Eval Pipeline Diagram ───────────────────────────────────
+function EvalPipelineDiagram() {
   const [phase, setPhase] = useState(0);
 
   useEffect(() => {
@@ -230,7 +230,7 @@ function RAGPipelineDiagram() {
           {/* Pipeline stages */}
           <div className="flex items-center gap-0 flex-wrap justify-center">
             <Stage
-              label="Ingest()"
+              label="RunEval()"
               sublabel={<CyclingPipelineAction />}
               color="text-violet-600 dark:text-violet-400"
               borderColor="border-violet-500/30"
@@ -239,8 +239,8 @@ function RAGPipelineDiagram() {
             />
             <Connection color="violet" delay={0} />
             <Stage
-              label="Chunker"
-              sublabel="recursive"
+              label="Scorers"
+              sublabel="22 built-in"
               color="text-purple-600 dark:text-purple-400"
               borderColor="border-purple-500/30"
               bgColor="bg-purple-500/5"
@@ -248,8 +248,8 @@ function RAGPipelineDiagram() {
             />
             <Connection color="violet" delay={0.5} />
             <Stage
-              label="Embedder"
-              sublabel="text-emb-3"
+              label="Aggregate"
+              sublabel="pass rate"
               color="text-violet-600 dark:text-violet-400"
               borderColor="border-violet-500/30"
               bgColor="bg-violet-500/8"
@@ -264,23 +264,23 @@ function RAGPipelineDiagram() {
           {/* Event rows with outcomes */}
           <div className="flex flex-col items-start gap-2.5">
             <EventRow
-              action="doc.loaded"
+              action="case.invoked"
               status="success"
-              statusLabel="✓ Parsed"
+              statusLabel="✓ Scored"
               lineColor="green"
               delay={0.5}
             />
             <EventRow
-              action="chunks.created"
+              action="scores.computed"
               status={phase === 1 ? "indexed" : "processing"}
-              statusLabel={phase === 1 ? "✓ 12 chunks" : "⟳ Chunking"}
+              statusLabel={phase === 1 ? "✓ 7 dims" : "⟳ Scoring"}
               lineColor={phase === 1 ? "green" : "violet"}
               delay={0.6}
             />
             <EventRow
-              action="vec.stored"
+              action="baseline.checked"
               status="indexed"
-              statusLabel="✓ Indexed"
+              statusLabel="✓ No regression"
               lineColor="green"
               delay={0.7}
             />
@@ -290,15 +290,15 @@ function RAGPipelineDiagram() {
           <div className="flex items-center gap-4 mt-4 text-[10px] text-fd-muted-foreground">
             <div className="flex items-center gap-1.5">
               <div className="size-2 rounded-full bg-green-500" />
-              <span>Ready</span>
+              <span>Passed</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="size-2 rounded-full bg-violet-500" />
-              <span>Processing</span>
+              <span>Scoring</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="size-2 rounded-full bg-purple-400" />
-              <span>Chunking</span>
+              <span>Comparing</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="size-2 rounded-full bg-red-500" />
@@ -355,7 +355,7 @@ function FeatureBullet({
   );
 }
 
-// ─── RAG Ingestion Pipeline Section ──────────────────────────
+// ─── Evaluation Scoring Pipeline Section ─────────────────────
 export function DeliveryFlowSection() {
   return (
     <section className="relative w-full py-20 sm:py-28 overflow-hidden">
@@ -367,26 +367,26 @@ export function DeliveryFlowSection() {
           {/* Left: Text content */}
           <div className="flex flex-col">
             <SectionHeader
-              badge="RAG Ingestion Pipeline"
-              title="From document to searchable context."
-              description="Weave orchestrates the entire ingestion lifecycle — tenant scoping, text chunking, embedding generation, and vector storage."
+              badge="Evaluation Scoring Pipeline"
+              title="From test case to confidence score."
+              description="Sentinel orchestrates the entire evaluation lifecycle — case invocation, multi-scorer aggregation, baseline comparison, and regression detection."
               align="left"
             />
 
             <div className="mt-8 space-y-5">
               <FeatureBullet
-                title="Automatic Tenant Scoping"
-                description="Every ingestion and retrieval is stamped with TenantID and AppID from context. Collection and chunk isolation is enforced at the store layer — no tenant can access another's data."
+                title="7 Evaluation Dimensions"
+                description="Score AI outputs across cognitive phase, perception focus, skill usage, behavior triggers, empathy, length, and LLM-as-judge quality. Each dimension maps to a human evaluation trait."
                 delay={0.2}
               />
               <FeatureBullet
-                title="Configurable Chunk Strategies"
-                description="Recursive or fixed-size chunking with configurable token size and overlap. Per-collection strategy overrides let you tune chunking for different document types."
+                title="Baseline Regression Detection"
+                description="Save evaluation baselines and automatically detect when scores drop. Compare across prompt versions, model changes, and configuration updates with delta reporting."
                 delay={0.3}
               />
               <FeatureBullet
-                title="Lifecycle Extension Hooks"
-                description="OnIngestCompleted, OnRetrievalFailed, and 12 other lifecycle events. Wire in metrics, audit trails, or custom processing logic without modifying engine code."
+                title="16 Plugin Lifecycle Hooks"
+                description="OnEvalRunStarted, OnCaseCompleted, OnRegressionDetected, and 13 other lifecycle events. Wire in metrics, audit trails, or custom processing logic without modifying engine code."
                 delay={0.4}
               />
             </div>
@@ -423,7 +423,7 @@ export function DeliveryFlowSection() {
 
           {/* Right: Pipeline diagram */}
           <div className="relative">
-            <RAGPipelineDiagram />
+            <EvalPipelineDiagram />
           </div>
         </div>
       </div>
