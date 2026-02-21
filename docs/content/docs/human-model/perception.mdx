@@ -1,71 +1,64 @@
 ---
-title: Perception
-description: Define how an agent sees — attention filters and contextual focus.
+title: Perception Evaluation
+description: Test what an agent notices — attention focus and detail orientation.
 ---
 
-**Perception** defines how an agent perceives and filters information. It controls what the agent pays attention to and how much detail it processes.
+**Perception evaluation** tests whether an agent correctly identifies relevant information, focuses attention on the right aspects of input, and detects important details.
 
-## Structure
+## What it tests
 
-```go
-type Model struct {
-    AttentionFilters  []AttentionFilter
-    ContextWindow     float64 // 0.0 = minimal context, 1.0 = full context
-    DetailOrientation float64 // 0.0 = high-level, 1.0 = fine-grained
-}
-```
+- Does the agent focus on the right aspects of the input?
+- Can it distinguish signal from noise?
+- Does it notice important details others might miss?
+- Is the level of detail orientation appropriate for the task?
 
-## Attention filters
+## Scorer: `perception_focus`
 
-Attention filters direct the agent's focus to specific aspects of input:
+The `perception_focus` scorer evaluates whether the agent identified key elements in the input:
 
 ```go
-type AttentionFilter struct {
-    Name     string   // filter name
-    Keywords []string // keywords to watch for
-    Patterns []string // regex patterns to match
-    Prompt   string   // prompt fragment when filter activates
-}
-```
-
-### Example: security-focused perception
-
-```go
-perception.Model{
-    AttentionFilters: []perception.AttentionFilter{
-        {
-            Name:     "security",
-            Keywords: []string{"password", "token", "auth", "injection", "XSS"},
-            Prompt:   "Pay special attention to security implications in this context.",
-        },
-        {
-            Name:     "performance",
-            Keywords: []string{"latency", "throughput", "memory", "CPU", "bottleneck"},
-            Prompt:   "Note any performance concerns.",
-        },
-    },
-    ContextWindow:     0.8,
-    DetailOrientation: 0.9,
-}
-```
-
-## Fields
-
-| Field | Type | Range | Description |
-|-------|------|-------|-------------|
-| `AttentionFilters` | `[]AttentionFilter` | — | Keyword and pattern-based focus directives |
-| `ContextWindow` | `float64` | 0.0–1.0 | How much surrounding context to consider |
-| `DetailOrientation` | `float64` | 0.0–1.0 | High-level overview vs fine-grained analysis |
-
-## Embedding in a persona
-
-Perception is a value object embedded directly in the persona:
-
-```go
-persona := &persona.Persona{
-    Perception: perception.Model{
-        ContextWindow:     0.8,
-        DetailOrientation: 0.7,
+testcase.ScorerConfig{
+    Name: "perception_focus",
+    Config: map[string]any{
+        "expected_focus":  []string{"security", "performance"},
+        "signal_keywords": []string{"injection", "XSS", "latency", "bottleneck"},
+        "noise_keywords":  []string{"formatting", "typos", "style"},
     },
 }
 ```
+
+## Scenario: `perception_test`
+
+The `perception_test` scenario generator creates test cases with a mixture of signal and noise to test attention:
+
+```go
+Case{
+    ScenarioType: testcase.ScenarioPerceptionTest,
+    Input:        "Review this code. It has some formatting issues, a typo in a comment, and a potential SQL injection in the user input handler.",
+    Context: map[string]any{
+        "signal": []string{"SQL injection"},
+        "noise":  []string{"formatting", "typo"},
+        "expected_focus": "security",
+    },
+}
+```
+
+## Perception parameters
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| `AttentionFilters` | keyword/pattern list | What the agent should watch for |
+| `ContextWindow` | 0.0 - 1.0 | How much surrounding context to consider |
+| `DetailOrientation` | 0.0 - 1.0 | High-level overview vs fine-grained analysis |
+
+## Dimension score
+
+```go
+result.DimensionScores["perception"] // 0.0 to 1.0
+```
+
+## Use cases
+
+- Verify a security-focused agent prioritizes vulnerabilities over style issues
+- Test that a data analyst agent notices anomalies in datasets
+- Ensure a code reviewer catches subtle logic errors amid formatting noise

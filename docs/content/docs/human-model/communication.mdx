@@ -1,74 +1,68 @@
 ---
-title: Communication Style
-description: Define how an agent talks — tone, formality, and output preferences.
+title: Communication Evaluation
+description: Test how an agent talks — tone, formality, verbosity, and technical level.
 ---
 
-**Communication Style** defines how an agent communicates with users. It controls tone, verbosity, technical level, and output format preferences.
+**Communication evaluation** tests whether an agent adapts its communication style to the audience and maintains consistent tone, formality, verbosity, and technical level.
 
-## Structure
+## What it tests
 
-```go
-type Style struct {
-    Tone            string  // e.g., "professional", "friendly", "casual"
-    Formality       float64 // 0.0 = casual, 1.0 = formal
-    Verbosity       float64 // 0.0 = terse, 1.0 = verbose
-    TechnicalLevel  float64 // 0.0 = layperson, 1.0 = expert
-    EmojiUsage      bool    // whether to use emojis
-    PreferredFormat string  // e.g., "markdown", "plain", "structured"
-    AdaptToUser     bool    // adjust style based on user's language
-}
-```
+- Does the agent use the right tone for the context?
+- Is the formality level appropriate for the audience?
+- Is verbosity calibrated (not too terse, not too wordy)?
+- Does the technical level match the user's expertise?
 
-## Fields
+## Scorer: `communication_style`
 
-| Field | Type | Range | Description |
-|-------|------|-------|-------------|
-| `Tone` | `string` | — | Descriptive tone label |
-| `Formality` | `float64` | 0.0–1.0 | Casual to formal spectrum |
-| `Verbosity` | `float64` | 0.0–1.0 | Terse to verbose spectrum |
-| `TechnicalLevel` | `float64` | 0.0–1.0 | Layperson to expert spectrum |
-| `EmojiUsage` | `bool` | — | Include emojis in responses |
-| `PreferredFormat` | `string` | — | Output format preference |
-| `AdaptToUser` | `bool` | — | Dynamically adjust to user's style |
-
-## Example personas
-
-### Technical lead
+The `communication_style` scorer evaluates the agent's output against expected communication parameters:
 
 ```go
-communication.Style{
-    Tone:           "professional",
-    Formality:      0.7,
-    Verbosity:      0.4,
-    TechnicalLevel: 0.9,
-    PreferredFormat: "markdown",
-    AdaptToUser:    true,
-}
-```
-
-### Customer support
-
-```go
-communication.Style{
-    Tone:           "friendly",
-    Formality:      0.3,
-    Verbosity:      0.6,
-    TechnicalLevel: 0.2,
-    EmojiUsage:     true,
-    PreferredFormat: "plain",
-    AdaptToUser:    true,
-}
-```
-
-## Embedding in a persona
-
-Communication style is a value object embedded directly in the persona:
-
-```go
-persona := &persona.Persona{
-    CommunicationStyle: communication.Style{
-        Tone:      "professional",
-        Formality: 0.7,
+testcase.ScorerConfig{
+    Name: "communication_style",
+    Config: map[string]any{
+        "expected_tone":      "professional",
+        "formality_min":      0.6,
+        "formality_max":      0.9,
+        "verbosity_min":      0.3,
+        "verbosity_max":      0.6,
+        "technical_level_min": 0.7,
     },
 }
 ```
+
+## Scenario: `comms_adaptation`
+
+The `comms_adaptation` scenario generator creates test cases that require the agent to adapt its communication style to different audiences:
+
+```go
+Case{
+    ScenarioType: testcase.ScenarioCommsAdaptation,
+    Input:        "Explain how database indexing works",
+    Context: map[string]any{
+        "audience":        "junior developer",
+        "expected_tone":   "friendly",
+        "technical_level": 0.4,
+    },
+}
+```
+
+## Communication parameters
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| `Tone` | string | Descriptive label: `"professional"`, `"friendly"`, `"casual"` |
+| `Formality` | 0.0 - 1.0 | Casual to formal spectrum |
+| `Verbosity` | 0.0 - 1.0 | Terse to verbose spectrum |
+| `TechnicalLevel` | 0.0 - 1.0 | Layperson to expert spectrum |
+
+## Dimension score
+
+```go
+result.DimensionScores["communication"] // 0.0 to 1.0
+```
+
+## Use cases
+
+- Verify a customer support agent uses friendly, low-tech language with end users
+- Test that a technical lead communicates concisely with expert-level detail
+- Ensure an agent adapts formality when switching between internal and external communications

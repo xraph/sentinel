@@ -1,9 +1,9 @@
 ---
 title: Entities
-description: The core data types in Cortex — Agents, Skills, Traits, Behaviors, Personas, Runs, and more.
+description: The core data types in Sentinel — Suites, Cases, Runs, Results, Baselines, and more.
 ---
 
-All Cortex entities embed the `cortex.Entity` base type and carry a TypeID identifier. This page provides an overview of every entity and how they relate.
+All Sentinel entities embed the `sentinel.Entity` base type and carry a TypeID identifier.
 
 ## Base entity
 
@@ -14,94 +14,155 @@ type Entity struct {
 }
 ```
 
-Every entity struct embeds `cortex.Entity` to get automatic timestamp tracking.
+Every entity struct embeds `sentinel.Entity` to get automatic timestamp tracking.
 
 ## Entity overview
 
-### Agent Config
+### Suite
 
-The top-level entity. An agent can operate in **flat mode** (system prompt + tools list) or **persona mode** (referencing a Persona for its identity).
+A suite groups related test cases together with a shared system prompt, model, and optional persona reference.
 
 ```go
-type Config struct {
-    cortex.Entity
-    ID              id.AgentID
-    Name            string
-    Description     string
-    AppID           string
-    SystemPrompt    string         // flat mode
-    Model           string
-    Tools           []string       // flat mode
-    MaxSteps        int
-    MaxTokens       int
-    Temperature     float64
-    PersonaRef      string         // persona mode
-    InlineSkills    []string       // persona mode (inline)
-    InlineTraits    []string
-    InlineBehaviors []string
-    Enabled         bool
+type Suite struct {
+    sentinel.Entity
+    ID           id.SuiteID
+    Name         string
+    Description  string
+    AppID        string
+    SystemPrompt string
+    Model        string
+    Temperature  float64
+    PersonaRef   string         // optional agent persona name
+    Metadata     map[string]any
 }
 ```
 
-### Skill
+### Case
 
-Defines what an agent **can do**. Bundles tools, knowledge sources, and system prompt fragments. See [Skills](/docs/human-model/skills).
+A test case defines a single evaluation scenario with input, expected output, scenario type, and scorer configuration.
 
-### Trait
+```go
+type Case struct {
+    sentinel.Entity
+    ID           id.CaseID
+    SuiteID      id.SuiteID
+    Name         string
+    Input        string
+    Expected     string
+    ScenarioType ScenarioType   // standard, skill_challenge, trait_probe, etc.
+    Scorers      []ScorerConfig
+    Tags         []string
+    Context      map[string]any
+    Metadata     map[string]any
+}
+```
 
-Defines who an agent **is**. Personality dimensions on bipolar axes that influence runtime parameters. See [Traits](/docs/human-model/traits).
+See [The Human Model](/docs/human-model/overview) for the 8 scenario types.
 
-### Behavior
+### EvalRun
 
-Defines what an agent **does habitually**. Condition-triggered action patterns. See [Behaviors](/docs/human-model/behaviors).
+An evaluation run records the execution of a suite against a target:
 
-### Persona
+```go
+type Run struct {
+    sentinel.Entity
+    ID              id.EvalRunID
+    SuiteID         id.SuiteID
+    Model           string
+    SystemPrompt    string
+    Temperature     float64
+    TotalCases      int
+    Passed          int
+    Failed          int
+    PassRate        float64
+    AvgScore        float64
+    AvgLatencyMs    int
+    TotalTokens     int
+    TotalCost       float64
+    AppID           string
+    TargetTenantID  string
+    PersonaRef      string
+    State           RunState        // running, completed, failed, cancelled
+    DimensionScores map[string]float64
+    CompletedAt     *time.Time
+}
+```
 
-The composition entity that brings everything together. See [Personas](/docs/human-model/personas).
+### EvalResult
 
-### Run, Step, ToolCall
+The outcome of evaluating a single test case within a run:
 
-Execution entities that record an agent's reasoning process:
+```go
+type Result struct {
+    sentinel.Entity
+    ID              id.EvalResultID
+    RunID           id.EvalRunID
+    CaseID          id.CaseID
+    CaseName        string
+    Status          ResultStatus    // pass, fail, error
+    Score           float64
+    Output          string
+    LatencyMs       int
+    TokensUsed      int
+    Cost            float64
+    ScorerResults   []ScorerResult
+    DimensionScores map[string]float64
+    RunTrace        *RunTrace       // optional agent execution trace
+}
+```
 
-- **Run** — A single execution of an agent with 6 lifecycle states
-- **Step** — One reasoning step within a run
-- **ToolCall** — A tool invocation within a step
+### Baseline
 
-See [Runs](/docs/execution/runs).
+A snapshot of a known-good evaluation run for regression detection:
 
-### Message
+```go
+type Baseline struct {
+    ID              id.BaselineID
+    SuiteID         id.SuiteID
+    RunID           id.EvalRunID
+    Name            string
+    Results         []BaselineResult
+    PassRate        float64
+    AvgScore        float64
+    DimensionScores map[string]float64
+    IsCurrent       bool
+    CreatedAt       time.Time
+}
+```
 
-A conversation message with role, content, and timestamp. See [Memory](/docs/execution/memory).
+### PromptVersion
 
-### Checkpoint
+A versioned system prompt for tracking iterations and A/B testing:
 
-A point where a run pauses for human approval. See [Checkpoints](/docs/execution/checkpoints).
+```go
+type PromptVersion struct {
+    ID           id.PromptVersionID
+    SuiteID      id.SuiteID
+    Version      int
+    SystemPrompt string
+    Changelog    string
+    IsCurrent    bool
+    RunID        string
+    PassRate     *float64
+    AvgScore     *float64
+    CreatedAt    time.Time
+}
+```
 
 ## Entity relationship diagram
 
 ```
-Persona
-  ├── SkillAssignment[] ──→ Skill
-  │                           └── ToolBinding[]
-  │                           └── KnowledgeRef[]
-  ├── TraitAssignment[] ──→ Trait
-  │                           └── Dimension[]
-  │                           └── Influence[]
-  ├── Behavior[]         ──→ Behavior
-  │                           └── Trigger[]
-  │                           └── Action[]
-  ├── CognitiveStyle
-  ├── CommunicationStyle
-  └── Perception
-
-Agent Config
-  ├── PersonaRef ──→ Persona (persona mode)
-  ├── SystemPrompt + Tools (flat mode)
-  └── Run[]
-        ├── Step[]
-        │     └── ToolCall[]
-        ├── Checkpoint[]
-        └── Message[] (via Memory)
+Suite
+  ├── Case[]
+  │     └── ScorerConfig[]
+  ├── Run[]
+  │     ├── Result[]
+  │     │     ├── ScorerResult[]
+  │     │     └── RunTrace (optional)
+  │     └── DimensionScores
+  ├── Baseline[]
+  │     └── BaselineResult[]
+  └── PromptVersion[]
 ```
 
 ## Store interfaces
@@ -110,14 +171,11 @@ Each entity type defines its own store interface. These are composed into the si
 
 ```go
 type Store interface {
-    agent.Store      // Create, Get, GetByName, Update, Delete, List
-    skill.Store      // CreateSkill, GetSkill, GetSkillByName, ...
-    trait.Store      // CreateTrait, GetTrait, GetTraitByName, ...
-    behavior.Store   // CreateBehavior, GetBehavior, ...
-    persona.Store    // CreatePersona, GetPersona, ...
-    run.Store        // CreateRun, GetRun, UpdateRun, ListRuns, ...
-    memory.Store     // SaveConversation, LoadConversation, ...
-    checkpoint.Store // CreateCheckpoint, GetCheckpoint, ...
+    suite.Store         // CreateSuite, GetSuite, GetSuiteByName, ...
+    testcase.Store      // CreateCase, CreateCaseBatch, GetCase, ...
+    evalrun.Store       // GetRun, ListRuns, ListResults, ...
+    baseline.Store      // SaveBaseline, GetBaseline, GetLatestBaseline, ...
+    promptversion.Store // CreatePromptVersion, GetPromptVersion, ...
 
     Migrate(ctx context.Context) error
     Ping(ctx context.Context) error

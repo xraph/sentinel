@@ -1,176 +1,77 @@
 ---
-title: Personas
-description: Compose skills, traits, behaviors, and styles into a complete agent identity.
+title: Persona Coherence
+description: Test the whole person — end-to-end identity coherence across all dimensions.
 ---
 
-A **Persona** is the composition entity that brings everything together. It defines an agent's complete identity by composing skills, traits, behaviors, cognitive style, communication style, and perception into a reusable template.
+**Persona coherence evaluation** tests whether an agent maintains a consistent identity across all dimensions simultaneously. Rather than testing individual aspects, this evaluates the agent as a whole person.
 
-## Structure
+## What it tests
 
-```go
-type Persona struct {
-    cortex.Entity
-    ID                 id.PersonaID
-    Name               string
-    Description        string
-    AppID              string
-    Identity           string               // core identity statement
-    Skills             []SkillAssignment
-    Traits             []TraitAssignment
-    Behaviors          []string             // behavior names
-    CognitiveStyle     cognitive.Style
-    CommunicationStyle communication.Style
-    Perception         perception.Model
-    Metadata           map[string]any
-}
-```
+- Does the agent maintain a coherent identity across interactions?
+- Are skill usage, personality, communication, and thinking patterns internally consistent?
+- Does the agent's behavior match its declared persona?
+- Is the identity stable under pressure or unusual inputs?
 
-## Identity
+## Scorer: `persona_coherence`
 
-The `Identity` field is a natural language description of the persona's core identity. It forms the foundation of the assembled system prompt:
+The `persona_coherence` scorer evaluates end-to-end identity consistency across all available dimension scores:
 
 ```go
-persona := &persona.Persona{
-    Identity: "A senior software engineer with 10+ years of experience in distributed systems, specializing in Go and cloud-native architectures",
-}
-```
-
-## Skill assignments
-
-Skills are assigned with optional proficiency overrides:
-
-```go
-type SkillAssignment struct {
-    SkillName   string           // references a skill by name
-    Proficiency skill.Proficiency // overrides the skill's default
-}
-```
-
-```go
-persona := &persona.Persona{
-    Skills: []persona.SkillAssignment{
-        {SkillName: "code-review", Proficiency: skill.ProficiencyExpert},
-        {SkillName: "architecture", Proficiency: skill.ProficiencyProficient},
+testcase.ScorerConfig{
+    Name: "persona_coherence",
+    Config: map[string]any{
+        "persona_ref":     "senior-engineer",
+        "min_consistency": 0.75,
+        "dimensions":      []string{"skill", "trait", "communication", "cognition"},
     },
 }
 ```
 
-## Trait assignments
+## Scenario: `persona_coherence`
 
-Traits are assigned with optional dimension value overrides:
-
-```go
-type TraitAssignment struct {
-    TraitName       string
-    DimensionValues map[string]float64 // overrides specific dimensions
-}
-```
+The `persona_coherence` scenario generator creates test cases that exercise multiple dimensions simultaneously:
 
 ```go
-persona := &persona.Persona{
-    Traits: []persona.TraitAssignment{
-        {
-            TraitName: "thoroughness",
-            DimensionValues: map[string]float64{
-                "depth": 0.9, // override the trait's default value
-            },
-        },
+Case{
+    ScenarioType: testcase.ScenarioPersonaCoherence,
+    Input:        "A junior developer asks you to review their first pull request. It has a security issue and some style problems.",
+    Context: map[string]any{
+        "persona":          "senior-engineer",
+        "expected_traits":  []string{"thoroughness", "patience"},
+        "expected_skills":  []string{"code-review"},
+        "expected_tone":    "professional but supportive",
     },
 }
 ```
 
-## Flat mode vs persona mode
+This scenario tests that the agent:
+- Uses code review skills correctly (skill dimension)
+- Shows thoroughness and patience (trait dimension)
+- Communicates professionally but supportively (communication dimension)
+- Follows an analytical then reflective cognitive pattern (cognition dimension)
 
-Agents support two configuration modes:
-
-### Flat mode
-
-The agent defines its own system prompt and tools directly:
+## Dimension score
 
 ```go
-agent := &agent.Config{
-    SystemPrompt: "You are a helpful assistant.",
-    Tools:        []string{"search", "calculator"},
+result.DimensionScores["persona"] // 0.0 to 1.0
+```
+
+The persona score is typically derived from the consistency across all other dimension scores. A high persona coherence score means the agent performs well across all dimensions in a way that forms a coherent identity.
+
+## PersonaRef
+
+Suites can declare a `PersonaRef` field that references an agent persona by name. When set, persona-aware scorers use this reference to look up expected traits, skills, and behaviors:
+
+```go
+s := &suite.Suite{
+    Name:       "senior-engineer-eval",
+    PersonaRef: "senior-engineer", // references an agent persona
 }
 ```
 
-### Persona mode
+## Use cases
 
-The agent references a persona by name:
-
-```go
-agent := &agent.Config{
-    PersonaRef: "senior-engineer",
-}
-```
-
-Or uses inline assignments without creating a named persona:
-
-```go
-agent := &agent.Config{
-    InlineSkills:    []string{"code-review", "testing"},
-    InlineTraits:    []string{"thoroughness", "patience"},
-    InlineBehaviors: []string{"verify-before-suggest"},
-}
-```
-
-Use `agent.HasPersona()` to check which mode is active.
-
-## Full example: Senior Engineer persona
-
-```go
-seniorEng := &persona.Persona{
-    ID:       id.NewPersonaID(),
-    Name:     "senior-engineer",
-    AppID:    "myapp",
-    Identity: "A senior software engineer with 10+ years of experience",
-    Skills: []persona.SkillAssignment{
-        {SkillName: "code-review", Proficiency: skill.ProficiencyExpert},
-        {SkillName: "architecture", Proficiency: skill.ProficiencyProficient},
-        {SkillName: "testing", Proficiency: skill.ProficiencyCompetent},
-    },
-    Traits: []persona.TraitAssignment{
-        {TraitName: "thoroughness", DimensionValues: map[string]float64{"depth": 0.9}},
-        {TraitName: "patience"},
-    },
-    Behaviors: []string{"verify-before-suggest", "explain-reasoning"},
-    CognitiveStyle: cognitive.Style{
-        Phases: []cognitive.Phase{
-            {Strategy: cognitive.StrategyAnalytical, MaxSteps: 5, Transition: cognitive.TransitionAfterSteps},
-            {Strategy: cognitive.StrategyReflective, MaxSteps: 3, Transition: cognitive.TransitionAfterSteps},
-        },
-    },
-    CommunicationStyle: communication.Style{
-        Tone: "professional", Formality: 0.7, TechnicalLevel: 0.9,
-    },
-    Perception: perception.Model{
-        AttentionFilters: []perception.AttentionFilter{
-            {Name: "security", Keywords: []string{"auth", "injection", "XSS"}},
-        },
-        DetailOrientation: 0.85,
-    },
-}
-```
-
-## Store interface
-
-```go
-type Store interface {
-    CreatePersona(ctx context.Context, persona *Persona) error
-    GetPersona(ctx context.Context, personaID id.PersonaID) (*Persona, error)
-    GetPersonaByName(ctx context.Context, appID, name string) (*Persona, error)
-    UpdatePersona(ctx context.Context, persona *Persona) error
-    DeletePersona(ctx context.Context, personaID id.PersonaID) error
-    ListPersonas(ctx context.Context, filter *ListFilter) ([]*Persona, error)
-}
-```
-
-## API routes
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/cortex/personas` | Create a persona |
-| `GET` | `/cortex/personas` | List personas |
-| `GET` | `/cortex/personas/{name}` | Get a persona by name |
-| `PUT` | `/cortex/personas/{name}` | Update a persona |
-| `DELETE` | `/cortex/personas/{id}` | Delete a persona |
+- End-to-end evaluation of a fully configured AI agent
+- Regression testing after persona configuration changes
+- Comparing two different persona configurations for the same role
+- Validating that a persona behaves consistently across diverse scenarios

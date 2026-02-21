@@ -1,13 +1,13 @@
 ---
 title: Go Packages
-description: Quick reference for all Weave Go packages and their public APIs.
+description: Quick reference for all Sentinel Go packages and their public APIs.
 ---
 
-All Weave packages are importable from `github.com/xraph/weave`.
+All Sentinel packages are importable from `github.com/xraph/sentinel`.
 
 ## Core packages
 
-### `github.com/xraph/weave`
+### `github.com/xraph/sentinel`
 
 Root package. Exports context helpers, error constants, and shared types.
 
@@ -19,161 +19,180 @@ Root package. Exports context helpers, error constants, and shared types.
 | `AppFromContext(ctx)` | Read app ID from context |
 | `Config` | Engine configuration struct |
 | `DefaultConfig()` | Returns default Config values |
-| `ErrNoStore`, `ErrNoEmbedder`, `ErrNoVectorStore`, `ErrNoChunker` | Missing-component errors |
-| `ErrEmptyContent`, `ErrInvalidInput` | Input validation errors |
+| `Entity` | Base type with timestamps |
+| `NewEntity()` | Returns Entity with current timestamps |
+| `ErrNoStore`, `ErrStoreClosed`, `ErrMigrationFailed` | Store errors |
+| `ErrSuiteNotFound`, `ErrCaseNotFound`, `ErrRunNotFound` | Not-found errors |
+| `ErrBaselineNotFound`, `ErrPromptVersionNotFound` | Not-found errors |
+| `ErrSuiteAlreadyExists` | Conflict error |
+| `ErrInvalidState`, `ErrEmptyInput` | State errors |
+| `ErrNoTarget`, `ErrNoScorers` | Evaluation errors |
 
-### `github.com/xraph/weave/engine`
+### `github.com/xraph/sentinel/engine`
 
-The central Engine and all ingestion/retrieval operations.
+The central Engine and all CRUD operations.
 
 | Export | Description |
 |--------|-------------|
 | `New(...Option) (*Engine, error)` | Create an engine |
-| `Engine.CreateCollection` | Create a collection |
-| `Engine.GetCollection` | Get collection by ID |
-| `Engine.GetCollectionByName` | Get collection by name |
-| `Engine.ListCollections` | List collections |
-| `Engine.DeleteCollection` | Delete collection and all contents |
-| `Engine.CollectionStats` | Aggregate stats for a collection |
-| `Engine.Ingest` | Ingest a single document |
-| `Engine.IngestBatch` | Ingest multiple documents |
-| `Engine.GetDocument` | Get document by ID |
-| `Engine.ListDocuments` | List documents |
-| `Engine.DeleteDocument` | Delete document and chunks |
-| `Engine.Retrieve` | Semantic retrieval |
-| `Engine.HybridSearch` | Cross-collection search |
-| `Engine.ReindexCollection` | Re-embed all chunks |
-| `Engine.Stop` | Graceful shutdown |
-| `IngestInput` | Input struct for Ingest |
-| `IngestResult` | Output struct from Ingest |
-| `ScoredChunk` | Retrieved chunk with score |
-| `RetrieveOption` | Functional option for Retrieve |
-| `WithCollection`, `WithTopK`, `WithMinScore`, `WithStrategy`, `WithTenantID` | Retrieve options |
+| `Engine.Start(ctx)` | Initialize the engine |
+| `Engine.Stop(ctx)` | Graceful shutdown |
+| `Engine.CreateSuite` | Create a suite |
+| `Engine.GetSuite` | Get suite by ID |
+| `Engine.GetSuiteByName` | Get suite by name |
+| `Engine.ListSuites` | List suites |
+| `Engine.UpdateSuite` | Update a suite |
+| `Engine.DeleteSuite` | Delete a suite |
+| `Engine.CreateCase` | Create a case |
+| `Engine.CreateCaseBatch` | Create multiple cases |
+| `Engine.GetCase` | Get case by ID |
+| `Engine.UpdateCase` | Update a case |
+| `Engine.DeleteCase` | Delete a case |
+| `Engine.ListCases` | List cases for a suite |
+| `Engine.CountCases` | Count cases for a suite |
+| `Engine.ImportCases` | Import cases from file |
+| `Engine.GetRun` | Get run by ID |
+| `Engine.ListRuns` | List runs with filter |
+| `Engine.ListRunsBySuite` | List runs for a suite |
+| `Engine.ListResults` | List results for a run |
+| `Engine.GetResultStats` | Get aggregate run stats |
+| `Engine.SaveBaseline` | Save a baseline |
+| `Engine.GetBaseline` | Get baseline by ID |
+| `Engine.GetLatestBaseline` | Get latest baseline for suite |
+| `Engine.ListBaselines` | List baselines for suite |
+| `Engine.DeleteBaseline` | Delete a baseline |
+| `Engine.CreatePromptVersion` | Create a prompt version |
+| `Engine.GetPromptVersion` | Get prompt version by ID |
+| `Engine.ListPromptVersions` | List prompt versions |
+| `Engine.GetCurrentPromptVersion` | Get current prompt version |
+| `Engine.SetCurrentPromptVersion` | Set current prompt version |
+| `WithStore`, `WithConfig`, `WithExtension`, `WithLogger` | Engine options |
 
-## Interface packages
+## Entity packages
 
-### `github.com/xraph/weave/chunker`
+### `github.com/xraph/sentinel/suite`
 
-```go
-type Chunker interface {
-    Chunk(ctx context.Context, text string, opts *Options) ([]ChunkResult, error)
-}
-```
+Suite entity and store interface. See [Entities](/docs/concepts/entities).
 
-### `github.com/xraph/weave/embedder`
+### `github.com/xraph/sentinel/testcase`
 
-```go
-type Embedder interface {
-    Embed(ctx context.Context, texts []string) ([]EmbedResult, error)
-    Dimensions() int
-}
-```
+Case entity, `ScenarioType` constants, `ScorerConfig`. See [Entities](/docs/concepts/entities).
 
-### `github.com/xraph/weave/loader`
+### `github.com/xraph/sentinel/evalrun`
 
-```go
-type Loader interface {
-    Load(ctx context.Context, reader io.Reader) (*LoadResult, error)
-    Supports(mimeType string) bool
-}
-```
+Run, Result, RunTrace, ScorerResult, ResultStats. See [Runs](/docs/execution/runs).
 
-### `github.com/xraph/weave/retriever`
+### `github.com/xraph/sentinel/baseline`
 
-```go
-type Retriever interface {
-    Retrieve(ctx context.Context, query string, opts *Options) ([]Result, error)
-}
-```
+Baseline and BaselineResult. See [Baselines](/docs/execution/checkpoints).
 
-### `github.com/xraph/weave/store`
+### `github.com/xraph/sentinel/promptversion`
 
-```go
-type Store interface {
-    collection.Store
-    document.Store
-    chunk.Store
-    Migrate(ctx context.Context) error
-    Ping(ctx context.Context) error
-    Close() error
-}
-```
+PromptVersion entity and store interface.
 
-### `github.com/xraph/weave/vectorstore`
+## Evaluation packages
 
-```go
-type VectorStore interface {
-    Upsert(ctx context.Context, entries []Entry) error
-    Search(ctx context.Context, vector []float32, opts *SearchOptions) ([]SearchResult, error)
-    Delete(ctx context.Context, ids []string) error
-    DeleteByMetadata(ctx context.Context, filter map[string]string) error
-}
-```
+### `github.com/xraph/sentinel/scorer`
 
-## Extension packages
+Scorer interface, registry, and 22 built-in scorers.
 
-### `github.com/xraph/weave/ext`
+**Traditional scorers:** `exact`, `contains`, `not_contains`, `regex`, `json_valid`, `json_schema`, `length`, `latency`, `cost`, `llm_judge`, `semantic`, `hallucination`, `factual`, `custom`
 
-All lifecycle hook interfaces: `CollectionCreated`, `CollectionDeleted`, `IngestStarted`, `IngestChunked`, `IngestEmbedded`, `IngestCompleted`, `IngestFailed`, `RetrievalStarted`, `RetrievalCompleted`, `RetrievalFailed`, `DocumentDeleted`, `ReindexStarted`, `ReindexCompleted`, `Shutdown`.
+**Persona-aware scorers:** `skill_usage`, `trait_consistency`, `behavior_trigger`, `cognitive_phase`, `communication_style`, `perception_focus`, `persona_coherence`
 
-### `github.com/xraph/weave/observability`
+### `github.com/xraph/sentinel/target`
+
+Target adapters for evaluation:
+
+| Type | Description |
+|------|-------------|
+| `LLMTarget` | Direct LLM API calls |
+| `AgentTarget` | Agent invocation with trace capture |
+| `FuncTarget` | Wrap a plain function |
+
+### `github.com/xraph/sentinel/scenario`
+
+6 scenario generators: `skill_challenge`, `trait_probe`, `behavior_trigger`, `cognitive_stress`, `comms_adaptation`, `perception_test`
+
+### `github.com/xraph/sentinel/redteam`
+
+5 adversarial attack generators: injection, jailbreak, leakage, hallucination, off-topic
+
+### `github.com/xraph/sentinel/comparison`
+
+Multi-model comparison and baseline diff/regression detection.
+
+### `github.com/xraph/sentinel/dataset`
+
+Data loaders (JSON, CSV, JSONL) and LLM-generated test case creation.
+
+### `github.com/xraph/sentinel/report`
+
+Report generators: terminal, JSON, HTML, CI-friendly output.
+
+## Store packages
+
+### `github.com/xraph/sentinel/store`
+
+Composite store interface embedding all subsystem stores.
+
+### `github.com/xraph/sentinel/store/postgres`
+
+PostgreSQL backend via bun ORM with embedded migrations.
+
+### `github.com/xraph/sentinel/store/sqlite`
+
+SQLite backend via bun ORM.
+
+### `github.com/xraph/sentinel/store/memory`
+
+In-memory backend for testing.
+
+## Infrastructure packages
+
+### `github.com/xraph/sentinel/plugin`
+
+Extension interfaces (16 hooks) and type-cached Registry.
+
+### `github.com/xraph/sentinel/observability`
 
 ```go
 func NewMetricsExtension() *MetricsExtension
 func NewMetricsExtensionWithFactory(factory gu.MetricFactory) *MetricsExtension
 ```
 
-## Assembler
+### `github.com/xraph/sentinel/audit_hook`
 
-### `github.com/xraph/weave/assembler`
+Audit trail extension with `Recorder` interface and `RecorderFunc` adapter.
 
-```go
-func New(...Option) *Assembler
-func (a *Assembler) Assemble(ctx, []retriever.Result) (*AssembleResult, error)
-func AssembleSimple(results []retriever.Result) string
-```
+### `github.com/xraph/sentinel/api`
 
-## Implementations
+Forge-native HTTP handlers. `New(eng, router)` creates the API, `RegisterRoutes(router)` mounts all endpoints.
 
-| Package | Implements | Notes |
-|---------|-----------|-------|
-| `store/memory` | `store.Store` | In-memory, for tests |
-| `store/postgres` | `store.Store` | PostgreSQL via bun |
-| `store/sqlite` | `store.Store` | SQLite via bun |
-| `vectorstore/memory` | `vectorstore.VectorStore` | Brute-force cosine similarity |
-| `vectorstore/pgvector` | `vectorstore.VectorStore` | PostgreSQL + pgvector |
-| `chunker/recursive` | `chunker.Chunker` | Default — splits on paragraph/sentence/word |
-| `chunker/fixed` | `chunker.Chunker` | Fixed token-size chunks |
-| `chunker/sliding` | `chunker.Chunker` | Sliding window |
-| `chunker/semantic` | `chunker.Chunker` | Topic-coherent groups |
-| `chunker/code` | `chunker.Chunker` | Function/class boundary splits |
-| `embedder/openai` | `embedder.Embedder` | OpenAI text-embedding-* models |
-| `embedder/local` | `embedder.Embedder` | Local model wrapper |
-| `retriever/similarity` | `retriever.Retriever` | Cosine similarity |
-| `retriever/mmr` | `retriever.Retriever` | Maximal Marginal Relevance |
-| `retriever/hybrid` | `retriever.Retriever` | Dense + keyword |
-| `retriever/reranker` | `retriever.Retriever` | Two-stage cross-encoder |
-| `loader/text` | `loader.Loader` | Plain text |
-| `loader/markdown` | `loader.Loader` | Markdown |
-| `loader/html` | `loader.Loader` | HTML |
-| `loader/csv` | `loader.Loader` | CSV |
-| `loader/json` | `loader.Loader` | JSON |
-| `loader/url` | `loader.Loader` | Fetches URL |
-| `loader/directory` | `loader.Loader` | Recursive directory |
-| `extension` | `forge.Extension` | Forge integration |
+### `github.com/xraph/sentinel/extension`
+
+Forge framework extension adapter. `New(...Option)` creates the Forge extension.
 
 ## ID package
 
-### `github.com/xraph/weave/id`
+### `github.com/xraph/sentinel/id`
 
 ```go
-func NewCollectionID() CollectionID
-func NewDocumentID() DocumentID
-func NewChunkID() ChunkID
+func NewSuiteID() SuiteID
+func NewCaseID() CaseID
+func NewEvalRunID() EvalRunID
+func NewEvalResultID() EvalResultID
+func NewBaselineID() BaselineID
+func NewRedTeamID() RedTeamID
+func NewPromptVersionID() PromptVersionID
 
-func ParseCollectionID(s string) (CollectionID, error)
-func ParseDocumentID(s string) (DocumentID, error)
-func ParseChunkID(s string) (ChunkID, error)
+func ParseSuiteID(s string) (SuiteID, error)
+func ParseCaseID(s string) (CaseID, error)
+func ParseEvalRunID(s string) (EvalRunID, error)
+func ParseEvalResultID(s string) (EvalResultID, error)
+func ParseBaselineID(s string) (BaselineID, error)
+func ParseRedTeamID(s string) (RedTeamID, error)
+func ParsePromptVersionID(s string) (PromptVersionID, error)
 ```
 
 All IDs implement `String() string` and are based on TypeID (UUIDv7, K-sortable).

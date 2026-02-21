@@ -1,80 +1,107 @@
 ---
-title: Checkpoints
-description: Human-in-the-loop control — pause runs for approval before proceeding.
+title: Baselines & Regression Detection
+description: Track performance over time and detect regressions against known-good baselines.
 ---
 
-**Checkpoints** provide human-in-the-loop control by pausing a run at critical decision points and waiting for approval before proceeding.
+**Baselines** capture the results of a known-good evaluation run. Future runs can be compared against the baseline to detect performance regressions.
 
-## Structure
+## Baseline
 
 ```go
-type Checkpoint struct {
-    cortex.Entity
-    ID        id.CheckpointID
-    RunID     id.AgentRunID
-    AgentID   id.AgentID
-    TenantID  string
-    Reason    string
-    StepIndex int
-    State     string   // "pending" or "resolved"
-    Decision  *Decision
-    Metadata  map[string]any
+type Baseline struct {
+    ID              id.BaselineID
+    SuiteID         id.SuiteID
+    RunID           id.EvalRunID
+    Name            string
+    Results         []BaselineResult
+    PassRate        float64
+    AvgScore        float64
+    DimensionScores map[string]float64
+    IsCurrent       bool
+    CreatedAt       time.Time
 }
 ```
 
-## Decision
+## BaselineResult
 
-When a checkpoint is resolved, it receives a Decision:
+Per-case baseline data for comparison:
 
 ```go
-type Decision struct {
-    Approved  bool      // whether to proceed
-    DecidedBy string    // who made the decision
-    Reason    string    // explanation
-    DecidedAt time.Time
+type BaselineResult struct {
+    CaseID          id.CaseID
+    CaseName        string
+    Score           float64
+    Status          string
+    DimensionScores map[string]float64
 }
 ```
 
-## Lifecycle
+## Creating a baseline
 
-1. During a run, the agent encounters a sensitive action
-2. A checkpoint is created with state `pending` and the run pauses
-3. A human reviews the checkpoint via the API
-4. The human resolves the checkpoint with a Decision (approve or reject)
-5. If approved, the run resumes; if rejected, the run is cancelled
-
-```
-Run (running) → Checkpoint created (pending) → Run (paused)
-                                               ↓
-                              Decision made → Run (running) [approved]
-                                            → Run (cancelled) [rejected]
-```
-
-## Store interface
+Save a known-good run as the current baseline:
 
 ```go
-type Store interface {
-    CreateCheckpoint(ctx context.Context, cp *Checkpoint) error
-    GetCheckpoint(ctx context.Context, cpID id.CheckpointID) (*Checkpoint, error)
-    Resolve(ctx context.Context, cpID id.CheckpointID, decision Decision) error
-    ListPending(ctx context.Context, filter *ListFilter) ([]*Checkpoint, error)
+b := &baseline.Baseline{
+    SuiteID:   suiteID,
+    RunID:     runID,
+    Name:      "v2.1-release",
+    PassRate:  0.95,
+    AvgScore:  0.88,
+    IsCurrent: true,
+}
+if err := eng.SaveBaseline(ctx, b); err != nil {
+    log.Fatal(err)
 }
 ```
 
-### List filter
+The `IsCurrent` flag marks which baseline is the active reference point. Only one baseline per suite should be current.
+
+## Regression detection
+
+Compare a new run against the current baseline to detect performance drops:
+
+- **Pass rate regression** — Overall pass rate dropped below the baseline
+- **Score regression** — Average score dropped by more than the configured threshold
+- **Per-case regression** — Individual cases that passed in the baseline now fail
+- **Dimension regression** — Specific dimensions (e.g., skill, trait) degraded
+
+When a regression is detected, the `OnRegressionDetected` plugin hook fires:
 
 ```go
-type ListFilter struct {
-    RunID    string
-    TenantID string
-    Limit    int
-    Offset   int
+type RegressionDetected interface {
+    OnRegressionDetected(ctx context.Context, suiteID id.SuiteID, baselineID id.BaselineID, delta float64) error
 }
+```
+
+## DimensionScores tracking
+
+Baselines track per-dimension scores alongside overall metrics:
+
+```go
+b.DimensionScores = map[string]float64{
+    "skill":         0.92,
+    "trait":          0.88,
+    "communication": 0.95,
+    "cognition":     0.85,
+}
+```
+
+This enables regression detection per dimension — catch a drop in skill evaluation even if overall pass rate holds steady.
+
+## Engine methods
+
+```go
+eng.SaveBaseline(ctx, baseline)
+eng.GetBaseline(ctx, baselineID)
+eng.GetLatestBaseline(ctx, suiteID)
+eng.ListBaselines(ctx, suiteID)
+eng.DeleteBaseline(ctx, baselineID)
 ```
 
 ## API routes
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/cortex/checkpoints` | List pending checkpoints |
-| `POST` | `/cortex/checkpoints/{id}/resolve` | Resolve a checkpoint |
+| `POST` | `/sentinel/baselines/:suiteId` | Save a baseline |
+| `GET` | `/sentinel/baselines/:suiteId` | Get the latest baseline |
+| `GET` | `/sentinel/baselines/:suiteId/baselines` | List all baselines |

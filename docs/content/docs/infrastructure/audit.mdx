@@ -1,14 +1,14 @@
 ---
 title: Audit Trail
-description: Bridge lifecycle events to an audit backend for compliance and debugging.
+description: Bridge evaluation lifecycle events to an audit backend for compliance and debugging.
 ---
 
-The `audit_hook` package bridges Cortex lifecycle events to an audit trail backend. It records structured audit events with action, resource, category, severity, and metadata.
+The `audit_hook` package bridges Sentinel lifecycle events to an audit trail backend. It records structured audit events for evaluation operations.
 
 ## Setup
 
 ```go
-import "github.com/xraph/cortex/audit_hook"
+import "github.com/xraph/sentinel/audit_hook"
 
 // With a Recorder implementation
 auditExt := audithook.New(myRecorder)
@@ -56,59 +56,30 @@ type AuditEvent struct {
 
 ## Actions
 
-18 audit actions are defined:
+Audit actions for Sentinel lifecycle events:
 
 | Action | Description |
 |--------|-------------|
-| `cortex.agent.run.started` | Agent run initiated |
-| `cortex.agent.run.completed` | Run completed successfully |
-| `cortex.agent.run.failed` | Run failed |
-| `cortex.step.started` | Reasoning step started |
-| `cortex.step.completed` | Reasoning step completed |
-| `cortex.tool.called` | Tool invocation initiated |
-| `cortex.tool.completed` | Tool call completed |
-| `cortex.tool.failed` | Tool call failed |
-| `cortex.persona.resolved` | Persona resolved for run |
-| `cortex.skill.activated` | Skill activated |
-| `cortex.behavior.triggered` | Behavior triggered |
-| `cortex.cognitive.phase_changed` | Cognitive phase changed |
-| `cortex.trait.applied` | Trait applied |
-| `cortex.checkpoint.created` | Checkpoint created |
-| `cortex.checkpoint.resolved` | Checkpoint resolved |
-| `cortex.orchestration.started` | Orchestration started |
-| `cortex.orchestration.completed` | Orchestration completed |
-| `cortex.agent.handoff` | Agent-to-agent handoff |
-
-## Resources
-
-| Resource | Description |
-|----------|-------------|
-| `agent` | Agent entity |
-| `run` | Run entity |
-| `tool` | Tool entity |
-| `persona` | Persona entity |
-| `skill` | Skill entity |
-| `behavior` | Behavior entity |
-| `checkpoint` | Checkpoint entity |
-| `orchestration` | Orchestration entity |
-
-## Categories
-
-| Category | Description |
-|----------|-------------|
-| `agent` | Agent lifecycle events |
-| `tool` | Tool invocation events |
-| `persona` | Persona and behavior events |
-| `checkpoint` | Checkpoint events |
-| `orchestration` | Multi-agent orchestration events |
+| `sentinel.eval.run.started` | Evaluation run initiated |
+| `sentinel.eval.run.completed` | Run completed successfully |
+| `sentinel.eval.run.failed` | Run failed |
+| `sentinel.case.started` | Case evaluation started |
+| `sentinel.case.completed` | Case evaluation completed |
+| `sentinel.case.failed` | Case evaluation failed |
+| `sentinel.baseline.saved` | Baseline saved |
+| `sentinel.regression.detected` | Regression detected |
+| `sentinel.redteam.started` | Red team evaluation started |
+| `sentinel.redteam.completed` | Red team evaluation completed |
+| `sentinel.prompt_version.created` | Prompt version created |
+| `sentinel.comparison.completed` | Multi-model comparison completed |
 
 ## Severity levels
 
 | Level | Usage |
 |-------|-------|
-| `info` | Normal operations (run started, tool called) |
-| `warning` | Unusual but non-critical events |
-| `critical` | Failures (run failed, tool failed) |
+| `info` | Normal operations (run started, case completed) |
+| `warning` | Regressions detected |
+| `critical` | Failures (run failed, case failed) |
 
 ## Filtering
 
@@ -117,9 +88,9 @@ Use `WithActions` to limit which events are recorded:
 ```go
 auditExt := audithook.New(myRecorder,
     audithook.WithActions(
-        audithook.ActionRunStarted,
-        audithook.ActionRunFailed,
-        audithook.ActionCheckpointCreated,
+        audithook.ActionEvalRunStarted,
+        audithook.ActionEvalRunFailed,
+        audithook.ActionRegressionDetected,
     ),
 )
 ```

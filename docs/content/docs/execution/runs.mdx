@@ -1,142 +1,156 @@
 ---
-title: Runs, Steps & Tool Calls
-description: How Cortex tracks agent execution — runs, reasoning steps, and tool invocations.
+title: Eval Runs & Results
+description: How Sentinel tracks evaluation execution — runs, results, and scoring.
 ---
 
-Every agent execution is tracked as a **Run** containing **Steps** and **ToolCalls**. This hierarchical model provides full observability into how an agent reasons through a problem.
+Every evaluation execution is tracked as a **Run** containing **Results**. This model provides full observability into how an evaluation suite performed against a target.
 
 ## Run
 
-A Run represents a single execution of an agent:
+A Run represents a single execution of an evaluation suite against a target:
 
 ```go
 type Run struct {
-    cortex.Entity
-    ID           id.AgentRunID
-    AgentID      id.AgentID
-    TenantID     string
-    State        RunState
-    Input        string
-    Output       string
-    Error        string
-    StepCount    int
-    TokensUsed   int
-    StartedAt    *time.Time
-    CompletedAt  *time.Time
-    PersonaRef   string
-    Metadata     map[string]any
+    sentinel.Entity
+    ID              id.EvalRunID
+    SuiteID         id.SuiteID
+    Model           string
+    SystemPrompt    string
+    Temperature     float64
+    TotalCases      int
+    Passed          int
+    Failed          int
+    PassRate        float64
+    AvgScore        float64
+    AvgLatencyMs    int
+    TotalTokens     int
+    TotalCost       float64
+    AppID           string
+    TargetTenantID  string
+    PersonaRef      string
+    State           RunState
+    DimensionScores map[string]float64
+    CompletedAt     *time.Time
 }
 ```
 
 ### Run states
 
-Runs follow a state machine with 6 states:
+Runs follow a state machine with 4 states:
 
 | State | Description |
 |-------|-------------|
-| `created` | Run has been created but not started |
-| `running` | Run is actively processing |
-| `completed` | Run finished successfully |
-| `failed` | Run terminated with an error |
-| `cancelled` | Run was cancelled by a user or system |
-| `paused` | Run is paused at a checkpoint awaiting approval |
+| `running` | Evaluation is actively processing cases |
+| `completed` | All cases finished successfully |
+| `failed` | Evaluation terminated with an error |
+| `cancelled` | Evaluation was cancelled |
 
-### State transitions
+## Result
 
-```
-created → running → completed
-                  → failed
-                  → cancelled
-                  → paused → running (after checkpoint resolution)
-```
-
-## Step
-
-A Step represents a single reasoning step within a run:
+A Result is the outcome of evaluating a single test case within a run:
 
 ```go
-type Step struct {
-    cortex.Entity
-    ID          id.StepID
-    RunID       id.AgentRunID
-    Index       int
-    Type        string
-    Input       string
-    Output      string
-    TokensUsed  int
-    StartedAt   *time.Time
-    CompletedAt *time.Time
-    Metadata    map[string]any
+type Result struct {
+    sentinel.Entity
+    ID              id.EvalResultID
+    RunID           id.EvalRunID
+    CaseID          id.CaseID
+    CaseName        string
+    Status          ResultStatus    // pass, fail, error
+    Score           float64
+    Output          string
+    LatencyMs       int
+    TokensUsed      int
+    Cost            float64
+    ScorerResults   []ScorerResult
+    DimensionScores map[string]float64
+    RunTrace        *RunTrace
 }
 ```
 
-Steps are numbered sequentially (Index 0, 1, 2, ...) and track token usage per step.
+### Result status
 
-## ToolCall
+| Status | Description |
+|--------|-------------|
+| `pass` | Score meets or exceeds the pass threshold |
+| `fail` | Score is below the pass threshold |
+| `error` | Evaluation failed (target error, scorer error, etc.) |
 
-A ToolCall represents a single tool invocation within a step:
+## ScorerResult
+
+Each scorer produces a `ScorerResult`:
 
 ```go
-type ToolCall struct {
-    cortex.Entity
-    ID          id.ToolCallID
-    StepID      id.StepID
-    RunID       id.AgentRunID
-    ToolName    string
-    Arguments   string
-    Result      string
-    Error       string
-    StartedAt   *time.Time
-    CompletedAt *time.Time
-    Metadata    map[string]any
+type ScorerResult struct {
+    ScorerName string
+    Score      float64
+    Passed     bool
+    Reason     string
+    Dimension  string         // e.g., "skill", "trait"
+    Details    map[string]any
 }
 ```
 
-## Hierarchical model
+## RunTrace
 
-```
-Run (arun_...)
-  ├── Step 0 (astp_...)
-  │     ├── ToolCall (tcall_...)
-  │     └── ToolCall (tcall_...)
-  ├── Step 1 (astp_...)
-  │     └── ToolCall (tcall_...)
-  └── Step 2 (astp_...)
-```
-
-## Store interface
+For persona-aware evaluations using `AgentTarget`, the `RunTrace` captures the agent's execution:
 
 ```go
-type Store interface {
-    CreateRun(ctx context.Context, run *Run) error
-    GetRun(ctx context.Context, runID id.AgentRunID) (*Run, error)
-    UpdateRun(ctx context.Context, run *Run) error
-    ListRuns(ctx context.Context, filter *ListFilter) ([]*Run, error)
+type RunTrace struct {
+    Steps     []StepTrace
+    ToolCalls []ToolTrace
+}
 
-    CreateStep(ctx context.Context, step *Step) error
-    ListSteps(ctx context.Context, runID id.AgentRunID) ([]*Step, error)
+type StepTrace struct {
+    Index      int
+    Type       string
+    Output     string
+    TokensUsed int
+}
 
-    CreateToolCall(ctx context.Context, tc *ToolCall) error
-    ListToolCalls(ctx context.Context, stepID id.StepID) ([]*ToolCall, error)
+type ToolTrace struct {
+    ToolName  string
+    Arguments string
+    Result    string
+    Error     string
 }
 ```
 
-### List filter
+## ResultStats
+
+Aggregate statistics for a run:
 
 ```go
-type ListFilter struct {
-    AgentID  string
-    TenantID string
-    State    RunState
-    Limit    int
-    Offset   int
+type ResultStats struct {
+    TotalCases      int
+    Passed          int
+    Failed          int
+    Errored         int
+    PassRate        float64
+    AvgScore        float64
+    AvgLatencyMs    int
+    TotalTokens     int
+    TotalCost       float64
+    DimensionScores map[string]float64
 }
+```
+
+## Engine methods
+
+```go
+eng.GetRun(ctx, runID)
+eng.ListRuns(ctx, filter)
+eng.ListRunsBySuite(ctx, suiteID)
+eng.ListResults(ctx, runID)
+eng.GetResultStats(ctx, runID)
 ```
 
 ## API routes
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/cortex/agents/{id}/runs` | List runs for an agent |
-| `GET` | `/cortex/runs/{id}` | Get a specific run |
-| `POST` | `/cortex/runs/{id}/cancel` | Cancel a running run |
+| `GET` | `/sentinel/runs` | List runs |
+| `GET` | `/sentinel/runs/:id` | Get a specific run |
+| `GET` | `/sentinel/runs/:id/results` | List results for a run |
+| `GET` | `/sentinel/runs/:id/stats` | Get aggregate stats |
+| `POST` | `/sentinel/suites/:id/run` | Execute an evaluation |

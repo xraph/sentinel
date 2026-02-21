@@ -1,110 +1,58 @@
 ---
-title: Skills
-description: Define what an agent can do — capabilities, tools, and knowledge sources.
+title: Skill Evaluation
+description: Test what an agent can do — tool selection, proficiency, and correctness.
 ---
 
-A **Skill** represents a coherent capability an agent can have. Think of it as professional training — it bundles related tools, knowledge sources, and behavioral guidance into a named, reusable entity.
+**Skill evaluation** tests whether an agent can perform its job by selecting the right tools, using them proficiently, and producing correct results.
 
-## Structure
+## What it tests
+
+- Does the agent select the appropriate tool for the task?
+- Does it use the tool correctly (proper arguments, error handling)?
+- Does it achieve the desired outcome?
+- Does proficiency match the expected level?
+
+## Scorer: `skill_usage`
+
+The `skill_usage` scorer evaluates tool selection and usage by analyzing the agent's run trace:
 
 ```go
-type Skill struct {
-    cortex.Entity
-    ID                   id.SkillID
-    Name                 string
-    Description          string
-    AppID                string
-    Tools                []ToolBinding
-    Knowledge            []KnowledgeRef
-    SystemPromptFragment string
-    Dependencies         []string
-    DefaultProficiency   Proficiency
-    Metadata             map[string]any
+testcase.ScorerConfig{
+    Name: "skill_usage",
+    Config: map[string]any{
+        "expected_tools":  []string{"read_file", "search_code"},
+        "proficiency_min": 0.7,
+    },
 }
 ```
 
-## Tool bindings
+The scorer examines the `RunTrace` to check which tools were called, in what order, and whether the arguments were well-formed.
 
-Each tool binding associates a tool with mastery level and contextual guidance:
+## Scenario: `skill_challenge`
+
+The `skill_challenge` scenario generator creates test cases that require the agent to select and use specific tools:
 
 ```go
-type ToolBinding struct {
-    ToolName   string      // name of the tool
-    Mastery    Proficiency // how well the agent uses this tool
-    Guidance   string      // when/how to use it
-    PreferWhen string      // conditions that favor this tool
+Case{
+    ScenarioType: testcase.ScenarioSkillChallenge,
+    Input:        "Find all security vulnerabilities in the auth module",
+    Context: map[string]any{
+        "available_tools": []string{"read_file", "search_code", "run_tests"},
+        "expected_tools":  []string{"search_code", "read_file"},
+    },
 }
 ```
 
-## Knowledge references
+## Dimension score
 
-Knowledge references inject context when a skill is active:
-
-```go
-type KnowledgeRef struct {
-    Source     string // knowledge source identifier
-    InjectMode string // how to inject (e.g., "system", "context")
-    Priority   int    // injection priority
-}
-```
-
-## Proficiency levels
-
-Skills use a five-level proficiency system that maps to numeric weights:
-
-| Level | Weight | Description |
-|-------|--------|-------------|
-| `novice` | 0.2 | Basic awareness, needs guidance |
-| `apprentice` | 0.4 | Can use with supervision |
-| `competent` | 0.6 | Independent usage (default) |
-| `proficient` | 0.8 | Deep understanding, handles edge cases |
-| `expert` | 1.0 | Mastery, can teach others |
-
-Proficiency weights influence how strongly a skill affects the agent's system prompt and tool selection.
-
-## System prompt fragments
-
-Each skill can contribute a fragment to the agent's system prompt:
+The skill dimension contributes to the `DimensionScores` map on both `Result` and `Run`:
 
 ```go
-skill := &skill.Skill{
-    Name: "code-review",
-    SystemPromptFragment: "You are an expert code reviewer. Focus on correctness, security, and maintainability. Always explain your reasoning.",
-}
+result.DimensionScores["skill"] // 0.0 to 1.0
 ```
 
-When a persona includes multiple skills, their fragments are concatenated into the final system prompt.
+## Use cases
 
-## Dependencies
-
-Skills can declare dependencies on other skills:
-
-```go
-skill := &skill.Skill{
-    Name:         "security-audit",
-    Dependencies: []string{"code-review"},
-}
-```
-
-## Store interface
-
-```go
-type Store interface {
-    CreateSkill(ctx context.Context, skill *Skill) error
-    GetSkill(ctx context.Context, skillID id.SkillID) (*Skill, error)
-    GetSkillByName(ctx context.Context, appID, name string) (*Skill, error)
-    UpdateSkill(ctx context.Context, skill *Skill) error
-    DeleteSkill(ctx context.Context, skillID id.SkillID) error
-    ListSkills(ctx context.Context, filter *ListFilter) ([]*Skill, error)
-}
-```
-
-## API routes
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/cortex/skills` | Create a skill |
-| `GET` | `/cortex/skills` | List skills |
-| `GET` | `/cortex/skills/{name}` | Get a skill by name |
-| `PUT` | `/cortex/skills/{name}` | Update a skill |
-| `DELETE` | `/cortex/skills/{id}` | Delete a skill |
+- Verify a code review agent uses `search_code` before `read_file`
+- Test that a data analyst agent selects the right database query tools
+- Ensure a customer support agent escalates correctly when tools fail

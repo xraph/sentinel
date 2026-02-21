@@ -1,9 +1,9 @@
 ---
 title: Plugin System
-description: Lifecycle hooks for metrics, audit trails, tracing, and custom processing.
+description: Lifecycle hooks for metrics, audit trails, and custom processing.
 ---
 
-Cortex uses an opt-in plugin system where extensions subscribe to lifecycle events by implementing specific interfaces. The base interface requires only a `Name()` method — all hooks are optional.
+Sentinel uses an opt-in plugin system where extensions subscribe to lifecycle events by implementing specific interfaces. The base interface requires only a `Name()` method — all hooks are optional.
 
 ## Base interface
 
@@ -17,51 +17,59 @@ type Extension interface {
 
 There are 16 hook interfaces organized by category. Extensions implement only the hooks they need.
 
-### Agent lifecycle
+### Eval lifecycle
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `RunStarted` | `OnRunStarted(ctx, agentID, runID, input)` | Agent run begins |
-| `RunCompleted` | `OnRunCompleted(ctx, agentID, runID, output, elapsed)` | Run finishes successfully |
-| `RunFailed` | `OnRunFailed(ctx, agentID, runID, err)` | Run fails with error |
+| `EvalRunStarted` | `OnEvalRunStarted(ctx, suiteID, runID, model)` | Evaluation run begins |
+| `EvalRunCompleted` | `OnEvalRunCompleted(ctx, suiteID, runID, passRate, elapsed)` | Run finishes successfully |
+| `EvalRunFailed` | `OnEvalRunFailed(ctx, suiteID, runID, err)` | Run fails with error |
 
-### Reasoning lifecycle
-
-| Interface | Method | When it fires |
-|-----------|--------|---------------|
-| `StepStarted` | `OnStepStarted(ctx, runID, stepIndex)` | Reasoning step begins |
-| `StepCompleted` | `OnStepCompleted(ctx, runID, stepIndex, elapsed)` | Reasoning step finishes |
-
-### Tool lifecycle
+### Case lifecycle
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `ToolCalled` | `OnToolCalled(ctx, runID, toolName, args)` | Tool invocation begins |
-| `ToolCompleted` | `OnToolCompleted(ctx, runID, toolName, result, elapsed)` | Tool succeeds |
-| `ToolFailed` | `OnToolFailed(ctx, runID, toolName, err)` | Tool fails |
+| `CaseStarted` | `OnCaseStarted(ctx, runID, caseID)` | Case evaluation begins |
+| `CaseCompleted` | `OnCaseCompleted(ctx, runID, caseID, score, elapsed)` | Case evaluation finishes |
+| `CaseFailed` | `OnCaseFailed(ctx, runID, caseID, err)` | Case evaluation fails |
 
-### Persona lifecycle
-
-| Interface | Method | When it fires |
-|-----------|--------|---------------|
-| `PersonaResolved` | `OnPersonaResolved(ctx, agentID, personaName)` | Persona loaded for run |
-| `BehaviorTriggered` | `OnBehaviorTriggered(ctx, runID, behaviorName)` | Behavior fires |
-| `CognitivePhaseChanged` | `OnCognitivePhaseChanged(ctx, runID, from, to)` | Phase transition |
-
-### Checkpoint lifecycle
+### Regression
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `CheckpointCreated` | `OnCheckpointCreated(ctx, cpID, runID, reason)` | Checkpoint created |
-| `CheckpointResolved` | `OnCheckpointResolved(ctx, cpID, decision)` | Checkpoint resolved |
+| `RegressionDetected` | `OnRegressionDetected(ctx, suiteID, baselineID, delta)` | Performance regression found |
 
-### Orchestration lifecycle
+### Baseline
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `OrchestrationStarted` | `OnOrchestrationStarted(ctx, orchID, strategy)` | Multi-agent orchestration begins |
-| `OrchestrationCompleted` | `OnOrchestrationCompleted(ctx, orchID, elapsed)` | Orchestration finishes |
-| `AgentHandoff` | `OnAgentHandoff(ctx, orchID, from, to, payload)` | Agent-to-agent handoff |
+| `BaselineSaved` | `OnBaselineSaved(ctx, suiteID, baselineID)` | Baseline saved |
+
+### Red team
+
+| Interface | Method | When it fires |
+|-----------|--------|---------------|
+| `RedTeamStarted` | `OnRedTeamStarted(ctx, suiteID, attackCount)` | Red team evaluation begins |
+| `RedTeamCompleted` | `OnRedTeamCompleted(ctx, suiteID, bypassCount, elapsed)` | Red team evaluation finishes |
+
+### Persona evaluation
+
+| Interface | Method | When it fires |
+|-----------|--------|---------------|
+| `PersonaEvalStarted` | `OnPersonaEvalStarted(ctx, runID, personaName)` | Persona-aware evaluation begins |
+| `PersonaEvalCompleted` | `OnPersonaEvalCompleted(ctx, runID, personaName, dimensions)` | Persona-aware evaluation finishes |
+
+### Prompt versioning
+
+| Interface | Method | When it fires |
+|-----------|--------|---------------|
+| `PromptVersionCreated` | `OnPromptVersionCreated(ctx, suiteID, pvID, version)` | Prompt version created |
+
+### Comparison
+
+| Interface | Method | When it fires |
+|-----------|--------|---------------|
+| `ComparisonCompleted` | `OnComparisonCompleted(ctx, suiteID, models, elapsed)` | Multi-model comparison finishes |
 
 ### Shutdown
 
@@ -82,20 +90,13 @@ registry.Register(auditExt)
 When events are emitted, only extensions implementing the relevant hook are called:
 
 ```go
-registry.EmitRunStarted(ctx, agentID, runID, input)
-// Only calls extensions that implement RunStarted
+registry.EmitEvalRunStarted(ctx, suiteID, runID, model)
+// Only calls extensions that implement EvalRunStarted
 ```
 
 ## Error handling
 
-Hook errors are logged but **never propagated**. Hooks must not block the agent pipeline:
-
-```go
-// Inside registry.EmitRunStarted:
-if err := hook.OnRunStarted(ctx, agentID, runID, input); err != nil {
-    r.logger.Warn("extension hook error", "hook", "OnRunStarted", "error", err)
-}
-```
+Hook errors are logged but **never propagated**. Hooks must not block the evaluation pipeline.
 
 ## Built-in extensions
 
@@ -111,9 +112,8 @@ type SlackNotifier struct {
 
 func (s *SlackNotifier) Name() string { return "slack-notifier" }
 
-func (s *SlackNotifier) OnRunFailed(ctx context.Context, agentID id.AgentID, runID id.AgentRunID, err error) error {
-    // Send Slack notification
-    return postToSlack(s.webhookURL, fmt.Sprintf("Agent %s run %s failed: %v", agentID, runID, err))
+func (s *SlackNotifier) OnRegressionDetected(ctx context.Context, suiteID id.SuiteID, baselineID id.BaselineID, delta float64) error {
+    return postToSlack(s.webhookURL, fmt.Sprintf("Regression detected in suite %s: %.1f%% drop", suiteID, delta*100))
 }
 
 // Register:

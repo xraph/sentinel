@@ -1,50 +1,52 @@
 ---
 title: Introduction
-description: Human-emulating AI agent orchestration for Go.
+description: Composable AI evaluation and testing framework for Go.
 ---
 
-Cortex is a Go library for building AI agents that think and behave like humans. Instead of hand-crafting system prompts, you declare an agent's **skills**, **traits**, **behaviors**, and **persona** — the same building blocks that make people unique — and Cortex assembles them into a coherent identity at runtime.
+Sentinel is a Go library for testing AI agents the way you'd evaluate a human professional. Instead of simple input/output scoring, you evaluate across multiple dimensions — **skills**, **traits**, **behaviors**, **cognition**, **communication**, **perception**, and **persona coherence** — the same building blocks that make people unique.
 
-Cortex is a **library** — not a service. You bring your own LLM provider, database, and HTTP server. Cortex provides the agent orchestration plumbing.
+Sentinel is a **library** — not a service. You bring your own LLM provider, database, and HTTP server. Sentinel provides the evaluation orchestration plumbing.
 
-## The Human Model
+## The Human-Like Testing Model
 
-Cortex models AI agents the way you would describe a person:
+Sentinel evaluates AI agents the way you would evaluate a person:
 
-| Aspect | What it represents | Go type |
-|--------|-------------------|---------|
-| **Skill** | What the agent can do (capabilities + tools) | `skill.Skill` |
-| **Trait** | Who the agent is (personality dimensions) | `trait.Trait` |
-| **Behavior** | What the agent does habitually (trigger → action) | `behavior.Behavior` |
-| **Cognitive Style** | How the agent thinks (phase-based reasoning) | `cognitive.Style` |
-| **Communication Style** | How the agent talks (tone, formality, verbosity) | `communication.Style` |
-| **Perception** | How the agent sees (attention filters) | `perception.Model` |
-| **Persona** | The whole person (composes all of the above) | `persona.Persona` |
+| Dimension | What it tests | Scorer |
+|-----------|--------------|--------|
+| **Skill** | Can the agent do the job? (tool selection, proficiency) | `skill_usage` |
+| **Trait** | Who is the agent? (personality consistency) | `trait_consistency` |
+| **Behavior** | How does it react? (trigger-action patterns) | `behavior_trigger` |
+| **Cognition** | How does it think? (phase transitions, depth) | `cognitive_phase` |
+| **Communication** | How does it talk? (tone, formality, verbosity) | `communication_style` |
+| **Perception** | What does it notice? (attention focus, detail) | `perception_focus` |
+| **Persona** | The whole person (end-to-end identity coherence) | `persona_coherence` |
 
 ## What it does
 
-- **Declarative personality** — Define agents via composable Skills, Traits, and Behaviors instead of imperative prompt engineering.
-- **Persona composition** — Bundle skills, traits, behaviors, cognitive style, communication style, and perception into a reusable Persona. Assign it to any agent with one field.
-- **Execution tracking** — Every agent run is recorded as a Run with Steps and ToolCalls, providing full observability into reasoning chains.
-- **Human-in-the-loop** — Checkpoints pause a run for human approval before proceeding with sensitive actions.
-- **Multi-tenant isolation** — Every entity is scoped to a tenant and app via context. Cross-tenant access is structurally impossible.
-- **Plugin system** — 16 lifecycle hooks for metrics, audit trails, tracing, and custom processing. Extensions opt in to only the events they care about.
-- **Memory management** — Conversation history, working memory, and summary memory per agent per tenant.
-- **PostgreSQL store** — Production-ready persistence with embedded migrations and JSONB columns for flexible metadata.
+- **Multi-dimensional scoring** — Score across 7 human-like dimensions simultaneously, or use traditional input/output scorers.
+- **22 built-in scorers** — From exact match and regex to LLM-as-judge, semantic similarity, and all 7 persona-aware scorers.
+- **Scenario generation** — Auto-generate test cases targeting specific evaluation dimensions.
+- **Baseline & regression detection** — Track performance over time and detect regressions.
+- **Adversarial testing (red team)** — Test for prompt injection, jailbreaks, data leakage, hallucination, and off-topic responses.
+- **Multi-model comparison** — Compare performance across different LLMs or agent configurations.
+- **Prompt versioning** — Track system prompt iterations with performance metrics.
+- **Plugin system** — 16 lifecycle hooks for metrics, audit trails, and custom processing.
+- **Three storage backends** — PostgreSQL, SQLite, and in-memory.
 - **Forge integration** — Drop-in `forge.Extension` with DI-injected Engine and auto-registered HTTP routes.
-- **REST API** — 36 endpoints for managing agents, personas, skills, traits, behaviors, runs, checkpoints, and memory.
+- **REST API** — 32+ endpoints for managing suites, cases, runs, baselines, red team, prompts, scenarios, and reports.
+- **go test integration** — Assertion functions for CI/CD pipelines.
 
 ## Design philosophy
 
-**Library, not service.** Cortex is a set of Go packages you import. You control `main`, the database connection, and the process lifecycle.
+**Library, not service.** Sentinel is a set of Go packages you import. You control `main`, the database connection, and the process lifecycle.
 
-**Declarative over imperative.** You don't tell agents what to do — you tell them who they are. Skills define capabilities, Traits shape personality, Behaviors encode habits. Cortex assembles the system prompt and runtime parameters from these declarations.
+**Human-like evaluation.** You don't just test output — you test skills, personality, thinking patterns, and communication style. Traditional LLM evals still work as a subset.
 
 **Interfaces over implementations.** Every subsystem defines a Go interface. Swap any storage backend with a single type change.
 
-**Tenant-scoped by design.** `cortex.WithTenant` and `cortex.WithApp` inject context that is enforced at every layer.
+**Tenant-scoped by design.** `sentinel.WithTenant` and `sentinel.WithApp` inject context enforced at every layer.
 
-**TypeID everywhere.** All entities use type-prefixed, K-sortable, UUIDv7-based identifiers (`agt_`, `skl_`, `trt_`, `bhv_`, `prs_`, `arun_`, etc.).
+**TypeID everywhere.** All entities use type-prefixed, K-sortable, UUIDv7-based identifiers (`suite_`, `tcase_`, `erun_`, `eres_`, `base_`, etc.).
 
 ## Quick look
 
@@ -55,31 +57,23 @@ import (
     "context"
     "log"
 
-    "github.com/xraph/cortex/engine"
-    "github.com/xraph/cortex/extension"
-    "github.com/xraph/cortex/store/postgres"
+    "github.com/xraph/sentinel/engine"
+    "github.com/xraph/sentinel/store/memory"
 )
 
 func main() {
     ctx := context.Background()
 
-    // Create the store.
-    db := connectDB() // your *bun.DB
-    pgStore := postgres.New(db)
+    // Create an in-memory store for development.
+    memStore := memory.New()
 
-    // Build the Cortex engine.
+    // Build the Sentinel engine.
     eng, err := engine.New(
-        engine.WithStore(pgStore),
+        engine.WithStore(memStore),
     )
     if err != nil {
         log.Fatal(err)
     }
-
-    // Or use as a Forge extension:
-    ext := extension.New(
-        extension.WithStore(pgStore),
-    )
-    _ = ext // register with your Forge app
     _ = eng
     _ = ctx
 }
@@ -88,8 +82,8 @@ func main() {
 ## Where to go next
 
 <Cards>
-  <Card title="Getting started" href="/docs/getting-started" description="Install Cortex and create your first agent in minutes." />
+  <Card title="Getting started" href="/docs/getting-started" description="Install Sentinel and run your first evaluation in minutes." />
   <Card title="Architecture" href="/docs/architecture" description="Understand how the packages fit together." />
-  <Card title="The Human Model" href="/docs/human-model/overview" description="Learn how Skills, Traits, and Personas compose an agent." />
-  <Card title="HTTP API reference" href="/docs/api-reference/http-api" description="Full HTTP API documentation for all 36 endpoints." />
+  <Card title="The Human Model" href="/docs/human-model/overview" description="Learn how Sentinel evaluates across 7 human-like dimensions." />
+  <Card title="HTTP API reference" href="/docs/api-reference/http-api" description="Full HTTP API documentation for all 32+ endpoints." />
 </Cards>

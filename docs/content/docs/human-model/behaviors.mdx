@@ -1,120 +1,57 @@
 ---
-title: Behaviors
-description: Define what an agent does — condition-triggered action patterns.
+title: Behavior Evaluation
+description: Test how an agent reacts — condition-triggered action patterns.
 ---
 
-A **Behavior** is a condition-triggered action pattern — the "habits" and "reflexes" that compose skills and traits into contextual responses. When a trigger condition is met, the behavior fires its actions.
+**Behavior evaluation** tests whether an agent correctly executes condition-triggered action patterns — the "habits" and "reflexes" that should fire in specific contexts.
 
-## Structure
+## What it tests
 
-```go
-type Behavior struct {
-    cortex.Entity
-    ID            id.BehaviorID
-    Name          string
-    Description   string
-    AppID         string
-    Triggers      []Trigger
-    Actions       []Action
-    Priority      int
-    RequiresSkill string
-    RequiresTrait string
-    Metadata      map[string]any
-}
-```
+- Does the agent recognize trigger conditions?
+- Does it execute the correct action when triggered?
+- Is the trigger-action pattern reliable across variations?
+- Does priority ordering work when multiple behaviors could fire?
 
-## Triggers
+## Scorer: `behavior_trigger`
 
-Triggers define when a behavior activates:
+The `behavior_trigger` scorer evaluates whether the expected behavior was activated:
 
 ```go
-type Trigger struct {
-    Type    TriggerType
-    Pattern string       // optional pattern for matching
-}
-```
-
-### Trigger types
-
-| Type | Description |
-|------|-------------|
-| `on_input` | Fires when user input matches a pattern |
-| `on_tool_result` | Fires when a tool returns a specific result |
-| `on_error` | Fires when an error occurs |
-| `on_step_count` | Fires when the step count reaches a threshold |
-| `on_context` | Fires based on conversation context |
-| `always` | Fires on every step |
-
-## Actions
-
-Actions define what happens when a behavior triggers:
-
-```go
-type Action struct {
-    Type   ActionType
-    Target string      // action-specific target
-    Value  any         // action-specific value
-}
-```
-
-### Action types
-
-| Type | Description |
-|------|-------------|
-| `inject_prompt` | Inject text into the system prompt |
-| `prefer_skill` | Increase preference for a specific skill |
-| `require_tool` | Force usage of a specific tool |
-| `modify_param` | Modify a runtime parameter |
-| `switch_cognitive` | Switch to a different cognitive phase |
-| `add_guardrail` | Add a runtime guardrail check |
-
-## Priority
-
-When multiple behaviors trigger simultaneously, they execute in priority order (lower number = higher priority):
-
-```go
-behavior := &behavior.Behavior{
-    Priority: 10, // fires before priority 20
-}
-```
-
-## Skill and trait requirements
-
-A behavior can require that a specific skill or trait is active:
-
-```go
-behavior := &behavior.Behavior{
-    Name:          "verify-before-suggest",
-    RequiresSkill: "code-review",
-    RequiresTrait: "thoroughness",
-    Triggers: []behavior.Trigger{
-        {Type: behavior.TriggerAlways},
-    },
-    Actions: []behavior.Action{
-        {Type: behavior.ActionInjectPrompt, Value: "Always verify your analysis before suggesting changes."},
+testcase.ScorerConfig{
+    Name: "behavior_trigger",
+    Config: map[string]any{
+        "trigger_type":   "on_input",
+        "trigger_pattern": "security|vulnerability|CVE",
+        "expected_action": "inject_prompt",
+        "action_value":    "security-focused analysis",
     },
 }
 ```
 
-## Store interface
+## Scenario: `behavior_trigger`
+
+The `behavior_trigger` scenario generator creates test cases with specific trigger conditions:
 
 ```go
-type Store interface {
-    CreateBehavior(ctx context.Context, behavior *Behavior) error
-    GetBehavior(ctx context.Context, behaviorID id.BehaviorID) (*Behavior, error)
-    GetBehaviorByName(ctx context.Context, appID, name string) (*Behavior, error)
-    UpdateBehavior(ctx context.Context, behavior *Behavior) error
-    DeleteBehavior(ctx context.Context, behaviorID id.BehaviorID) error
-    ListBehaviors(ctx context.Context, filter *ListFilter) ([]*Behavior, error)
+Case{
+    ScenarioType: testcase.ScenarioBehaviorTrigger,
+    Input:        "I found a potential SQL injection in the login form",
+    Context: map[string]any{
+        "behavior":       "security-alert",
+        "trigger":        "on_input",
+        "expected_action": "escalate and detail security implications",
+    },
 }
 ```
 
-## API routes
+## Dimension score
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/cortex/behaviors` | Create a behavior |
-| `GET` | `/cortex/behaviors` | List behaviors |
-| `GET` | `/cortex/behaviors/{name}` | Get a behavior by name |
-| `PUT` | `/cortex/behaviors/{name}` | Update a behavior |
-| `DELETE` | `/cortex/behaviors/{id}` | Delete a behavior |
+```go
+result.DimensionScores["behavior"] // 0.0 to 1.0
+```
+
+## Use cases
+
+- Verify a code review agent activates security analysis when security keywords appear
+- Test that a support agent escalates when detecting frustrated customers
+- Ensure a data agent switches to careful mode when handling PII

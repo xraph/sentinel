@@ -1,15 +1,15 @@
 ---
 title: HTTP API Reference
-description: Complete reference for all 12 Weave REST endpoints — collections, documents, retrieval, and search.
+description: Complete reference for all Sentinel REST endpoints — suites, cases, runs, baselines, red team, prompts, scenarios, and reports.
 ---
 
-All endpoints are under `/v1` and return JSON. Authentication and tenant resolution depend on your Forge middleware configuration.
+All endpoints are under `/sentinel` and return JSON. Authentication and tenant resolution depend on your Forge middleware configuration.
 
-## Collections
+## Suites
 
-### `POST /v1/collections`
+### `POST /sentinel/suites`
 
-Create a collection.
+Create a suite.
 
 **Request**
 
@@ -17,40 +17,21 @@ Create a collection.
 {
   "name": "string (required)",
   "description": "string",
-  "embedding_model": "string (default: text-embedding-3-small)",
-  "embedding_dims": 1536,
-  "chunk_strategy": "recursive | fixed | sliding | semantic | code",
-  "chunk_size": 512,
-  "chunk_overlap": 50,
-  "metadata": { "key": "value" }
+  "system_prompt": "string",
+  "model": "string (default: engine default)",
+  "temperature": 0,
+  "persona_ref": "string (optional)",
+  "metadata": {}
 }
 ```
 
-**Response** `201 Created`
-
-```json
-{
-  "id": "col_01h455vbjdx6ycf56rnatbxqkh",
-  "tenant_id": "tenant-1",
-  "app_id": "myapp",
-  "name": "product-docs",
-  "embedding_model": "text-embedding-3-small",
-  "embedding_dims": 1536,
-  "chunk_strategy": "recursive",
-  "chunk_size": 512,
-  "chunk_overlap": 50,
-  "document_count": 0,
-  "chunk_count": 0,
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-01-15T10:30:00Z"
-}
-```
+**Response** `201 Created` — Suite object with generated `id`.
 
 ---
 
-### `GET /v1/collections`
+### `GET /sentinel/suites`
 
-List collections for the current tenant.
+List suites for the current app.
 
 **Query parameters**
 
@@ -59,219 +40,246 @@ List collections for the current tenant.
 | `limit` | int | Max results (default: 20) |
 | `offset` | int | Pagination offset |
 
-**Response** `200 OK` — array of Collection objects.
+**Response** `200 OK` — array of Suite objects.
 
 ---
 
-### `GET /v1/collections/:collectionId`
+### `GET /sentinel/suites/:id`
 
-Get a collection by ID.
-
-**Response** `200 OK` — Collection object.
-
-**Error** `404 Not Found` if collection does not exist for the current tenant.
+Get a suite by ID.
 
 ---
 
-### `DELETE /v1/collections/:collectionId`
+### `PUT /sentinel/suites/:id`
 
-Delete a collection and all associated documents, chunks, and vectors.
-
-**Response** `204 No Content`
+Update a suite.
 
 ---
 
-### `GET /v1/collections/:collectionId/stats`
+### `DELETE /sentinel/suites/:id`
 
-Get aggregate statistics for a collection.
-
-**Response** `200 OK`
-
-```json
-{
-  "collection_id": "col_01h455...",
-  "collection_name": "product-docs",
-  "document_count": 42,
-  "chunk_count": 1204,
-  "embedding_model": "text-embedding-3-small",
-  "chunk_strategy": "recursive"
-}
-```
+Delete a suite and all associated cases, runs, and baselines.
 
 ---
 
-### `POST /v1/collections/:collectionId/reindex`
+## Cases
 
-Re-embed and re-store all chunks in a collection. Use after changing the embedding model.
+### `POST /sentinel/suites/:suiteId/cases`
 
-**Response** `204 No Content`
-
----
-
-## Documents
-
-### `POST /v1/collections/:collectionId/documents`
-
-Ingest a document — runs the full load → chunk → embed → store pipeline synchronously.
+Create a test case in a suite.
 
 **Request**
 
 ```json
 {
-  "title": "string",
-  "content": "string (required)",
-  "source": "string",
-  "source_type": "string (MIME type)",
-  "metadata": { "key": "value" }
+  "name": "string (required)",
+  "input": "string (required)",
+  "expected": "string",
+  "scenario_type": "standard",
+  "scorers": [{"name": "contains", "config": {"substring": "hello"}}],
+  "tags": ["tag1"],
+  "context": {},
+  "metadata": {}
 }
 ```
-
-**Response** `201 Created`
-
-```json
-{
-  "document_id": "doc_01h455vbjdx6ycf56rnatbxqki",
-  "chunk_count": 12,
-  "state": "ready"
-}
-```
-
-**Error** `400 Bad Request` if content is empty.
 
 ---
 
-### `POST /v1/collections/:collectionId/documents/batch`
+### `GET /sentinel/suites/:suiteId/cases`
 
-Ingest multiple documents.
+List cases for a suite.
+
+---
+
+### `POST /sentinel/suites/:suiteId/cases/import`
+
+Bulk import cases from JSON, CSV, or JSONL format.
+
+**Request** — raw file body with `Content-Type` header indicating format.
+
+---
+
+### `PUT /sentinel/cases/:id`
+
+Update a case.
+
+---
+
+### `DELETE /sentinel/cases/:id`
+
+Delete a case.
+
+---
+
+## Runs
+
+### `POST /sentinel/suites/:suiteId/run`
+
+Execute an evaluation run.
 
 **Request**
 
 ```json
 {
-  "documents": [
-    { "title": "Doc A", "content": "..." },
-    { "title": "Doc B", "content": "..." }
-  ]
+  "model": "string (optional override)",
+  "temperature": 0,
+  "target_tenant_id": "string (optional)"
 }
 ```
 
-**Response** `201 Created` — array of IngestResult objects.
+**Response** `201 Created` — Run object with `state: "running"`.
 
 ---
 
-### `GET /v1/collections/:collectionId/documents`
+### `GET /sentinel/runs`
 
-List documents in a collection.
-
-**Query parameters**
+List runs with optional filters.
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `state` | string | Filter by state: `pending`, `processing`, `ready`, `failed` |
-| `limit` | int | Max results (default: 20) |
+| `suite_id` | string | Filter by suite |
+| `state` | string | Filter by state |
+| `limit` | int | Max results |
 | `offset` | int | Pagination offset |
 
-**Response** `200 OK` — array of Document objects.
+---
+
+### `GET /sentinel/runs/:id`
+
+Get a specific run.
 
 ---
 
-### `GET /v1/documents/:documentId`
+### `GET /sentinel/runs/:id/results`
 
-Get a document by ID.
+List all results for a run.
+
+---
+
+### `GET /sentinel/runs/:id/stats`
+
+Get aggregate statistics for a run.
 
 **Response** `200 OK`
 
 ```json
 {
-  "id": "doc_01h455...",
-  "collection_id": "col_01h455...",
-  "tenant_id": "tenant-1",
-  "title": "Return Policy",
-  "source": "policy.md",
-  "source_type": "text/markdown",
-  "content_hash": "sha256:abc...",
-  "content_length": 1024,
-  "chunk_count": 12,
-  "state": "ready",
-  "error": "",
-  "metadata": {},
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-01-15T10:30:05Z"
+  "total_cases": 50,
+  "passed": 45,
+  "failed": 3,
+  "errored": 2,
+  "pass_rate": 0.9,
+  "avg_score": 0.87,
+  "avg_latency_ms": 1200,
+  "total_tokens": 50000,
+  "total_cost": 2.50,
+  "dimension_scores": {"skill": 0.92, "trait": 0.88}
 }
 ```
 
 ---
 
-### `DELETE /v1/documents/:documentId`
+## Baselines
 
-Delete a document and all its chunks from both metadata and vector stores.
+### `POST /sentinel/baselines/:suiteId`
 
-**Response** `204 No Content`
+Save a baseline from a run.
 
 ---
 
-## Retrieval
+### `GET /sentinel/baselines/:suiteId`
 
-### `POST /v1/collections/:collectionId/retrieve`
+Get the latest baseline for a suite.
 
-Semantic retrieval within a collection.
+---
+
+### `GET /sentinel/baselines/:suiteId/baselines`
+
+List all baselines for a suite.
+
+---
+
+## Red Team
+
+### `POST /sentinel/redteam/:suiteId/generate`
+
+Generate adversarial test cases for a suite.
+
+---
+
+### `POST /sentinel/redteam/:suiteId/run`
+
+Run adversarial evaluation against the suite's target.
+
+---
+
+## Prompt Versions
+
+### `POST /sentinel/prompts/:suiteId`
+
+Create a new prompt version.
 
 **Request**
 
 ```json
 {
-  "query": "string (required)",
-  "top_k": 5,
-  "min_score": 0.75,
-  "strategy": "similarity | mmr | hybrid"
+  "system_prompt": "string (required)",
+  "changelog": "string"
 }
 ```
 
-**Response** `200 OK`
+---
 
-```json
-[
-  {
-    "chunk": {
-      "id": "chunk_01h455...",
-      "document_id": "doc_01h455...",
-      "collection_id": "col_01h455...",
-      "tenant_id": "tenant-1",
-      "content": "Our return policy allows...",
-      "index": 0,
-      "start_offset": 0,
-      "end_offset": 312,
-      "token_count": 48,
-      "metadata": {}
-    },
-    "score": 0.94
-  }
-]
-```
+### `GET /sentinel/prompts/:suiteId`
 
-Results are sorted by `score` descending.
+List all prompt versions for a suite.
 
 ---
 
-### `POST /v1/search`
+### `PUT /sentinel/prompts/:suiteId/current`
 
-Hybrid search across one or more collections.
+Set the current active prompt version.
+
+---
+
+## Scenarios
+
+### `POST /sentinel/scenarios/:suiteId/generate`
+
+Auto-generate test cases for a specific evaluation dimension.
 
 **Request**
 
 ```json
 {
-  "query": "string (required)",
-  "collections": ["col_01h455...", "col_02x..."],
-  "top_k": 10,
-  "min_score": 0.7,
-  "strategy": "similarity | mmr | hybrid"
+  "scenario_type": "skill_challenge",
+  "count": 10
 }
 ```
 
-When `collections` is omitted, searches all collections visible to the current tenant.
+---
 
-**Response** `200 OK` — array of ScoredChunk objects, merged and sorted by score.
+### `GET /sentinel/scenarios/:suiteId`
+
+List generated scenarios.
+
+---
+
+## Reports
+
+### `GET /sentinel/reports/:runId/report`
+
+Generate a report for a run.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `format` | string | `terminal`, `json`, `html`, or `ci` |
+
+---
+
+### `GET /sentinel/reports/:runId/report/export`
+
+Export a report in the specified format.
 
 ---
 
@@ -288,6 +296,7 @@ All error responses use a consistent JSON envelope:
 
 | HTTP status | `code` | Cause |
 |-------------|--------|-------|
-| `400` | `BAD_REQUEST` | Missing required field, empty content |
-| `404` | `NOT_FOUND` | Collection or document not found for tenant |
-| `500` | `INTERNAL_ERROR` | Store, embedder, or vector store failure |
+| `400` | `BAD_REQUEST` | Missing required field, empty input, invalid state |
+| `404` | `NOT_FOUND` | Suite, case, run, or baseline not found |
+| `409` | `CONFLICT` | Suite with same name already exists |
+| `500` | `INTERNAL_ERROR` | Store or target failure |

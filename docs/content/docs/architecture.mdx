@@ -1,44 +1,44 @@
 ---
 title: Architecture
-description: How Cortex's packages fit together.
+description: How Sentinel's packages fit together.
 ---
 
-Cortex is organized as a set of focused Go packages. The `engine` package is the central coordinator. All other packages define interfaces, entities, and subsystem logic that compose around it.
+Sentinel is organized as a set of focused Go packages. The `engine` package is the central coordinator. All other packages define interfaces, entities, and subsystem logic that compose around it.
 
 ## Package diagram
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        engine.Engine                              │
-│  CreateAgent / GetAgent / UpdateAgent / DeleteAgent / ListAgents  │
-│  CreateSkill / CreateTrait / CreateBehavior / CreatePersona       │
-│  GetRun / ListRuns / LoadConversation / ResolveCheckpoint         │
-├──────────────────────────────────────────────────────────────────┤
-│                     Agent resolution flow                         │
-│  1. Load agent config (flat or persona mode)                      │
-│  2. If persona mode: resolve persona → load skills + traits       │
-│  3. Assemble system prompt from persona identity + skill          │
-│     fragments + trait influences + behavior rules                 │
-│  4. Apply cognitive style (phase-based reasoning strategy)        │
-│  5. Execute reasoning loop (Run → Steps → ToolCalls)              │
-│  6. Record results, emit plugin hooks                             │
-├──────────────────────┬───────────────────────────────────────────┤
-│  plugin.Registry      │  api.API (Forge HTTP handlers)            │
-│  OnRunStarted         │  36 REST endpoints:                       │
-│  OnRunCompleted       │  - Agents (7 routes)                      │
-│  OnRunFailed          │  - Skills, Traits, Behaviors,             │
-│  OnToolCalled         │    Personas (5 routes each)               │
-│  OnPersonaResolved    │  - Runs (3), Checkpoints (2),             │
-│  (16 total hooks)     │    Memory (2), Tools (2)                  │
-├──────────────────────┴───────────────────────────────────────────┤
-│                        store.Store                                │
-│  (composite: agent.Store + skill.Store + trait.Store +            │
-│   behavior.Store + persona.Store + run.Store + memory.Store +     │
-│   checkpoint.Store + Migrate/Ping/Close)                          │
-├──────────────────────────────────────────────────────────────────┤
-│                      store/postgres                               │
-│  (PostgreSQL backend with bun ORM + embedded migrations)          │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         engine.Engine                                  │
+│  CreateSuite / GetSuite / ListSuites / UpdateSuite / DeleteSuite      │
+│  CreateCase / CreateCaseBatch / GetCase / ListCases / ImportCases      │
+│  GetRun / ListRuns / ListResults / GetResultStats                     │
+│  SaveBaseline / GetBaseline / GetLatestBaseline / ListBaselines       │
+│  CreatePromptVersion / ListPromptVersions / SetCurrentPromptVersion   │
+├──────────────────────────────────────────────────────────────────────┤
+│                     Evaluation pipeline                                │
+│  1. Load suite + cases                                                 │
+│  2. Resolve target (LLM, Agent, or Function)                          │
+│  3. Run each case: send input → capture output + trace                │
+│  4. Score output with configured scorers                              │
+│  5. Aggregate results, emit plugin hooks                              │
+│  6. Compare against baseline → detect regressions                     │
+├──────────────────────┬───────────────────────────────────────────────┤
+│  plugin.Registry      │  api.API (Forge HTTP handlers)                │
+│  OnEvalRunStarted     │  32+ REST endpoints:                          │
+│  OnEvalRunCompleted   │  - Suites (5 routes)                          │
+│  OnCaseCompleted      │  - Cases (5 routes)                           │
+│  OnRegressionDetected │  - Runs (5 routes)                            │
+│  OnBaselineSaved      │  - Baselines, RedTeam, Prompts,               │
+│  (16 total hooks)     │    Scenarios, Reports                         │
+├──────────────────────┴───────────────────────────────────────────────┤
+│                         store.Store                                    │
+│  (composite: suite.Store + testcase.Store + evalrun.Store +           │
+│   baseline.Store + promptversion.Store + Migrate/Ping/Close)          │
+├──────────────────────────────────────────────────────────────────────┤
+│  store/postgres       │  store/sqlite         │  store/memory          │
+│  (PostgreSQL + bun)   │  (SQLite + bun)       │  (in-memory maps)     │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Engine construction
@@ -47,43 +47,43 @@ Cortex is organized as a set of focused Go packages. The `engine` package is the
 
 ```go
 eng, err := engine.New(
-    engine.WithStore(pgStore),           // required: composite Store
-    engine.WithConfig(cortex.Config{     // optional: override defaults
-        DefaultModel:    "gpt-4o",
-        DefaultMaxSteps: 30,
+    engine.WithStore(pgStore),             // required: composite Store
+    engine.WithConfig(sentinel.Config{     // optional: override defaults
+        DefaultModel:  "gpt-4o",
+        PassThreshold: 0.8,
     }),
-    engine.WithExtension(metricsExt),    // optional: lifecycle hooks
-    engine.WithLogger(slog.Default()),   // optional: structured logger
+    engine.WithExtension(metricsExt),      // optional: lifecycle hooks
+    engine.WithLogger(slog.Default()),     // optional: structured logger
 )
 ```
 
 All components are interfaces — swap any with your own implementation.
 
-## Agent resolution flow
+## Evaluation flow
 
-When an agent run begins, the engine resolves the agent's full configuration:
+When an evaluation run is triggered:
 
-1. **Load agent config** — Read the `agent.Config` from the store. Check if it uses flat mode (inline `SystemPrompt` + `Tools`) or persona mode (`PersonaRef` or inline skill/trait/behavior names).
+1. **Load suite and cases** — Read the suite configuration and all test cases from the store.
 
-2. **Resolve persona** — If `PersonaRef` is set, load the `persona.Persona` from the store. The persona contains `SkillAssignment`s, `TraitAssignment`s, behavior names, cognitive style, communication style, and perception.
+2. **Resolve target** — Set up the evaluation target: an `LLMTarget` for raw LLM calls, an `AgentTarget` for agent invocations (with full run trace capture), or a `FuncTarget` for wrapping plain functions.
 
-3. **Assemble system prompt** — Concatenate the persona's `Identity` field with each skill's `SystemPromptFragment`, trait influences that target `prompt_injection`, and behavior actions that inject prompts.
+3. **Execute cases** — For each case, send the input to the target and capture the output. Cases run concurrently up to the configured `Concurrency` limit.
 
-4. **Apply runtime parameters** — Trait influences modify runtime parameters like `Temperature`, `MaxSteps`, and tool selection preferences. Cognitive style determines the reasoning loop strategy.
+4. **Score results** — Each case's output is evaluated by its configured scorers. Persona-aware scorers also analyze the run trace for tool usage, trait consistency, and cognitive phase transitions.
 
-5. **Execute reasoning loop** — The agent runs through its reasoning loop, creating `run.Step` records for each reasoning step and `run.ToolCall` records for each tool invocation.
+5. **Aggregate and record** — Results are aggregated into the run record with pass rate, average score, dimension scores, token usage, and cost.
 
-6. **Record and notify** — The `run.Run` is updated with the final state, output, token usage, and timing. Plugin hooks fire at each stage (`OnRunStarted`, `OnStepStarted`, `OnToolCalled`, etc.).
+6. **Compare against baseline** — If a baseline exists, compare the new run against it and detect regressions.
 
 ## Tenant isolation
 
-`cortex.WithTenant(ctx, id)` and `cortex.WithApp(ctx, id)` inject identifiers into the context. These are extracted at every layer:
+`sentinel.WithTenant(ctx, id)` and `sentinel.WithApp(ctx, id)` inject identifiers into the context. These are extracted at every layer:
 
 - **Store** — all queries include `WHERE app_id = ?` filters
 - **Engine** — scope is applied before any store operation
 - **API** — the Forge request context provides tenant/app identifiers
 
-Cross-tenant access is structurally impossible: even if a caller passes an agent ID from another tenant, the store layer returns `ErrAgentNotFound`.
+Cross-tenant access is structurally impossible: even if a caller passes a suite ID from another app, the store layer returns `ErrSuiteNotFound`.
 
 ## Plugin system
 
@@ -95,43 +95,46 @@ type Extension interface {
 }
 
 // Opt-in hooks (implement any subset):
-type RunStarted interface {
-    OnRunStarted(ctx context.Context, agentID id.AgentID, runID id.AgentRunID, input string) error
+type EvalRunStarted interface {
+    OnEvalRunStarted(ctx context.Context, suiteID id.SuiteID, runID id.EvalRunID, model string) error
 }
-type RunCompleted interface { /* ... */ }
-type ToolCalled interface { /* ... */ }
-type PersonaResolved interface { /* ... */ }
+type EvalRunCompleted interface { /* ... */ }
+type CaseCompleted interface { /* ... */ }
+type RegressionDetected interface { /* ... */ }
 // ... 16 hooks total
 ```
 
-The `plugin.Registry` type-caches extensions at registration time, so emit calls iterate only over extensions that implement the relevant hook. Errors from hooks are logged but never propagated.
+The `plugin.Registry` type-caches extensions at registration time, so emit calls iterate only over extensions that implement the relevant hook.
 
 Built-in extensions:
-- `observability.MetricsExtension` — 11 counters for all lifecycle events
+- `observability.MetricsExtension` — counters for all lifecycle events
 - `audithook.Extension` — bridges lifecycle events to an audit trail backend
 
 ## Package index
 
 | Package | Import path | Purpose |
 |---------|-------------|---------|
-| `cortex` | `github.com/xraph/cortex` | Root package — Entity, Config, scope helpers, errors |
-| `id` | `.../id` | TypeID-based entity identifiers (12 prefixes) |
-| `engine` | `.../engine` | Central coordinator — all CRUD passthroughs |
-| `agent` | `.../agent` | Agent config entity and store interface |
-| `skill` | `.../skill` | Skill entity — capabilities and tools |
-| `trait` | `.../trait` | Trait entity — personality dimensions |
-| `behavior` | `.../behavior` | Behavior entity — trigger/action patterns |
-| `persona` | `.../persona` | Persona entity — composes all aspects |
-| `cognitive` | `.../cognitive` | CognitiveStyle value object — thinking phases |
-| `communication` | `.../communication` | CommunicationStyle value object — tone and format |
-| `perception` | `.../perception` | Perception value object — attention filters |
-| `run` | `.../run` | Run, Step, ToolCall entities and store |
-| `memory` | `.../memory` | Message entity and memory store |
-| `checkpoint` | `.../checkpoint` | Checkpoint entity for human-in-the-loop |
+| `sentinel` | `github.com/xraph/sentinel` | Root — Entity, Config, scope helpers, errors |
+| `id` | `.../id` | TypeID-based entity identifiers (7 prefixes) |
+| `engine` | `.../engine` | Central coordinator — all CRUD and eval orchestration |
+| `suite` | `.../suite` | Suite entity and store interface |
+| `testcase` | `.../testcase` | Case entity, ScenarioType, ScorerConfig |
+| `evalrun` | `.../evalrun` | Run, Result, RunTrace entities and store |
+| `baseline` | `.../baseline` | Baseline entity for regression detection |
+| `promptversion` | `.../promptversion` | Prompt version entity for A/B testing |
+| `scorer` | `.../scorer` | Scorer interface, registry, 22 built-in scorers |
+| `scenario` | `.../scenario` | 6 scenario generators |
+| `target` | `.../target` | Target interface — LLM, Agent, Func adapters |
+| `redteam` | `.../redteam` | 5 adversarial attack generators |
+| `comparison` | `.../comparison` | Multi-model comparison and baseline diff |
+| `dataset` | `.../dataset` | Data loaders (JSON, CSV, JSONL) and generation |
+| `report` | `.../report` | Report generators (terminal, JSON, HTML, CI) |
 | `store` | `.../store` | Composite store interface |
 | `store/postgres` | `.../store/postgres` | PostgreSQL backend (bun ORM) |
+| `store/sqlite` | `.../store/sqlite` | SQLite backend (bun ORM) |
+| `store/memory` | `.../store/memory` | In-memory backend for testing |
 | `plugin` | `.../plugin` | Extension interfaces and Registry |
-| `observability` | `.../observability` | Metrics extension (11 counters) |
+| `observability` | `.../observability` | Metrics extension |
 | `audit_hook` | `.../audit_hook` | Audit trail extension |
-| `api` | `.../api` | Forge-native HTTP handlers (36 routes) |
+| `api` | `.../api` | Forge-native HTTP handlers (32+ routes) |
 | `extension` | `.../extension` | Forge framework extension adapter |

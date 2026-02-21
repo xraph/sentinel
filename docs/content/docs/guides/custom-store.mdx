@@ -1,189 +1,120 @@
 ---
-title: Custom Components
-description: Implement custom Chunker, Embedder, Loader, and VectorStore to plug your own backends into Weave.
+title: Custom Store
+description: Implement a custom storage backend by satisfying the composite store.Store interface.
 ---
 
-Every Weave component is a Go interface. This guide shows how to implement each one so you can plug in custom backends, models, or processing logic.
+Every Sentinel storage backend is a Go interface. This guide shows how to implement a custom store.
 
-## Custom Chunker
+## The composite interface
 
-Implement `chunker.Chunker` to split text with your own algorithm:
+Your store must implement the composite `store.Store` interface, which embeds 5 subsystem stores:
 
 ```go
-import "github.com/xraph/weave/chunker"
+import "github.com/xraph/sentinel/store"
 
-type SentenceChunker struct {
-    maxTokens int
+type Store interface {
+    suite.Store
+    testcase.Store
+    evalrun.Store
+    baseline.Store
+    promptversion.Store
+
+    Migrate(ctx context.Context) error
+    Ping(ctx context.Context) error
+    Close() error
 }
-
-func (c *SentenceChunker) Chunk(_ context.Context, text string, opts *chunker.Options) ([]chunker.ChunkResult, error) {
-    sentences := splitSentences(text)
-    var results []chunker.ChunkResult
-    var current strings.Builder
-    idx := 0
-
-    for _, sentence := range sentences {
-        if estimateTokens(current.String()) + estimateTokens(sentence) > opts.ChunkSize {
-            if current.Len() > 0 {
-                results = append(results, chunker.ChunkResult{
-                    Content:    current.String(),
-                    Index:      idx,
-                    TokenCount: estimateTokens(current.String()),
-                })
-                idx++
-                current.Reset()
-            }
-        }
-        current.WriteString(sentence + " ")
-    }
-    if current.Len() > 0 {
-        results = append(results, chunker.ChunkResult{
-            Content:    strings.TrimSpace(current.String()),
-            Index:      idx,
-            TokenCount: estimateTokens(current.String()),
-        })
-    }
-    return results, nil
-}
-
-// Register:
-eng, _ := engine.New(engine.WithChunker(&SentenceChunker{maxTokens: 256}))
 ```
 
-## Custom Embedder
+## Subsystem interfaces
 
-Implement `embedder.Embedder` to use any embedding model:
+### suite.Store
 
 ```go
-import "github.com/xraph/weave/embedder"
-
-type CohereEmbedder struct {
-    client *cohere.Client
-    dims   int
+type Store interface {
+    CreateSuite(ctx context.Context, s *Suite) error
+    GetSuite(ctx context.Context, suiteID id.SuiteID) (*Suite, error)
+    GetSuiteByName(ctx context.Context, appID, name string) (*Suite, error)
+    UpdateSuite(ctx context.Context, s *Suite) error
+    DeleteSuite(ctx context.Context, suiteID id.SuiteID) error
+    ListSuites(ctx context.Context, filter *ListFilter) ([]*Suite, error)
 }
-
-func (e *CohereEmbedder) Embed(ctx context.Context, texts []string) ([]embedder.EmbedResult, error) {
-    resp, err := e.client.Embed(ctx, &cohere.EmbedRequest{
-        Texts:     texts,
-        Model:     "embed-english-v3.0",
-        InputType: "search_document",
-    })
-    if err != nil {
-        return nil, err
-    }
-    results := make([]embedder.EmbedResult, len(resp.Embeddings))
-    for i, vec := range resp.Embeddings {
-        results[i] = embedder.EmbedResult{Vector: toFloat32(vec)}
-    }
-    return results, nil
-}
-
-func (e *CohereEmbedder) Dimensions() int { return e.dims }
-
-// Register:
-eng, _ := engine.New(engine.WithEmbedder(&CohereEmbedder{client: client, dims: 1024}))
 ```
 
-## Custom Loader
-
-Implement `loader.Loader` to extract text from a custom format:
+### testcase.Store
 
 ```go
-import (
-    "io"
-    "github.com/xraph/weave/loader"
-)
-
-type DocxLoader struct{}
-
-func (l *DocxLoader) Supports(mime string) bool {
-    return mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+type Store interface {
+    CreateCase(ctx context.Context, tc *Case) error
+    CreateCaseBatch(ctx context.Context, cases []*Case) error
+    GetCase(ctx context.Context, caseID id.CaseID) (*Case, error)
+    UpdateCase(ctx context.Context, tc *Case) error
+    DeleteCase(ctx context.Context, caseID id.CaseID) error
+    ListCases(ctx context.Context, suiteID id.SuiteID) ([]*Case, error)
+    CountCases(ctx context.Context, suiteID id.SuiteID) (int64, error)
+    ImportCases(ctx context.Context, suiteID id.SuiteID, format string, data []byte) (int64, error)
 }
-
-func (l *DocxLoader) Load(ctx context.Context, r io.Reader) (*loader.LoadResult, error) {
-    data, err := io.ReadAll(r)
-    if err != nil {
-        return nil, err
-    }
-    text, meta, err := extractDocx(data)
-    if err != nil {
-        return nil, fmt.Errorf("docx: %w", err)
-    }
-    return &loader.LoadResult{
-        Content:  text,
-        MimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        Metadata: meta,
-    }, nil
-}
-
-// Register:
-eng, _ := engine.New(engine.WithLoader(&DocxLoader{}))
 ```
 
-When ingesting a `.docx` file, set `SourceType` to trigger the loader:
+### evalrun.Store
 
 ```go
-eng.Ingest(ctx, &engine.IngestInput{
-    CollectionID: colID,
-    Content:      string(docxBytes),
-    SourceType:   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-})
+type Store interface {
+    CreateRun(ctx context.Context, r *Run) error
+    GetRun(ctx context.Context, runID id.EvalRunID) (*Run, error)
+    UpdateRun(ctx context.Context, r *Run) error
+    ListRuns(ctx context.Context, filter *ListFilter) ([]*Run, error)
+    ListRunsBySuite(ctx context.Context, suiteID id.SuiteID) ([]*Run, error)
+    CreateResult(ctx context.Context, result *Result) error
+    CreateResultBatch(ctx context.Context, results []*Result) error
+    ListResults(ctx context.Context, runID id.EvalRunID) ([]*Result, error)
+    GetResultStats(ctx context.Context, runID id.EvalRunID) (*ResultStats, error)
+}
 ```
 
-## Custom VectorStore
-
-Implement `vectorstore.VectorStore` to use any vector database:
+### baseline.Store
 
 ```go
-import "github.com/xraph/weave/vectorstore"
-
-type WeaviateStore struct {
-    client *weaviate.Client
+type Store interface {
+    SaveBaseline(ctx context.Context, b *Baseline) error
+    GetBaseline(ctx context.Context, baselineID id.BaselineID) (*Baseline, error)
+    GetLatestBaseline(ctx context.Context, suiteID id.SuiteID) (*Baseline, error)
+    ListBaselines(ctx context.Context, suiteID id.SuiteID) ([]*Baseline, error)
+    DeleteBaseline(ctx context.Context, baselineID id.BaselineID) error
 }
-
-func (s *WeaviateStore) Upsert(ctx context.Context, entries []vectorstore.Entry) error {
-    objects := make([]*models.Object, len(entries))
-    for i, e := range entries {
-        objects[i] = &models.Object{
-            ID:         strfmt.UUID(e.ID),
-            Class:      "WeaveChunk",
-            Vector:     toFloat64(e.Vector),
-            Properties: e.Metadata,
-        }
-    }
-    _, err := s.client.Batch().ObjectsBatcher().WithObjects(objects...).Do(ctx)
-    return err
-}
-
-func (s *WeaviateStore) Search(ctx context.Context, vector []float32, opts *vectorstore.SearchOptions) ([]vectorstore.SearchResult, error) {
-    // ... weaviate nearVector query
-}
-
-func (s *WeaviateStore) Delete(ctx context.Context, ids []string) error { /* ... */ }
-func (s *WeaviateStore) DeleteByMetadata(ctx context.Context, filter map[string]string) error { /* ... */ }
-
-// Register:
-eng, _ := engine.New(engine.WithVectorStore(&WeaviateStore{client: weaviateClient}))
 ```
 
-## Custom MetadataStore
-
-Implement `store.Store` (which embeds `collection.Store`, `document.Store`, `chunk.Store`) to use a different database:
+### promptversion.Store
 
 ```go
-import "github.com/xraph/weave/store"
+type Store interface {
+    CreatePromptVersion(ctx context.Context, pv *PromptVersion) error
+    GetPromptVersion(ctx context.Context, pvID id.PromptVersionID) (*PromptVersion, error)
+    ListPromptVersions(ctx context.Context, suiteID id.SuiteID) ([]*PromptVersion, error)
+    GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID) (*PromptVersion, error)
+    SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error
+}
+```
 
-// Your struct must implement all methods from:
-// - collection.Store (CreateCollection, GetCollection, ListCollections, DeleteCollection, ...)
-// - document.Store (CreateDocument, GetDocument, UpdateDocument, ListDocuments, DeleteDocument, ...)
-// - chunk.Store (CreateChunkBatch, ListChunksByDocument, DeleteChunksByDocument, ...)
-// - store.Store (Migrate, Ping, Close)
+## Compile-time check
 
-type MyStore struct{ /* ... */ }
+Use a compile-time assertion to verify your implementation satisfies all interfaces:
 
-var _ store.Store = (*MyStore)(nil) // compile-time check
+```go
+var _ store.Store = (*MyStore)(nil)
+```
 
+## Registering with the engine
+
+```go
 eng, _ := engine.New(engine.WithStore(&MyStore{}))
 ```
 
-See [store/store.go](https://github.com/xraph/weave/blob/main/store/store.go) for the full interface definition.
+## Reference implementations
+
+Study the existing implementations:
+
+| Backend | Package | Lines | Notes |
+|---------|---------|-------|-------|
+| Memory | `store/memory` | ~557 | Hash maps with RWMutex, simplest reference |
+| SQLite | `store/sqlite` | ~511 | Bun ORM, creates tables on Migrate() |
+| PostgreSQL | `store/postgres` | ~567 | Bun ORM, embedded SQL migrations |

@@ -1,0 +1,136 @@
+---
+title: Custom Plugin
+description: Build a custom Sentinel plugin by implementing lifecycle hook interfaces.
+---
+
+Sentinel's plugin system uses Go interfaces — implement only the hooks you need and register your plugin with the engine.
+
+## The base interface
+
+Every plugin must implement `plugin.Extension`:
+
+```go
+import "github.com/xraph/sentinel/plugin"
+
+type Extension interface {
+    Name() string
+}
+```
+
+## Choosing hooks
+
+Sentinel defines 16 lifecycle hooks as separate interfaces. Implement any combination:
+
+| Hook | Signature |
+|------|-----------|
+| `EvalRunStarted` | `OnEvalRunStarted(ctx, suiteID, runID, model)` |
+| `EvalRunCompleted` | `OnEvalRunCompleted(ctx, suiteID, runID, passRate, elapsed)` |
+| `EvalRunFailed` | `OnEvalRunFailed(ctx, suiteID, runID, err)` |
+| `CaseStarted` | `OnCaseStarted(ctx, runID, caseID)` |
+| `CaseCompleted` | `OnCaseCompleted(ctx, runID, caseID, score, elapsed)` |
+| `CaseFailed` | `OnCaseFailed(ctx, runID, caseID, err)` |
+| `RegressionDetected` | `OnRegressionDetected(ctx, suiteID, baselineID, delta)` |
+| `BaselineSaved` | `OnBaselineSaved(ctx, suiteID, baselineID)` |
+| `RedTeamStarted` | `OnRedTeamStarted(ctx, suiteID, attackCount)` |
+| `RedTeamCompleted` | `OnRedTeamCompleted(ctx, suiteID, bypassCount, elapsed)` |
+| `PersonaEvalStarted` | `OnPersonaEvalStarted(ctx, runID, personaName)` |
+| `PersonaEvalCompleted` | `OnPersonaEvalCompleted(ctx, runID, personaName, dimensions)` |
+| `PromptVersionCreated` | `OnPromptVersionCreated(ctx, suiteID, pvID, version)` |
+| `ComparisonCompleted` | `OnComparisonCompleted(ctx, suiteID, models, elapsed)` |
+| `Shutdown` | `OnShutdown(ctx)` |
+
+## Example: Slack notifier
+
+A plugin that sends a Slack message when a regression is detected:
+
+```go
+package slacknotifier
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/xraph/sentinel/id"
+    "github.com/xraph/sentinel/plugin"
+)
+
+// Compile-time checks.
+var (
+    _ plugin.Extension         = (*SlackNotifier)(nil)
+    _ plugin.RegressionDetected = (*SlackNotifier)(nil)
+    _ plugin.EvalRunCompleted   = (*SlackNotifier)(nil)
+)
+
+type SlackNotifier struct {
+    webhookURL string
+}
+
+func New(webhookURL string) *SlackNotifier {
+    return &SlackNotifier{webhookURL: webhookURL}
+}
+
+func (s *SlackNotifier) Name() string { return "slack-notifier" }
+
+func (s *SlackNotifier) OnRegressionDetected(
+    ctx context.Context,
+    suiteID id.SuiteID,
+    baselineID id.BaselineID,
+    delta float64,
+) error {
+    msg := fmt.Sprintf("Regression detected in suite %s: %.1f%% drop", suiteID, delta*100)
+    return sendSlackMessage(s.webhookURL, msg)
+}
+
+func (s *SlackNotifier) OnEvalRunCompleted(
+    ctx context.Context,
+    suiteID id.SuiteID,
+    runID id.EvalRunID,
+    passRate float64,
+    elapsed time.Duration,
+) error {
+    msg := fmt.Sprintf("Eval run %s completed: %.1f%% pass rate in %s", runID, passRate*100, elapsed)
+    return sendSlackMessage(s.webhookURL, msg)
+}
+```
+
+## Registering with the engine
+
+Pass your plugin via `engine.WithExtension`:
+
+```go
+import (
+    "github.com/xraph/sentinel/engine"
+    slacknotifier "myapp/sentinel-slack"
+)
+
+eng, err := engine.New(
+    engine.WithStore(store),
+    engine.WithExtension(slacknotifier.New("https://hooks.slack.com/...")),
+)
+```
+
+Or when using the Forge extension adapter:
+
+```go
+import "github.com/xraph/sentinel/extension"
+
+sentinelExt := extension.New(
+    extension.WithStore(store),
+    extension.WithExtension(slacknotifier.New("https://hooks.slack.com/...")),
+)
+```
+
+## How dispatch works
+
+The engine's plugin registry uses type assertions at registration time to discover which hooks each plugin implements. When an event fires, only plugins that implement that specific hook are called. Hooks are invoked sequentially in registration order — if any hook returns an error, it is logged but does not abort the operation.
+
+## Built-in plugins
+
+Sentinel ships two built-in plugins you can use as reference implementations:
+
+| Plugin | Package | Hooks |
+|--------|---------|-------|
+| Metrics | `observability` | `EvalRunStarted`, `EvalRunCompleted`, `EvalRunFailed`, `CaseCompleted`, `CaseFailed`, `RegressionDetected` |
+| Audit | `audit_hook` | All 16 hooks |
+
+See [Observability](/docs/infrastructure/observability) and [Audit Trail](/docs/infrastructure/audit) for details.

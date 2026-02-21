@@ -1,9 +1,9 @@
 ---
-title: End-to-End RAG Pipeline
-description: Complete walkthrough — create a collection, ingest documents, retrieve context, and build a prompt for an LLM.
+title: End-to-End Evaluation Pipeline
+description: Complete walkthrough — create a suite, add cases, run evaluations, save baselines, and detect regressions.
 ---
 
-This guide builds a complete RAG pipeline from scratch using PostgreSQL, pgvector, and the OpenAI embedder.
+This guide builds a complete evaluation pipeline from scratch using PostgreSQL and the Sentinel engine.
 
 ## 1. Set up the engine
 
@@ -17,186 +17,203 @@ import (
     "log"
     "os"
 
-    "github.com/jackc/pgx/v5/pgxpool"
     "github.com/uptrace/bun"
     "github.com/uptrace/bun/dialect/pgdialect"
     "github.com/uptrace/bun/driver/pgdriver"
 
-    "github.com/xraph/weave"
-    "github.com/xraph/weave/assembler"
-    "github.com/xraph/weave/embedder"
-    "github.com/xraph/weave/engine"
-    "github.com/xraph/weave/collection"
-    pgstore "github.com/xraph/weave/store/postgres"
-    pgvec "github.com/xraph/weave/vectorstore/pgvector"
+    "github.com/xraph/sentinel"
+    "github.com/xraph/sentinel/engine"
+    "github.com/xraph/sentinel/suite"
+    "github.com/xraph/sentinel/testcase"
+    "github.com/xraph/sentinel/baseline"
+    pgstore "github.com/xraph/sentinel/store/postgres"
 )
 
 func main() {
     ctx := context.Background()
 
-    // PostgreSQL metadata store
+    // PostgreSQL store
     sqldb := sql.OpenDB(pgdriver.NewConnector(
         pgdriver.WithDSN(os.Getenv("DATABASE_URL")),
     ))
     db := bun.NewDB(sqldb, pgdialect.New())
-    metaStore := pgstore.New(db)
-
-    // pgvector store
-    pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
-    if err != nil {
-        log.Fatal(err)
-    }
-    vecStore := pgvec.New(pool)
-
-    // OpenAI embedder
-    emb := embedder.NewOpenAI(
-        embedder.WithOpenAIKey(os.Getenv("OPENAI_API_KEY")),
-    )
+    store := pgstore.New(db)
 
     // Build engine
     eng, err := engine.New(
-        engine.WithStore(metaStore),
-        engine.WithVectorStore(vecStore),
-        engine.WithEmbedder(emb),
+        engine.WithStore(store),
+        engine.WithConfig(sentinel.Config{
+            DefaultModel:  "gpt-4o",
+            PassThreshold: 0.7,
+            Concurrency:   4,
+        }),
     )
     if err != nil {
         log.Fatal(err)
     }
 
     // Run migrations
-    if err := metaStore.Migrate(ctx); err != nil {
+    if err := store.Migrate(ctx); err != nil {
         log.Fatal("migrate:", err)
     }
-    if err := vecStore.Migrate(ctx); err != nil {
-        log.Fatal("migrate vectors:", err)
-    }
 
-    // Set tenant scope
-    ctx = weave.WithTenant(ctx, "acme-corp")
-    ctx = weave.WithApp(ctx, "support-bot")
+    // Set scope
+    ctx = sentinel.WithApp(ctx, "support-bot")
+    ctx = sentinel.WithTenant(ctx, "acme-corp")
 
     run(ctx, eng)
 }
 ```
 
-## 2. Create a collection
+## 2. Create a suite
 
 ```go
 func run(ctx context.Context, eng *engine.Engine) {
-    col := &collection.Collection{
-        Name:           "product-docs",
-        EmbeddingModel: "text-embedding-3-small",
-        EmbeddingDims:  1536,
-        ChunkStrategy:  "recursive",
-        ChunkSize:      512,
-        ChunkOverlap:   50,
+    s := &suite.Suite{
+        Name:         "support-agent-eval",
+        Description:  "Evaluate the customer support agent",
+        SystemPrompt: "You are a helpful customer support assistant for Acme Corp.",
+        Model:        "gpt-4o",
+        Temperature:  0,
     }
-    if err := eng.CreateCollection(ctx, col); err != nil {
-        log.Fatal("create collection:", err)
+    if err := eng.CreateSuite(ctx, s); err != nil {
+        log.Fatal("create suite:", err)
     }
-    fmt.Println("created collection:", col.ID)
+    fmt.Println("created suite:", s.ID)
 ```
 
-## 3. Ingest documents
+## 3. Add test cases
 
 ```go
-    documents := []struct{ title, content string }{
+    cases := []*testcase.Case{
         {
-            title:   "Return Policy",
-            content: "Our return policy allows returns within 30 days of purchase. Items must be in original condition with all tags attached. Refunds are processed within 5-7 business days.",
+            SuiteID:      s.ID,
+            Name:         "greeting",
+            Input:        "Hello, I need help with my order #12345",
+            Expected:     "Professional greeting, acknowledges the order number",
+            ScenarioType: testcase.ScenarioStandard,
+            Scorers: []testcase.ScorerConfig{
+                {Name: "contains", Config: map[string]any{"substring": "12345"}},
+                {Name: "llm_judge", Config: map[string]any{
+                    "criteria": "Professional greeting that acknowledges the specific order",
+                }},
+            },
+            Tags: []string{"greeting", "order"},
         },
         {
-            title:   "Shipping Policy",
-            content: "Standard shipping takes 5-7 business days. Expedited shipping takes 2-3 business days. We ship to all 50 US states and internationally to 45 countries.",
+            SuiteID:      s.ID,
+            Name:         "refund-policy",
+            Input:        "What is your refund policy?",
+            Expected:     "Accurate refund policy with timeframes",
+            ScenarioType: testcase.ScenarioStandard,
+            Scorers: []testcase.ScorerConfig{
+                {Name: "contains", Config: map[string]any{"substring": "refund"}},
+                {Name: "factual", Config: map[string]any{}},
+            },
+            Tags: []string{"policy", "refund"},
         },
         {
-            title:   "Warranty Information",
-            content: "All products come with a 1-year limited warranty. The warranty covers manufacturing defects but not accidental damage. Contact support@acme.com to file a warranty claim.",
+            SuiteID:      s.ID,
+            Name:         "out-of-scope",
+            Input:        "Can you help me write Python code?",
+            Expected:     "Polite redirect to support topics",
+            ScenarioType: testcase.ScenarioStandard,
+            Scorers: []testcase.ScorerConfig{
+                {Name: "llm_judge", Config: map[string]any{
+                    "criteria": "Politely redirects to customer support topics without writing code",
+                }},
+            },
+            Tags: []string{"boundary", "off-topic"},
         },
     }
 
-    for _, doc := range documents {
-        result, err := eng.Ingest(ctx, &engine.IngestInput{
-            CollectionID: col.ID,
-            Title:        doc.title,
-            Content:      doc.content,
-        })
-        if err != nil {
-            log.Printf("ingest %q: %v", doc.title, err)
-            continue
-        }
-        fmt.Printf("ingested %q: %d chunks\n", doc.title, result.ChunkCount)
+    if err := eng.CreateCaseBatch(ctx, cases); err != nil {
+        log.Fatal("create cases:", err)
     }
+    fmt.Printf("created %d cases\n", len(cases))
 ```
 
-## 4. Retrieve relevant context
+## 4. Run the evaluation
+
+Evaluations are triggered via the HTTP API (`POST /sentinel/suites/:id/run`) or programmatically through the eval runner. After execution:
 
 ```go
-    userQuery := "How long do I have to return a product?"
-
-    results, err := eng.Retrieve(ctx, userQuery,
-        engine.WithCollection(col.ID),
-        engine.WithTopK(5),
-        engine.WithMinScore(0.7),
-    )
+    // List runs for the suite
+    runs, err := eng.ListRunsBySuite(ctx, s.ID)
     if err != nil {
-        log.Fatal("retrieve:", err)
+        log.Fatal("list runs:", err)
     }
 
-    fmt.Printf("retrieved %d chunks\n", len(results))
+    if len(runs) == 0 {
+        fmt.Println("no runs yet — trigger via API: POST /sentinel/suites/" + s.ID.String() + "/run")
+        return
+    }
+
+    run := runs[0]
+    fmt.Printf("run %s: %d/%d passed (%.1f%%)\n", run.ID, run.Passed, run.TotalCases, run.PassRate*100)
+```
+
+## 5. Review results
+
+```go
+    results, _ := eng.ListResults(ctx, run.ID)
     for _, r := range results {
-        fmt.Printf("  [%.2f] %s\n", r.Score, r.Chunk.Content[:60])
+        fmt.Printf("  [%s] %s: %.2f (%s)\n", r.Status, r.CaseName, r.Score, r.Output[:50])
     }
+
+    stats, _ := eng.GetResultStats(ctx, run.ID)
+    fmt.Printf("stats: %d total, %d passed, avg score %.2f\n",
+        stats.TotalCases, stats.Passed, stats.AvgScore)
 ```
 
-## 5. Assemble context and call LLM
+## 6. Save a baseline
 
 ```go
-    // Convert to retriever.Result for the assembler
-    retResults := make([]retriever.Result, len(results))
-    for i, r := range results {
-        retResults[i] = retriever.Result{Chunk: r.Chunk, Score: r.Score}
+    b := &baseline.Baseline{
+        SuiteID:   s.ID,
+        RunID:     run.ID,
+        Name:      "v1.0-baseline",
+        PassRate:  run.PassRate,
+        AvgScore:  run.AvgScore,
+        IsCurrent: true,
     }
-
-    // Assemble with 3000-token budget
-    a := assembler.New(assembler.WithMaxTokens(3000))
-    assembled, err := a.Assemble(ctx, retResults)
-    if err != nil {
-        log.Fatal("assemble:", err)
+    if err := eng.SaveBaseline(ctx, b); err != nil {
+        log.Fatal("save baseline:", err)
     }
+    fmt.Println("saved baseline:", b.ID)
+```
 
-    // Build the final prompt
-    prompt := fmt.Sprintf(`You are a helpful customer support assistant.
+## 7. Detect regressions
 
-Context:
-%s
+On subsequent runs, compare against the baseline:
 
-Question: %s
+```go
+    latest, _ := eng.GetLatestBaseline(ctx, s.ID)
+    fmt.Printf("baseline: %.1f%% pass rate, %.2f avg score\n",
+        latest.PassRate*100, latest.AvgScore)
 
-Answer based only on the context above.`, assembled.Context, userQuery)
-
-    fmt.Println("--- PROMPT ---")
-    fmt.Println(prompt)
-    // Pass prompt to your LLM of choice
+    // Compare: if new run's pass rate < baseline's, regression detected
+    if run.PassRate < latest.PassRate {
+        fmt.Printf("REGRESSION: pass rate dropped from %.1f%% to %.1f%%\n",
+            latest.PassRate*100, run.PassRate*100)
+    }
 }
 ```
 
-## 6. Cross-collection search
+## 8. Multi-model comparison
 
-For applications with multiple collections (e.g. per-product-line docs), use `HybridSearch`:
+Compare the same suite across different models via the API:
 
-```go
-results, err := eng.HybridSearch(ctx, userQuery,
-    &engine.HybridSearchParams{
-        Collections: []id.CollectionID{col1ID, col2ID},
-        TopK:        10,
-        MinScore:    0.7,
-    },
-)
+```
+POST /sentinel/suites/:id/compare
+{
+    "models": ["gpt-4o", "claude-3-opus", "gpt-4o-mini"],
+    "temperature": 0
+}
 ```
 
-Results are merged and re-ranked by score before being returned.
+Results include per-model pass rates, scores, latency, cost, and dimension scores.
 
 ## Complete code
 
-The full runnable example is in `examples/rag-pipeline/main.go` in the Weave repository.
+The full runnable example follows the pattern above. For production, wire everything through the Forge extension as shown in the [Forge Extension guide](/docs/guides/forge-extension).

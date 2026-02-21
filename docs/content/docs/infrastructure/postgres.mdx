@@ -10,7 +10,7 @@ The `store/postgres` package provides a production-ready implementation of the c
 ```go
 import (
     "github.com/uptrace/bun"
-    "github.com/xraph/cortex/store/postgres"
+    "github.com/xraph/sentinel/store/postgres"
 )
 
 db := connectDB() // your *bun.DB connection
@@ -28,39 +28,33 @@ The PostgreSQL store creates the following tables:
 
 | Table | Entity | Key columns |
 |-------|--------|-------------|
-| `cortex_agents` | Agent configs | `id`, `app_id`, `name`, `system_prompt`, `persona_ref` |
-| `cortex_skills` | Skills | `id`, `app_id`, `name`, `tools` (JSONB), `knowledge` (JSONB) |
-| `cortex_traits` | Traits | `id`, `app_id`, `name`, `dimensions` (JSONB), `influences` (JSONB) |
-| `cortex_behaviors` | Behaviors | `id`, `app_id`, `name`, `triggers` (JSONB), `actions` (JSONB) |
-| `cortex_personas` | Personas | `id`, `app_id`, `name`, `identity`, embedded styles (JSONB) |
-| `cortex_runs` | Runs | `id`, `agent_id`, `tenant_id`, `state`, `input`, `output` |
-| `cortex_steps` | Steps | `id`, `run_id`, `index`, `type` |
-| `cortex_tool_calls` | Tool calls | `id`, `step_id`, `run_id`, `tool_name` |
+| `sentinel_suites` | Suites | `id`, `app_id`, `name`, `system_prompt`, `model`, `persona_ref`, `metadata` (JSONB) |
+| `sentinel_cases` | Cases | `id`, `suite_id`, `name`, `input`, `expected`, `scenario_type`, `scorers` (JSONB), `tags` (JSONB) |
+| `sentinel_runs` | Runs | `id`, `suite_id`, `app_id`, `model`, `state`, `pass_rate`, `avg_score`, `dimension_scores` (JSONB) |
+| `sentinel_results` | Results | `id`, `run_id`, `case_id`, `status`, `score`, `output`, `scorer_results` (JSONB), `run_trace` (JSONB) |
+| `sentinel_baselines` | Baselines | `id`, `suite_id`, `run_id`, `name`, `results` (JSONB), `dimension_scores` (JSONB), `is_current` |
+| `sentinel_prompt_versions` | Prompt versions | `id`, `suite_id`, `version`, `system_prompt`, `changelog`, `is_current` |
 
 ## JSONB columns
 
 Complex nested structures are stored as JSONB columns:
 
-- Skill tools and knowledge → `tools JSONB`, `knowledge JSONB`
-- Trait dimensions and influences → `dimensions JSONB`, `influences JSONB`
-- Behavior triggers and actions → `triggers JSONB`, `actions JSONB`
-- Persona styles → `cognitive_style JSONB`, `communication_style JSONB`, `perception JSONB`
+- Case scorers and tags → `scorers JSONB`, `tags JSONB`
+- Result scorer outputs and run trace → `scorer_results JSONB`, `run_trace JSONB`
+- Dimension scores → `dimension_scores JSONB`
 - All entities → `metadata JSONB`
 
 ## Composite store interface
 
-The PostgreSQL store implements all 8 sub-interfaces:
+The PostgreSQL store implements all 5 sub-interfaces:
 
 ```go
 type Store interface {
-    agent.Store      // 6 methods
-    skill.Store      // 6 methods
-    trait.Store      // 6 methods
-    behavior.Store   // 6 methods
-    persona.Store    // 6 methods
-    run.Store        // 8 methods
-    memory.Store     // 8 methods
-    checkpoint.Store // 4 methods
+    suite.Store         // 6 methods
+    testcase.Store      // 7 methods
+    evalrun.Store       // 5 methods
+    baseline.Store      // 5 methods
+    promptversion.Store // 5 methods
 
     Migrate(ctx context.Context) error
     Ping(ctx context.Context) error
@@ -70,7 +64,23 @@ type Store interface {
 
 ## Embedded migrations
 
-Migrations are embedded in the binary using `embed.FS` and run automatically when `Migrate()` is called. There is no need for external migration tools.
+Migrations are embedded in the binary using `embed.FS` and run automatically when `Migrate()` is called. There are 5 migration files:
+
+1. `001_suites.sql` — Creates `sentinel_suites`
+2. `002_cases.sql` — Creates `sentinel_cases`
+3. `003_runs.sql` — Creates `sentinel_runs` and `sentinel_results`
+4. `004_baselines.sql` — Creates `sentinel_baselines`
+5. `005_prompt_versions.sql` — Creates `sentinel_prompt_versions`
+
+## Other store backends
+
+| Backend | Package | Use case |
+|---------|---------|----------|
+| PostgreSQL | `store/postgres` | Production |
+| SQLite | `store/sqlite` | Development, testing, single-machine deployments |
+| Memory | `store/memory` | Unit tests, ephemeral evaluations |
+
+All three backends implement the same `store.Store` interface identically.
 
 ## Usage with engine
 

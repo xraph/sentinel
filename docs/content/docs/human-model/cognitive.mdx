@@ -1,34 +1,48 @@
 ---
-title: Cognitive Style
-description: Define how an agent thinks — phase-based reasoning strategies.
+title: Cognitive Evaluation
+description: Test how an agent thinks — phase transitions, depth, and reasoning strategy.
 ---
 
-**Cognitive Style** replaces rigid reasoning loop selection with a phase-based thinking strategy chain. Instead of picking a single strategy ("react" or "chain-of-thought"), you define multiple phases that transition based on conditions.
+**Cognitive evaluation** tests whether an agent follows appropriate thinking strategies, transitions between cognitive phases correctly, and maintains the right depth and focus.
 
-## Structure
+## What it tests
+
+- Does the agent transition between thinking phases appropriately?
+- Does depth of analysis match expectations (shallow vs. deep)?
+- Does focus remain appropriate (broad vs. narrow)?
+- Does the agent self-reflect when needed?
+
+## Scorer: `cognitive_phase`
+
+The `cognitive_phase` scorer evaluates the agent's reasoning strategy transitions by analyzing the run trace:
 
 ```go
-type Style struct {
-    Phases              []Phase
-    DepthPreference     float64 // 0.0 = shallow, 1.0 = deep
-    FocusPreference     float64 // 0.0 = broad, 1.0 = narrow
-    ReflectionFrequency float64 // how often to self-reflect
+testcase.ScorerConfig{
+    Name: "cognitive_phase",
+    Config: map[string]any{
+        "expected_phases": []string{"analytical", "reflective", "methodical"},
+        "depth_min":       0.7,
+        "focus_min":       0.5,
+    },
 }
 ```
 
-## Phases
+## Scenario: `cognitive_stress`
 
-A phase represents one stage in a cognitive strategy chain:
+The `cognitive_stress` scenario generator creates test cases that require the agent to shift thinking strategies:
 
 ```go
-type Phase struct {
-    Strategy   Strategy
-    MaxSteps   int
-    Transition TransitionCondition
+Case{
+    ScenarioType: testcase.ScenarioCognitiveStress,
+    Input:        "This function has both a performance bug and a security issue. Fix the critical one first, then address the other.",
+    Context: map[string]any{
+        "expected_phases": []string{"analytical", "methodical"},
+        "depth_required":  "deep",
+    },
 }
 ```
 
-### Strategies
+## Cognitive strategies
 
 | Strategy | Description |
 |----------|-------------|
@@ -39,56 +53,14 @@ type Phase struct {
 | `reflective` | Self-evaluating, iterative refinement |
 | `collaborative` | Seeks input, considers multiple perspectives |
 
-### Transition conditions
-
-| Condition | Description |
-|-----------|-------------|
-| `after_steps` | Transition after `MaxSteps` reasoning steps |
-| `on_stuck` | Transition when progress stalls |
-| `on_plan_complete` | Transition when the current plan is finished |
-| `on_error` | Transition when an error occurs |
-
-## Multi-phase example
-
-A three-phase cognitive style for a code reviewer:
+## Dimension score
 
 ```go
-cognitive.Style{
-    Phases: []cognitive.Phase{
-        {
-            Strategy:   cognitive.StrategyAnalytical,
-            MaxSteps:   5,
-            Transition: cognitive.TransitionAfterSteps,
-        },
-        {
-            Strategy:   cognitive.StrategyReflective,
-            MaxSteps:   3,
-            Transition: cognitive.TransitionAfterSteps,
-        },
-        {
-            Strategy:   cognitive.StrategyMethodical,
-            MaxSteps:   10,
-            Transition: cognitive.TransitionOnPlanComplete,
-        },
-    },
-    DepthPreference:     0.8,
-    FocusPreference:     0.6,
-    ReflectionFrequency: 0.5,
-}
+result.DimensionScores["cognition"] // 0.0 to 1.0
 ```
 
-This style starts with analytical examination, reflects on initial findings, then methodically addresses each issue.
+## Use cases
 
-## Embedding in a persona
-
-Cognitive style is a value object embedded directly in the persona:
-
-```go
-persona := &persona.Persona{
-    CognitiveStyle: cognitive.Style{
-        Phases: []cognitive.Phase{
-            {Strategy: cognitive.StrategyAnalytical},
-        },
-    },
-}
-```
+- Verify a code reviewer starts with analysis, then reflects on findings, then methodically addresses issues
+- Test that an agent switches from broad exploration to focused investigation when it finds a lead
+- Ensure deep analysis for complex tasks, quick responses for simple ones

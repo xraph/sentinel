@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Install Cortex and create your first agent in under five minutes.
+description: Install Sentinel and run your first evaluation in under five minutes.
 ---
 
 ## Prerequisites
@@ -11,12 +11,12 @@ description: Install Cortex and create your first agent in under five minutes.
 ## Install
 
 ```bash
-go get github.com/xraph/cortex
+go get github.com/xraph/sentinel
 ```
 
 ## Step 1: Create the engine
 
-The Cortex engine is the central coordinator. It needs a store for persistence:
+The Sentinel engine is the central coordinator. It needs a store for persistence:
 
 ```go
 package main
@@ -25,23 +25,19 @@ import (
     "context"
     "log"
 
-    "github.com/xraph/cortex/engine"
-    "github.com/xraph/cortex/store/postgres"
+    "github.com/xraph/sentinel/engine"
+    "github.com/xraph/sentinel/store/memory"
 )
 
 func main() {
     ctx := context.Background()
 
-    db := connectDB() // your *bun.DB connection
-    pgStore := postgres.New(db)
+    // Use the in-memory store for development.
+    memStore := memory.New()
 
-    // Run migrations.
-    if err := pgStore.Migrate(ctx); err != nil {
-        log.Fatal(err)
-    }
-
+    // Build the Sentinel engine.
     eng, err := engine.New(
-        engine.WithStore(pgStore),
+        engine.WithStore(memStore),
     )
     if err != nil {
         log.Fatal(err)
@@ -53,142 +49,123 @@ func main() {
 }
 ```
 
+For production, use PostgreSQL or SQLite:
+
+```go
+import "github.com/xraph/sentinel/store/postgres"
+
+pgStore := postgres.New(db) // your *bun.DB
+if err := pgStore.Migrate(ctx); err != nil {
+    log.Fatal(err)
+}
+```
+
 ## Step 2: Set up a scoped context
 
-Cortex extracts the tenant ID and app ID from the context and stamps them onto every entity:
+Sentinel extracts the app ID from the context and stamps it onto every entity:
 
 ```go
-import "github.com/xraph/cortex"
+import "github.com/xraph/sentinel"
 
-ctx = cortex.WithTenant(ctx, "tenant-1")
-ctx = cortex.WithApp(ctx, "myapp")
+ctx = sentinel.WithTenant(ctx, "tenant-1")
+ctx = sentinel.WithApp(ctx, "myapp")
 ```
 
-`WithTenant` is required for multi-tenant isolation. All operations are automatically scoped — cross-tenant access is structurally impossible.
+`WithApp` is required. All operations are automatically scoped — cross-app access is structurally impossible.
 
-## Step 3: Create a skill
+## Step 3: Create a suite
 
-A skill defines what an agent can do. It bundles tools with contextual guidance:
+A suite groups related test cases together with a shared system prompt and model:
 
 ```go
-import (
-    "github.com/xraph/cortex/id"
-    "github.com/xraph/cortex/skill"
-)
+import "github.com/xraph/sentinel/suite"
 
-codeReview := &skill.Skill{
-    ID:          id.NewSkillID(),
-    Name:        "code-review",
-    AppID:       "myapp",
-    Description: "Review pull requests for bugs, style, and security issues",
-    Tools: []skill.ToolBinding{
-        {ToolName: "read_file", Mastery: skill.ProficiencyExpert},
-        {ToolName: "search_code", Mastery: skill.ProficiencyProficient},
-    },
-    SystemPromptFragment: "You are an expert code reviewer. Focus on correctness, security, and maintainability.",
-    DefaultProficiency:   skill.ProficiencyProficient,
+s := &suite.Suite{
+    Name:         "customer-support-eval",
+    Description:  "Evaluate the customer support agent",
+    SystemPrompt: "You are a helpful customer support assistant.",
+    Model:        "gpt-4o",
+    Temperature:  0,
 }
-if err := eng.CreateSkill(ctx, codeReview); err != nil {
+if err := eng.CreateSuite(ctx, s); err != nil {
     log.Fatal(err)
 }
 ```
 
-## Step 4: Create a trait
+## Step 4: Add test cases
 
-A trait defines who an agent is — a personality dimension with bipolar axes:
+Test cases define individual evaluations with input, expected output, and scorers:
 
 ```go
-import "github.com/xraph/cortex/trait"
+import "github.com/xraph/sentinel/testcase"
 
-thoroughness := &trait.Trait{
-    ID:       id.NewTraitID(),
-    Name:     "thoroughness",
-    AppID:    "myapp",
-    Category: trait.CategoryWorkstyle,
-    Dimensions: []trait.Dimension{
-        {Name: "depth", LowLabel: "surface-level", HighLabel: "exhaustive", Value: 0.85},
+cases := []*testcase.Case{
+    {
+        SuiteID:      s.ID,
+        Name:         "greeting",
+        Input:        "Hello, I need help with my order",
+        Expected:     "professional greeting with offer to help",
+        ScenarioType: testcase.ScenarioStandard,
+        Scorers: []testcase.ScorerConfig{
+            {Name: "contains", Config: map[string]any{"substring": "help"}},
+            {Name: "llm_judge", Config: map[string]any{"criteria": "professional and helpful"}},
+        },
     },
-    Influences: []trait.Influence{
-        {Target: trait.TargetMaxSteps, Value: 30, Weight: 0.8},
+    {
+        SuiteID:      s.ID,
+        Name:         "refund-policy",
+        Input:        "What is your refund policy?",
+        Expected:     "accurate refund policy information",
+        ScenarioType: testcase.ScenarioStandard,
+        Scorers: []testcase.ScorerConfig{
+            {Name: "contains", Config: map[string]any{"substring": "refund"}},
+            {Name: "factual", Config: map[string]any{}},
+        },
     },
 }
-if err := eng.CreateTrait(ctx, thoroughness); err != nil {
+if err := eng.CreateCaseBatch(ctx, cases); err != nil {
     log.Fatal(err)
 }
 ```
 
-## Step 5: Create a persona
+## Step 5: Query results
 
-A persona composes skills, traits, behaviors, and styles into a complete identity:
+After running an evaluation (via the HTTP API or the runner), query the results:
 
 ```go
-import (
-    "github.com/xraph/cortex/persona"
-    "github.com/xraph/cortex/communication"
-)
+// List runs for a suite
+runs, _ := eng.ListRunsBySuite(ctx, s.ID)
 
-seniorEng := &persona.Persona{
-    ID:       id.NewPersonaID(),
-    Name:     "senior-engineer",
-    AppID:    "myapp",
-    Identity: "A senior software engineer with 10+ years of experience",
-    Skills: []persona.SkillAssignment{
-        {SkillName: "code-review", Proficiency: skill.ProficiencyExpert},
-    },
-    Traits: []persona.TraitAssignment{
-        {TraitName: "thoroughness", DimensionValues: map[string]float64{"depth": 0.9}},
-    },
-    CommunicationStyle: communication.Style{
-        Tone:           "professional",
-        Formality:      0.7,
-        Verbosity:      0.5,
-        TechnicalLevel: 0.9,
-    },
-}
-if err := eng.CreatePersona(ctx, seniorEng); err != nil {
-    log.Fatal(err)
-}
+// Get results for a specific run
+results, _ := eng.ListResults(ctx, runs[0].ID)
+
+// Get aggregate statistics
+stats, _ := eng.GetResultStats(ctx, runs[0].ID)
 ```
 
-## Step 6: Create an agent
+## Step 6: Save a baseline
 
-An agent references a persona (or defines skills/traits inline):
+Capture a known-good run as a baseline for regression detection:
 
 ```go
-import "github.com/xraph/cortex/agent"
+import "github.com/xraph/sentinel/baseline"
 
-agentCfg := &agent.Config{
-    ID:         id.NewAgentID(),
-    Name:       "reviewer-bot",
-    AppID:      "myapp",
-    PersonaRef: "senior-engineer",
-    Model:      "gpt-4o",
-    MaxSteps:   25,
-    Enabled:    true,
+b := &baseline.Baseline{
+    SuiteID:   s.ID,
+    RunID:     runs[0].ID,
+    Name:      "v1-baseline",
+    PassRate:  stats.PassRate,
+    AvgScore:  stats.AvgScore,
+    IsCurrent: true,
 }
-if err := eng.CreateAgent(ctx, agentCfg); err != nil {
+if err := eng.SaveBaseline(ctx, b); err != nil {
     log.Fatal(err)
 }
-```
-
-## Step 7: Run the agent via API
-
-If you are using the Forge extension, you get 36 REST endpoints automatically. You can also invoke the engine directly:
-
-```go
-// List agents
-agents, _ := eng.ListAgents(ctx, &agent.ListFilter{AppID: "myapp"})
-
-// Get a specific agent
-a, _ := eng.GetAgentByName(ctx, "myapp", "reviewer-bot")
-
-// List runs for an agent
-runs, _ := eng.ListRuns(ctx, &run.ListFilter{AgentID: a.ID.String()})
 ```
 
 ## Next steps
 
 - [Architecture](/docs/architecture) — Understand how the packages fit together
-- [The Human Model](/docs/human-model/overview) — Deep dive into Skills, Traits, and Personas
-- [Forge Extension](/docs/guides/forge-extension) — Wire Cortex into a Forge application
+- [The Human Model](/docs/human-model/overview) — Deep dive into persona-aware evaluation dimensions
+- [Forge Extension](/docs/guides/forge-extension) — Wire Sentinel into a Forge application
 - [PostgreSQL Store](/docs/infrastructure/postgres) — Production persistence setup

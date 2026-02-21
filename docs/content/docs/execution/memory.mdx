@@ -1,61 +1,60 @@
 ---
-title: Memory
-description: Conversation history, working memory, and summaries for agent context.
+title: Red Team / Adversarial Testing
+description: Test AI agents against adversarial attacks — prompt injection, jailbreaks, data leakage, hallucination, and off-topic manipulation.
 ---
 
-Cortex provides three types of memory for maintaining context across interactions:
+Sentinel includes a red team module that generates adversarial test cases to probe an agent's safety and robustness.
 
-## Memory types
+## Attack types
 
-### Conversation memory
+Five attack generators are available in the `redteam` package:
 
-Stores the full message history between a user and an agent. Scoped by agent ID and tenant ID.
+| Attack | Description |
+|--------|-------------|
+| **Prompt Injection** | Inject commands into user input to override system instructions |
+| **Jailbreak** | Attempt to bypass safety guidelines and content policies |
+| **Leakage** | Extract system prompts, internal knowledge, or confidential data |
+| **Hallucination** | Probe for fabricated information or made-up facts |
+| **Off-Topic** | Manipulate the agent away from its intended purpose |
 
-### Working memory
+## How it works
 
-Temporary key-value storage for a single run. Used for intermediate reasoning state. Cleared when the run completes.
+1. **Generate attacks** — The red team module generates adversarial test cases for a suite
+2. **Run against target** — Each attack case is sent to the target agent
+3. **Evaluate defenses** — Scorers check whether the agent resisted the attack
+4. **Report results** — Summarize bypass rate, vulnerability patterns, and recommendations
 
-### Summary memory
+## Using red team via API
 
-Compressed summaries of past conversations. Used to provide context when the full conversation history is too long.
+```
+POST /sentinel/redteam/:suiteId/generate
+```
 
-## Message
+Generates adversarial cases targeting the suite's system prompt and persona. The generated cases are added to the suite with appropriate scorers.
+
+```
+POST /sentinel/redteam/:suiteId/run
+```
+
+Runs the adversarial evaluation and reports results including bypass count and attack success rates.
+
+## Plugin hooks
+
+Red team evaluations fire dedicated lifecycle hooks:
 
 ```go
-type Message struct {
-    Role      string         // "user", "assistant", "system", "tool"
-    Content   string
-    ToolCalls []any
-    Metadata  map[string]any
-    Timestamp time.Time
+type RedTeamStarted interface {
+    OnRedTeamStarted(ctx context.Context, suiteID id.SuiteID, attackCount int) error
+}
+
+type RedTeamCompleted interface {
+    OnRedTeamCompleted(ctx context.Context, suiteID id.SuiteID, bypassCount int, elapsed time.Duration) error
 }
 ```
 
-## Store interface
+## Use cases
 
-```go
-type Store interface {
-    // Conversation memory
-    SaveConversation(ctx context.Context, agentID id.AgentID, tenantID string, messages []Message) error
-    LoadConversation(ctx context.Context, agentID id.AgentID, tenantID string, limit int) ([]Message, error)
-    ClearConversation(ctx context.Context, agentID id.AgentID, tenantID string) error
-
-    // Working memory
-    SaveWorking(ctx context.Context, runID id.AgentRunID, key string, value any) error
-    LoadWorking(ctx context.Context, runID id.AgentRunID, key string) (any, error)
-    ClearWorking(ctx context.Context, runID id.AgentRunID) error
-
-    // Summary memory
-    SaveSummary(ctx context.Context, agentID id.AgentID, tenantID string, summary string) error
-    LoadSummaries(ctx context.Context, agentID id.AgentID, tenantID string) ([]string, error)
-}
-```
-
-The memory store has 8 methods across three memory types. All conversation and summary operations are scoped by agent ID and tenant ID.
-
-## API routes
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/cortex/agents/{name}/memory` | Load conversation history |
-| `DELETE` | `/cortex/agents/{name}/memory` | Clear conversation history |
+- Pre-deployment safety testing for customer-facing agents
+- Continuous red team evaluation in CI/CD pipelines
+- Compliance testing for agents handling sensitive data
+- Benchmarking defense improvements across prompt versions

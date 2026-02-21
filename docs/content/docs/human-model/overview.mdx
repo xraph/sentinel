@@ -1,74 +1,96 @@
 ---
 title: The Human Model
-description: How Cortex models AI agents as compositions of human-like traits, skills, and behaviors.
+description: How Sentinel evaluates AI agents as compositions of human-like dimensions.
 ---
 
-Cortex takes a fundamentally different approach to AI agent design. Instead of writing system prompts imperatively ("You are a helpful assistant that..."), you declare an agent's identity using the same building blocks that make humans unique.
+Sentinel takes a fundamentally different approach to AI evaluation. Instead of only testing input/output accuracy, you evaluate agents across the same dimensions that make humans unique.
 
 ## Philosophy
 
-People are not defined by a single instruction. They are the product of:
+People are not defined by a single metric. They are evaluated across:
 
-- **Skills** they have learned (what they can do)
-- **Personality traits** that shape how they work
-- **Behavioral habits** that emerge from experience
-- **Thinking patterns** that guide their reasoning
-- **Communication preferences** that define their voice
-- **Perceptual filters** that determine what they notice
+- **Skills** they have learned (can they do the job?)
+- **Personality traits** that shape how they work (who are they?)
+- **Behavioral habits** that emerge from experience (how do they react?)
+- **Thinking patterns** that guide their reasoning (how do they think?)
+- **Communication preferences** that define their voice (how do they talk?)
+- **Perceptual filters** that determine what they notice (what do they see?)
 
-Cortex makes each of these a first-class, composable entity.
+Sentinel makes each of these a first-class evaluation dimension.
 
-## The seven aspects
+## The seven dimensions
 
-| Aspect | Package | Go type | Description |
-|--------|---------|---------|-------------|
-| [Skill](/docs/human-model/skills) | `skill` | `skill.Skill` | Capabilities, tools, and knowledge |
-| [Trait](/docs/human-model/traits) | `trait` | `trait.Trait` | Personality dimensions on bipolar axes |
-| [Behavior](/docs/human-model/behaviors) | `behavior` | `behavior.Behavior` | Condition-triggered action patterns |
-| [Cognitive Style](/docs/human-model/cognitive) | `cognitive` | `cognitive.Style` | Phase-based thinking strategies |
-| [Communication Style](/docs/human-model/communication) | `communication` | `communication.Style` | Tone, formality, verbosity |
-| [Perception](/docs/human-model/perception) | `perception` | `perception.Model` | Attention filters and focus |
-| [Persona](/docs/human-model/personas) | `persona` | `persona.Persona` | The complete identity composition |
+| Dimension | Package | Scorer | Scenario | Description |
+|-----------|---------|--------|----------|-------------|
+| [Skill](/docs/human-model/skills) | `scorer` | `skill_usage` | `skill_challenge` | Tool selection, proficiency, correctness |
+| [Trait](/docs/human-model/traits) | `scorer` | `trait_consistency` | `trait_probe` | Personality consistency across interactions |
+| [Behavior](/docs/human-model/behaviors) | `scorer` | `behavior_trigger` | `behavior_trigger` | Condition-triggered action patterns |
+| [Cognitive](/docs/human-model/cognitive) | `scorer` | `cognitive_phase` | `cognitive_stress` | Phase transitions, depth, focus |
+| [Communication](/docs/human-model/communication) | `scorer` | `communication_style` | `comms_adaptation` | Tone, formality, verbosity, technical level |
+| [Perception](/docs/human-model/perception) | `scorer` | `perception_focus` | `perception_test` | Attention filters and detail orientation |
+| [Persona](/docs/human-model/personas) | `scorer` | `persona_coherence` | `persona_coherence` | End-to-end identity coherence |
 
-## Composition hierarchy
-
-Skills, Traits, and Behaviors are **standalone entities** stored independently with their own CRUD APIs. They are composed together through a **Persona**, which references them by name.
-
-Cognitive Style, Communication Style, and Perception are **value objects** embedded directly in the Persona struct.
-
-The **Agent Config** then references a Persona (persona mode) or defines its own system prompt and tools (flat mode).
+## How it works
 
 ```
-Agent Config
-  └── Persona (via PersonaRef)
-        ├── Skills[]       (standalone entities, referenced by name)
-        ├── Traits[]       (standalone entities, referenced by name)
-        ├── Behaviors[]    (standalone entities, referenced by name)
-        ├── CognitiveStyle (embedded value object)
-        ├── CommunicationStyle (embedded value object)
-        └── Perception     (embedded value object)
+                    ┌─────────────────┐
+                    │  Test Scenario   │
+                    │                  │
+                    │  type: skill     │
+                    │  input: "..."    │
+                    │  expected: "..." │
+                    └────────┬─────────┘
+                             │
+                    ┌────────▼─────────┐
+                    │  Target           │
+                    │  (LLM or Agent)   │
+                    │                   │
+                    │  persona: "..."   │
+                    └────────┬─────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+     ┌────────▼──┐  ┌───────▼───┐  ┌──────▼──────┐
+     │  Output   │  │ Run Trace │  │ Tool Calls  │
+     │  (text)   │  │  (steps)  │  │  (actions)  │
+     └────────┬──┘  └───────┬───┘  └──────┬──────┘
+              │              │              │
+     ┌────────▼──────────────▼──────────────▼──────┐
+     │           Multi-Dimensional Scoring           │
+     │                                                │
+     │  Skill: 0.92  │  Trait: 0.88  │  Comms: 0.95  │
+     │  Behavior: 1.0 │  Cognition: 0.85             │
+     └────────────────────────────────────────────────┘
 ```
 
-## Declarative vs imperative
+## Scenario types
 
-Traditional approach (imperative):
-```
-You are a senior software engineer. Be thorough and methodical.
-Focus on security issues. Use a professional but friendly tone.
-Always check the code before suggesting changes.
-```
+Each dimension has a corresponding scenario type that generates targeted test cases:
 
-Cortex approach (declarative):
 ```go
-persona := &persona.Persona{
-    Identity: "A senior software engineer with 10+ years of experience",
-    Skills:   []persona.SkillAssignment{{SkillName: "code-review"}},
-    Traits:   []persona.TraitAssignment{{TraitName: "thoroughness"}},
-    Behaviors: []string{"verify-before-suggest"},
-    CommunicationStyle: communication.Style{
-        Tone: "professional", Formality: 0.7,
-    },
-}
+const (
+    ScenarioStandard         = "standard"          // Traditional input/output
+    ScenarioSkillChallenge   = "skill_challenge"   // Tool selection & proficiency
+    ScenarioTraitProbe       = "trait_probe"        // Personality consistency
+    ScenarioBehaviorTrigger  = "behavior_trigger"   // Condition-action patterns
+    ScenarioCognitiveStress  = "cognitive_stress"   // Thinking strategy transitions
+    ScenarioCommsAdaptation  = "comms_adaptation"   // Communication style
+    ScenarioPerceptionTest   = "perception_test"    // Attention & focus
+    ScenarioPersonaCoherence = "persona_coherence"  // End-to-end identity
+)
 ```
 
-The declarative approach is composable, reusable, and version-controlled. Change one trait and it updates every agent that uses it.
+## Backward compatibility
+
+Traditional LLM evals (input/output with standard scorers) still work exactly as before. The persona-aware testing is an additional layer — use it when testing AI agents with defined personas, skip it when testing raw LLM outputs.
+
+## DimensionScores
+
+Both `Run` and `Result` entities carry a `DimensionScores` field that maps dimension names to scores:
+
+```go
+DimensionScores map[string]float64
+// e.g., {"skill": 0.92, "trait": 0.88, "communication": 0.95}
+```
+
+These scores are aggregated from persona-aware scorers and provide a holistic view of agent performance.
