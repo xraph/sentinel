@@ -27,11 +27,11 @@ type Reporter interface {
 
 // Report holds all data needed to render an evaluation report.
 type Report struct {
-	Run             *evalrun.Run        `json:"run"`
-	Results         []*evalrun.Result   `json:"results"`
+	Run             *evalrun.Run         `json:"run"`
+	Results         []*evalrun.Result    `json:"results"`
 	Stats           *evalrun.ResultStats `json:"stats"`
-	DimensionScores map[string]float64  `json:"dimension_scores,omitempty"`
-	GeneratedAt     time.Time           `json:"generated_at"`
+	DimensionScores map[string]float64   `json:"dimension_scores,omitempty"`
+	GeneratedAt     time.Time            `json:"generated_at"`
 }
 
 // NewReport creates a report from run data.

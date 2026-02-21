@@ -31,7 +31,7 @@ func NewLLMJudgeScorer(client LLMClient, model, criteria string) *LLMJudgeScorer
 
 func (s *LLMJudgeScorer) Name() string { return "llm_judge" }
 
-func (s *LLMJudgeScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *LLMJudgeScorer) Score(ctx context.Context, input *Input) (*Output, error) {
 	systemPrompt := `You are an evaluation judge. Score the following AI output based on the given criteria.
 Respond with ONLY a JSON object in this exact format:
 {"score": <0.0-1.0>, "reason": "<brief explanation>"}
@@ -55,7 +55,7 @@ Score the actual output from 0.0 (completely wrong) to 1.0 (perfect).`,
 
 	score, reason := parseLLMScore(response)
 
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: score >= 0.7,
 		Reason: reason,
@@ -68,7 +68,7 @@ Score the actual output from 0.0 (completely wrong) to 1.0 (perfect).`,
 
 // parseLLMScore extracts a score and reason from an LLM response.
 // It handles both JSON and plain text formats.
-func parseLLMScore(response string) (float64, string) {
+func parseLLMScore(response string) (score float64, reason string) {
 	response = strings.TrimSpace(response)
 
 	// Try to find score in JSON-like format.
@@ -88,7 +88,7 @@ func parseLLMScore(response string) (float64, string) {
 						rRest := response[rIdx:]
 						if rColon := strings.Index(rRest, ":"); rColon >= 0 {
 							rVal := strings.TrimSpace(rRest[rColon+1:])
-							if len(rVal) > 0 && rVal[0] == '"' {
+							if rVal != "" && rVal[0] == '"' {
 								rVal = rVal[1:]
 								if endQuote := strings.Index(rVal, `"`); endQuote >= 0 {
 									reason = rVal[:endQuote]

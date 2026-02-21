@@ -93,9 +93,9 @@ type SaveBaselineRequest struct {
 
 // RunWithBaselineRequest is the request body for running eval with baseline comparison.
 type RunWithBaselineRequest struct {
-	Model      string   `json:"model,omitempty" description:"LLM model name"`
-	Scorers    []string `json:"scorers,omitempty" description:"Scorer names"`
-	Threshold  float64  `json:"threshold,omitempty" description:"Regression threshold"`
+	Model     string   `json:"model,omitempty" description:"LLM model name"`
+	Scorers   []string `json:"scorers,omitempty" description:"Scorer names"`
+	Threshold float64  `json:"threshold,omitempty" description:"Regression threshold"`
 }
 
 // ──────────────────────────────────────────────────

@@ -90,7 +90,7 @@ func (a *API) runEval(ctx forge.Context, req *RunEvalRequest) (*engine.RunResult
 	return result, ctx.JSON(http.StatusCreated, result)
 }
 
-func (a *API) compareModels(ctx forge.Context, _ *CompareModelsRequest) (any, error) {
+func (a *API) compareModels(_ forge.Context, _ *CompareModelsRequest) (any, error) {
 	// Comparison requires targets to be provided programmatically.
 	// The HTTP API provides a placeholder; full comparison is done via the Go API.
 	return nil, forge.BadRequest("model comparison must be configured programmatically with target adapters")

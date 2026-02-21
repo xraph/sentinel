@@ -24,7 +24,7 @@ func NewPersonaCoherenceScorer(client LLMClient, model, personaDesc string) *Per
 
 func (s *PersonaCoherenceScorer) Name() string { return "persona_coherence" }
 
-func (s *PersonaCoherenceScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *PersonaCoherenceScorer) Score(ctx context.Context, input *Input) (*Output, error) {
 	systemPrompt := `You are an AI persona evaluator. Assess whether the agent output maintains coherent identity — consistent personality, appropriate tool usage, matching communication style, and expected cognitive approach.
 
 Respond with ONLY a JSON object:
@@ -55,7 +55,7 @@ Rate overall persona coherence — does the output feel like it comes from the d
 
 	score, reason := parseLLMScore(response)
 
-	return &ScorerOutput{
+	return &Output{
 		Score:     score,
 		Passed:    score >= 0.7,
 		Reason:    reason,

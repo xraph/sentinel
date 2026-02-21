@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/xraph/forge"
+
 	"github.com/xraph/sentinel"
 )
 

@@ -41,14 +41,14 @@ func NewAgentTarget(client AgentClient, agentID, personaRef string) *AgentTarget
 
 func (t *AgentTarget) Name() string { return "agent:" + t.AgentID }
 
-func (t *AgentTarget) Call(ctx context.Context, input string) (*TargetOutput, error) {
+func (t *AgentTarget) Call(ctx context.Context, input string) (*Output, error) {
 	start := time.Now()
 	resp, err := t.Client.Run(ctx, t.AgentID, t.PersonaRef, input)
 	elapsed := time.Since(start)
 	if err != nil {
 		return nil, err
 	}
-	return &TargetOutput{
+	return &Output{
 		Output:  resp.Output,
 		Latency: elapsed,
 		Tokens:  resp.Tokens,

@@ -29,9 +29,9 @@ func NewSemanticScorer(client EmbeddingClient, threshold float64) *SemanticScore
 
 func (s *SemanticScorer) Name() string { return "semantic" }
 
-func (s *SemanticScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *SemanticScorer) Score(ctx context.Context, input *Input) (*Output, error) {
 	if input.Expected == "" {
-		return &ScorerOutput{
+		return &Output{
 			Score:  0,
 			Passed: false,
 			Reason: "no expected output for semantic comparison",
@@ -51,7 +51,7 @@ func (s *SemanticScorer) Score(ctx context.Context, input *ScorerInput) (*Scorer
 	// Normalize from [-1,1] to [0,1].
 	score := (similarity + 1) / 2
 
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: similarity >= s.Threshold,
 		Reason: fmt.Sprintf("cosine similarity: %.4f (threshold: %.2f)", similarity, s.Threshold),

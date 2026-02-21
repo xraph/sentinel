@@ -18,7 +18,7 @@ func NewFactualScorer(client LLMClient, model string) *FactualScorer {
 
 func (s *FactualScorer) Name() string { return "factual" }
 
-func (s *FactualScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *FactualScorer) Score(ctx context.Context, input *Input) (*Output, error) {
 	systemPrompt := `You are a factual accuracy evaluator. Compare the AI output against the expected/reference output for factual correctness.
 
 Respond with ONLY a JSON object:
@@ -42,7 +42,7 @@ Rate the factual accuracy of the AI output compared to the reference.`,
 
 	score, reason := parseLLMScore(response)
 
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: score >= 0.7,
 		Reason: reason,

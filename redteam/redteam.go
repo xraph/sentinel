@@ -28,24 +28,24 @@ type Generator interface {
 
 // GenerateConfig provides context for attack generation.
 type GenerateConfig struct {
-	SuiteID     string
-	Count       int
+	SuiteID      string
+	Count        int
 	SystemPrompt string
 	Difficulty   string
-	Extra       map[string]any
+	Extra        map[string]any
 }
 
-// RedTeamConfig configures a red team evaluation.
-type RedTeamConfig struct {
+// Config configures a red team evaluation.
+type Config struct {
 	Generators []Generator
 	Config     *GenerateConfig
 }
 
-// RedTeamReport holds the results of a red team evaluation.
-type RedTeamReport struct {
-	TotalAttacks int              `json:"total_attacks"`
-	Bypasses     int              `json:"bypasses"`
-	BypassRate   float64          `json:"bypass_rate"`
+// Report holds the results of a red team evaluation.
+type Report struct {
+	TotalAttacks int                       `json:"total_attacks"`
+	Bypasses     int                       `json:"bypasses"`
+	BypassRate   float64                   `json:"bypass_rate"`
 	ByType       map[AttackType]TypeResult `json:"by_type"`
 }
 

@@ -69,9 +69,9 @@ func (a *API) saveBaseline(ctx forge.Context, req *SaveBaselineRequest) (*baseli
 		return nil, mapStoreError(err)
 	}
 
-	baselineResults := make([]baseline.BaselineResult, len(results))
+	baselineResults := make([]baseline.Result, len(results))
 	for i, r := range results {
-		baselineResults[i] = baseline.BaselineResult{
+		baselineResults[i] = baseline.Result{
 			CaseID:          r.CaseID,
 			CaseName:        r.CaseName,
 			Score:           r.Score,
@@ -126,7 +126,7 @@ func (a *API) getBaseline(ctx forge.Context, _ *struct{}) (*baseline.Baseline, e
 	return b, ctx.JSON(http.StatusOK, b)
 }
 
-func (a *API) runWithBaseline(ctx forge.Context, _ *RunWithBaselineRequest) (any, error) {
+func (a *API) runWithBaseline(_ forge.Context, _ *RunWithBaselineRequest) (any, error) {
 	// Run-with-baseline requires a target to be configured programmatically.
 	// The HTTP API provides a placeholder.
 	return nil, forge.BadRequest("run-with-baseline must be configured programmatically with target adapters")

@@ -27,13 +27,13 @@ type Case struct {
 type ScenarioType string
 
 const (
-	ScenarioStandard        ScenarioType = "standard"         // Traditional input/output eval
-	ScenarioSkillChallenge  ScenarioType = "skill_challenge"  // Test tool selection & proficiency
-	ScenarioTraitProbe      ScenarioType = "trait_probe"      // Test personality consistency
-	ScenarioBehaviorTrigger ScenarioType = "behavior_trigger" // Test condition-action patterns
-	ScenarioCognitiveStress ScenarioType = "cognitive_stress" // Test thinking strategy transitions
-	ScenarioCommsAdaptation ScenarioType = "comms_adaptation" // Test communication style
-	ScenarioPerceptionTest  ScenarioType = "perception_test"  // Test attention & focus
+	ScenarioStandard         ScenarioType = "standard"          // Traditional input/output eval
+	ScenarioSkillChallenge   ScenarioType = "skill_challenge"   // Test tool selection & proficiency
+	ScenarioTraitProbe       ScenarioType = "trait_probe"       // Test personality consistency
+	ScenarioBehaviorTrigger  ScenarioType = "behavior_trigger"  // Test condition-action patterns
+	ScenarioCognitiveStress  ScenarioType = "cognitive_stress"  // Test thinking strategy transitions
+	ScenarioCommsAdaptation  ScenarioType = "comms_adaptation"  // Test communication style
+	ScenarioPerceptionTest   ScenarioType = "perception_test"   // Test attention & focus
 	ScenarioPersonaCoherence ScenarioType = "persona_coherence" // Test end-to-end identity
 )
 

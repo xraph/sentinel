@@ -13,7 +13,7 @@ type ContainsScorer struct {
 
 func (s *ContainsScorer) Name() string { return "contains" }
 
-func (s *ContainsScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *ContainsScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	actual := input.Actual
 	sub := s.Substring
 	if sub == "" {
@@ -29,7 +29,7 @@ func (s *ContainsScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOu
 	if match {
 		score = 1.0
 	}
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: match,
 		Reason: reasonFromMatch("contains", match),
@@ -44,7 +44,7 @@ type NotContainsScorer struct {
 
 func (s *NotContainsScorer) Name() string { return "not_contains" }
 
-func (s *NotContainsScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *NotContainsScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	actual := input.Actual
 	sub := s.Substring
 	if sub == "" {
@@ -60,7 +60,7 @@ func (s *NotContainsScorer) Score(_ context.Context, input *ScorerInput) (*Score
 	if absent {
 		score = 1.0
 	}
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: absent,
 		Reason: reasonFromMatch("not_contains", absent),

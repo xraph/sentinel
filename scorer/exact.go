@@ -12,7 +12,7 @@ type ExactScorer struct {
 
 func (s *ExactScorer) Name() string { return "exact" }
 
-func (s *ExactScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *ExactScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	actual := input.Actual
 	expected := input.Expected
 	if s.CaseInsensitive {
@@ -25,7 +25,7 @@ func (s *ExactScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutpu
 	if match {
 		score = 1.0
 	}
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: match,
 		Reason: reasonFromMatch("exact match", match),

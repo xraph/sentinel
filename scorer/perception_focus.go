@@ -22,7 +22,7 @@ func NewPerceptionFocusScorer(required, ignored []string) *PerceptionFocusScorer
 
 func (s *PerceptionFocusScorer) Name() string { return "perception_focus" }
 
-func (s *PerceptionFocusScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *PerceptionFocusScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	outputLower := strings.ToLower(input.Actual)
 
 	// Check required keywords.
@@ -65,15 +65,15 @@ func (s *PerceptionFocusScorer) Score(ctx context.Context, input *ScorerInput) (
 		reason += fmt.Sprintf("; distracted by: %s", strings.Join(focusedDistractors, ", "))
 	}
 
-	return &ScorerOutput{
+	return &Output{
 		Score:     score,
 		Passed:    score >= 0.7,
 		Reason:    reason,
 		Dimension: "perception",
 		Details: map[string]any{
-			"required_found":     requiredFound,
-			"missing_keywords":   missingKeywords,
-			"distractor_focused": distractorFocused,
+			"required_found":      requiredFound,
+			"missing_keywords":    missingKeywords,
+			"distractor_focused":  distractorFocused,
 			"focused_distractors": focusedDistractors,
 		},
 	}, nil

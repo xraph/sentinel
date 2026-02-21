@@ -13,7 +13,7 @@ type CostScorer struct {
 
 func (s *CostScorer) Name() string { return "cost" }
 
-func (s *CostScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *CostScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	cost := 0.0
 	if v, ok := input.Context["cost"]; ok {
 		switch val := v.(type) {
@@ -29,7 +29,7 @@ func (s *CostScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput
 	if passed {
 		score = 1.0
 	}
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: passed,
 		Reason: fmt.Sprintf("cost: $%.4f (max=$%.4f)", cost, s.MaxCost),

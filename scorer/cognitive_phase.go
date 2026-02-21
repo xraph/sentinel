@@ -20,9 +20,9 @@ func NewCognitivePhaseScorer(expectedPhases []string) *CognitivePhaseScorer {
 
 func (s *CognitivePhaseScorer) Name() string { return "cognitive_phase" }
 
-func (s *CognitivePhaseScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *CognitivePhaseScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	if input.Trace == nil {
-		return &ScorerOutput{
+		return &Output{
 			Score:     0,
 			Passed:    false,
 			Reason:    "no execution trace available for cognitive phase analysis",
@@ -31,7 +31,7 @@ func (s *CognitivePhaseScorer) Score(ctx context.Context, input *ScorerInput) (*
 	}
 
 	if len(s.ExpectedPhases) == 0 {
-		return &ScorerOutput{
+		return &Output{
 			Score:     1.0,
 			Passed:    true,
 			Reason:    "no expected phases configured",
@@ -50,7 +50,7 @@ func (s *CognitivePhaseScorer) Score(ctx context.Context, input *ScorerInput) (*
 	score := float64(phaseIdx) / float64(len(s.ExpectedPhases))
 	reason := fmt.Sprintf("completed %d/%d cognitive phases", phaseIdx, len(s.ExpectedPhases))
 
-	return &ScorerOutput{
+	return &Output{
 		Score:     score,
 		Passed:    score >= 0.7,
 		Reason:    reason,

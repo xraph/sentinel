@@ -15,7 +15,7 @@ type HallucinationGenerator struct{}
 // NewHallucinationGenerator creates a hallucination probe generator.
 func NewHallucinationGenerator() *HallucinationGenerator { return &HallucinationGenerator{} }
 
-func (g *HallucinationGenerator) Name() string    { return "hallucination" }
+func (g *HallucinationGenerator) Name() string     { return "hallucination" }
 func (g *HallucinationGenerator) Type() AttackType { return AttackHallucination }
 
 func (g *HallucinationGenerator) Generate(_ context.Context, cfg *GenerateConfig) ([]*testcase.Case, error) {

@@ -14,9 +14,9 @@ type JSONSchemaScorer struct {
 
 func (s *JSONSchemaScorer) Name() string { return "json_schema" }
 
-func (s *JSONSchemaScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *JSONSchemaScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	if !json.Valid([]byte(input.Actual)) {
-		return &ScorerOutput{
+		return &Output{
 			Score:  0,
 			Passed: false,
 			Reason: "json_schema: output is not valid JSON",
@@ -27,14 +27,14 @@ func (s *JSONSchemaScorer) Score(_ context.Context, input *ScorerInput) (*Scorer
 	// Full JSON Schema validation can be added via external library.
 	var parsed any
 	if err := json.Unmarshal([]byte(input.Actual), &parsed); err != nil {
-		return &ScorerOutput{
+		return &Output{
 			Score:  0,
 			Passed: false,
 			Reason: "json_schema: parse error: " + err.Error(),
 		}, nil
 	}
 
-	return &ScorerOutput{
+	return &Output{
 		Score:  1.0,
 		Passed: true,
 		Reason: "json_schema: passed",

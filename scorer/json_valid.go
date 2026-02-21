@@ -10,13 +10,13 @@ type JSONValidScorer struct{}
 
 func (s *JSONValidScorer) Name() string { return "json_valid" }
 
-func (s *JSONValidScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *JSONValidScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	valid := json.Valid([]byte(input.Actual))
 	score := 0.0
 	if valid {
 		score = 1.0
 	}
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: valid,
 		Reason: reasonFromMatch("json_valid", valid),

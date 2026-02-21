@@ -8,8 +8,8 @@ import (
 
 	gu "github.com/xraph/go-utils/metrics"
 
-	"github.com/xraph/sentinel/plugin"
 	"github.com/xraph/sentinel/id"
+	"github.com/xraph/sentinel/plugin"
 )
 
 // Compile-time interface checks.

@@ -13,7 +13,7 @@ type LatencyScorer struct {
 
 func (s *LatencyScorer) Name() string { return "latency" }
 
-func (s *LatencyScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *LatencyScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	latencyMs := 0
 	if v, ok := input.Context["latency_ms"]; ok {
 		switch val := v.(type) {
@@ -29,7 +29,7 @@ func (s *LatencyScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOut
 	if passed {
 		score = 1.0
 	}
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: passed,
 		Reason: fmt.Sprintf("latency: %dms (max=%dms)", latencyMs, s.MaxMs),

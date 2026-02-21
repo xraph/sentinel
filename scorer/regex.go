@@ -23,13 +23,13 @@ func NewRegexScorer(pattern string) (*RegexScorer, error) {
 
 func (s *RegexScorer) Name() string { return "regex" }
 
-func (s *RegexScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *RegexScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	match := s.re.MatchString(input.Actual)
 	score := 0.0
 	if match {
 		score = 1.0
 	}
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: match,
 		Reason: reasonFromMatch("regex", match),

@@ -28,9 +28,9 @@ func NewBehaviorTriggerScorer(name string, expectedActions, triggerKeywords []st
 
 func (s *BehaviorTriggerScorer) Name() string { return "behavior_trigger" }
 
-func (s *BehaviorTriggerScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *BehaviorTriggerScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	if input.Trace == nil {
-		return &ScorerOutput{
+		return &Output{
 			Score:     0,
 			Passed:    false,
 			Reason:    "no execution trace available for behavior analysis",
@@ -83,7 +83,7 @@ func (s *BehaviorTriggerScorer) Score(ctx context.Context, input *ScorerInput) (
 		reason += "; trigger not detected in output"
 	}
 
-	return &ScorerOutput{
+	return &Output{
 		Score:     clampScore(score),
 		Passed:    score >= 0.7,
 		Reason:    reason,

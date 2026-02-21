@@ -52,10 +52,14 @@ linters:
         - name: error-strings
         - name: error-naming
         - name: exported
-          arguments: [checkPrivateReceivers]
+          arguments: [checkPrivateReceivers, disableStutteringCheck]
         - name: if-return
         - name: increment-decrement
         - name: var-naming
+          arguments:
+            - [] # allowList
+            - [] # blockList
+            - [{skipPackageNameChecks: true}]
         - name: var-declaration
         - name: range
         - name: receiver-naming

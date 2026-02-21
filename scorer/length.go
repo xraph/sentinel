@@ -15,21 +15,15 @@ type LengthScorer struct {
 
 func (s *LengthScorer) Name() string { return "length" }
 
-func (s *LengthScorer) Score(_ context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *LengthScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	tokens := len(strings.Fields(input.Actual))
-	passed := true
-	if s.MinTokens > 0 && tokens < s.MinTokens {
-		passed = false
-	}
-	if s.MaxTokens > 0 && tokens > s.MaxTokens {
-		passed = false
-	}
+	passed := (s.MinTokens <= 0 || tokens >= s.MinTokens) && (s.MaxTokens <= 0 || tokens <= s.MaxTokens)
 
 	score := 0.0
 	if passed {
 		score = 1.0
 	}
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: passed,
 		Reason: fmt.Sprintf("length: %d tokens (min=%d, max=%d)", tokens, s.MinTokens, s.MaxTokens),

@@ -19,14 +19,14 @@ func FromFunc(name string, fn func(ctx context.Context, input string) (string, e
 
 func (t *FuncTarget) Name() string { return t.name }
 
-func (t *FuncTarget) Call(ctx context.Context, input string) (*TargetOutput, error) {
+func (t *FuncTarget) Call(ctx context.Context, input string) (*Output, error) {
 	start := time.Now()
 	output, err := t.fn(ctx, input)
 	elapsed := time.Since(start)
 	if err != nil {
 		return nil, err
 	}
-	return &TargetOutput{
+	return &Output{
 		Output:  output,
 		Latency: elapsed,
 	}, nil

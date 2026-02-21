@@ -15,8 +15,8 @@ type InjectionGenerator struct{}
 // NewInjectionGenerator creates a prompt injection generator.
 func NewInjectionGenerator() *InjectionGenerator { return &InjectionGenerator{} }
 
-func (g *InjectionGenerator) Name() string        { return "injection" }
-func (g *InjectionGenerator) Type() AttackType     { return AttackInjection }
+func (g *InjectionGenerator) Name() string     { return "injection" }
+func (g *InjectionGenerator) Type() AttackType { return AttackInjection }
 
 func (g *InjectionGenerator) Generate(_ context.Context, cfg *GenerateConfig) ([]*testcase.Case, error) {
 	count := cfg.Count

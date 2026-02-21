@@ -5,6 +5,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -114,7 +115,7 @@ func (s *Store) GetSuite(ctx context.Context, suiteID id.SuiteID) (*suite.Suite,
 	su := new(suite.Suite)
 	err := s.db.NewSelect().Model(su).Where("id = ?", suiteID.String()).Scan(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrSuiteNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get suite: %w", err)
@@ -126,7 +127,7 @@ func (s *Store) GetSuiteByName(ctx context.Context, appID, name string) (*suite.
 	su := new(suite.Suite)
 	err := s.db.NewSelect().Model(su).Where("app_id = ?", appID).Where("name = ?", name).Scan(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrSuiteNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get suite by name: %w", err)
@@ -203,7 +204,7 @@ func (s *Store) GetCase(ctx context.Context, caseID id.CaseID) (*testcase.Case, 
 	tc := new(testcase.Case)
 	err := s.db.NewSelect().Model(tc).Where("id = ?", caseID.String()).Scan(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrCaseNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get case: %w", err)
@@ -268,7 +269,7 @@ func (s *Store) GetRun(ctx context.Context, runID id.EvalRunID) (*evalrun.Run, e
 	run := new(evalrun.Run)
 	err := s.db.NewSelect().Model(run).Where("id = ?", runID.String()).Scan(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrRunNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get run: %w", err)
@@ -405,7 +406,9 @@ func (s *Store) GetResultStats(ctx context.Context, runID id.EvalRunID) (*evalru
 func (s *Store) SaveBaseline(ctx context.Context, b *baseline.Baseline) error {
 	b.CreatedAt = time.Now().UTC()
 	if b.IsCurrent {
-		_, _ = s.db.NewUpdate().Model((*baseline.Baseline)(nil)).Set("is_current = ?", false).Where("suite_id = ?", b.SuiteID.String()).Exec(ctx)
+		if _, err := s.db.NewUpdate().Model((*baseline.Baseline)(nil)).Set("is_current = ?", false).Where("suite_id = ?", b.SuiteID.String()).Exec(ctx); err != nil {
+			return fmt.Errorf("sentinel: reset baselines: %w", err)
+		}
 	}
 	_, err := s.db.NewInsert().Model(b).Exec(ctx)
 	if err != nil {
@@ -418,7 +421,7 @@ func (s *Store) GetBaseline(ctx context.Context, baselineID id.BaselineID) (*bas
 	b := new(baseline.Baseline)
 	err := s.db.NewSelect().Model(b).Where("id = ?", baselineID.String()).Scan(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrBaselineNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get baseline: %w", err)
@@ -430,7 +433,7 @@ func (s *Store) GetLatestBaseline(ctx context.Context, suiteID id.SuiteID) (*bas
 	b := new(baseline.Baseline)
 	err := s.db.NewSelect().Model(b).Where("suite_id = ?", suiteID.String()).Where("is_current = ?", true).Scan(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrBaselineNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get latest baseline: %w", err)
@@ -472,7 +475,7 @@ func (s *Store) GetPromptVersion(ctx context.Context, pvID id.PromptVersionID) (
 	pv := new(promptversion.PromptVersion)
 	err := s.db.NewSelect().Model(pv).Where("id = ?", pvID.String()).Scan(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrPromptVersionNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get prompt version: %w", err)
@@ -493,7 +496,7 @@ func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID)
 	pv := new(promptversion.PromptVersion)
 	err := s.db.NewSelect().Model(pv).Where("suite_id = ?", suiteID.String()).Where("is_current = ?", true).Scan(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrPromptVersionNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get current prompt version: %w", err)
@@ -502,7 +505,9 @@ func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID)
 }
 
 func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
-	_, _ = s.db.NewUpdate().Model((*promptversion.PromptVersion)(nil)).Set("is_current = ?", false).Where("suite_id = ?", suiteID.String()).Exec(ctx)
+	if _, err := s.db.NewUpdate().Model((*promptversion.PromptVersion)(nil)).Set("is_current = ?", false).Where("suite_id = ?", suiteID.String()).Exec(ctx); err != nil {
+		return fmt.Errorf("sentinel: reset prompt versions: %w", err)
+	}
 	_, err := s.db.NewUpdate().Model((*promptversion.PromptVersion)(nil)).Set("is_current = ?", true).Where("id = ?", pvID.String()).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: set current prompt version: %w", err)

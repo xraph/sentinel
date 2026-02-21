@@ -12,11 +12,11 @@ import (
 // Scorer evaluates an AI output and returns a score between 0.0 and 1.0.
 type Scorer interface {
 	Name() string
-	Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error)
+	Score(ctx context.Context, input *Input) (*Output, error)
 }
 
-// ScorerInput provides all data needed for scoring.
-type ScorerInput struct {
+// Input provides all data needed for scoring.
+type Input struct {
 	Input    string            // User input / prompt
 	Expected string            // Expected output (optional)
 	Actual   string            // Actual output
@@ -24,8 +24,8 @@ type ScorerInput struct {
 	Context  map[string]any    // Additional context
 }
 
-// ScorerOutput captures the result of a scoring evaluation.
-type ScorerOutput struct {
+// Output captures the result of a scoring evaluation.
+type Output struct {
 	Score     float64        // 0.0 to 1.0
 	Passed    bool           // Score >= threshold
 	Reason    string         // Human-readable explanation

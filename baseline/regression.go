@@ -15,11 +15,11 @@ type RegressionResult struct {
 
 // RegressedCase identifies a single case that regressed from baseline.
 type RegressedCase struct {
-	CaseID     string  `json:"case_id"`
-	CaseName   string  `json:"case_name"`
-	OldScore   float64 `json:"old_score"`
-	NewScore   float64 `json:"new_score"`
-	Delta      float64 `json:"delta"`
+	CaseID   string  `json:"case_id"`
+	CaseName string  `json:"case_name"`
+	OldScore float64 `json:"old_score"`
+	NewScore float64 `json:"new_score"`
+	Delta    float64 `json:"delta"`
 }
 
 // DetectRegression compares a run's results against a baseline and reports
@@ -47,7 +47,7 @@ func DetectRegression(stats *evalrun.ResultStats, results []*evalrun.Result, b *
 	}
 
 	// Check per-case regressions.
-	baselineLookup := make(map[string]BaselineResult)
+	baselineLookup := make(map[string]Result)
 	for _, br := range b.Results {
 		baselineLookup[br.CaseID.String()] = br
 	}

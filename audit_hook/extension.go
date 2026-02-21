@@ -6,23 +6,23 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/xraph/sentinel/plugin"
 	"github.com/xraph/sentinel/id"
+	"github.com/xraph/sentinel/plugin"
 )
 
 // Compile-time interface checks.
 var (
-	_ plugin.Extension           = (*Extension)(nil)
-	_ plugin.EvalRunStarted      = (*Extension)(nil)
-	_ plugin.EvalRunCompleted    = (*Extension)(nil)
-	_ plugin.EvalRunFailed       = (*Extension)(nil)
-	_ plugin.CaseCompleted       = (*Extension)(nil)
-	_ plugin.CaseFailed          = (*Extension)(nil)
-	_ plugin.RegressionDetected  = (*Extension)(nil)
-	_ plugin.BaselineSaved       = (*Extension)(nil)
-	_ plugin.RedTeamStarted      = (*Extension)(nil)
-	_ plugin.RedTeamCompleted    = (*Extension)(nil)
-	_ plugin.PersonaEvalStarted  = (*Extension)(nil)
+	_ plugin.Extension            = (*Extension)(nil)
+	_ plugin.EvalRunStarted       = (*Extension)(nil)
+	_ plugin.EvalRunCompleted     = (*Extension)(nil)
+	_ plugin.EvalRunFailed        = (*Extension)(nil)
+	_ plugin.CaseCompleted        = (*Extension)(nil)
+	_ plugin.CaseFailed           = (*Extension)(nil)
+	_ plugin.RegressionDetected   = (*Extension)(nil)
+	_ plugin.BaselineSaved        = (*Extension)(nil)
+	_ plugin.RedTeamStarted       = (*Extension)(nil)
+	_ plugin.RedTeamCompleted     = (*Extension)(nil)
+	_ plugin.PersonaEvalStarted   = (*Extension)(nil)
 	_ plugin.PersonaEvalCompleted = (*Extension)(nil)
 	_ plugin.PromptVersionCreated = (*Extension)(nil)
 	_ plugin.ComparisonCompleted  = (*Extension)(nil)

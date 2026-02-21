@@ -23,8 +23,8 @@ type CompareConfig struct {
 
 // ModelResult holds the eval result for a single model in a comparison.
 type ModelResult struct {
-	ModelName  string             `json:"model_name"`
-	RunResult  *engine.RunResult  `json:"run_result"`
+	ModelName string            `json:"model_name"`
+	RunResult *engine.RunResult `json:"run_result"`
 }
 
 // CompareReport holds the comparison results across all models.

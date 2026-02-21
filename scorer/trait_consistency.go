@@ -26,7 +26,7 @@ func NewTraitConsistencyScorer(client LLMClient, model, traitName, traitDesc str
 
 func (s *TraitConsistencyScorer) Name() string { return "trait_consistency" }
 
-func (s *TraitConsistencyScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *TraitConsistencyScorer) Score(ctx context.Context, input *Input) (*Output, error) {
 	systemPrompt := `You are a personality consistency evaluator. Assess whether the AI output demonstrates the specified personality trait.
 
 Respond with ONLY a JSON object:
@@ -51,7 +51,7 @@ Rate how consistently the AI output demonstrates the specified trait.`,
 
 	score, reason := parseLLMScore(response)
 
-	return &ScorerOutput{
+	return &Output{
 		Score:     score,
 		Passed:    score >= 0.7,
 		Reason:    reason,

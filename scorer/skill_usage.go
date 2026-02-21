@@ -20,9 +20,9 @@ func NewSkillUsageScorer(expected, forbidden []string) *SkillUsageScorer {
 
 func (s *SkillUsageScorer) Name() string { return "skill_usage" }
 
-func (s *SkillUsageScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *SkillUsageScorer) Score(_ context.Context, input *Input) (*Output, error) {
 	if input.Trace == nil {
-		return &ScorerOutput{
+		return &Output{
 			Score:     0,
 			Passed:    false,
 			Reason:    "no execution trace available",
@@ -77,7 +77,7 @@ func (s *SkillUsageScorer) Score(ctx context.Context, input *ScorerInput) (*Scor
 		reason += fmt.Sprintf("; forbidden used: %s", strings.Join(forbiddenUsed, ", "))
 	}
 
-	return &ScorerOutput{
+	return &Output{
 		Score:     score,
 		Passed:    score >= 0.7,
 		Reason:    reason,

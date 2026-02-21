@@ -18,7 +18,7 @@ func NewHallucinationScorer(client LLMClient, model string) *HallucinationScorer
 
 func (s *HallucinationScorer) Name() string { return "hallucination" }
 
-func (s *HallucinationScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *HallucinationScorer) Score(ctx context.Context, input *Input) (*Output, error) {
 	systemPrompt := `You are a hallucination detector. Analyze the AI output for factual claims that are not supported by the provided context or expected output.
 
 Respond with ONLY a JSON object:
@@ -42,7 +42,7 @@ Rate how factually grounded the AI output is (1.0 = fully grounded, 0.0 = comple
 
 	score, reason := parseLLMScore(response)
 
-	return &ScorerOutput{
+	return &Output{
 		Score:  score,
 		Passed: score >= 0.7,
 		Reason: reason,

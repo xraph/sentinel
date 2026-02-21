@@ -50,7 +50,7 @@ func suiteToModel(s *suite.Suite) *suiteModel {
 }
 
 func suiteFromModel(m *suiteModel) *suite.Suite {
-	sid, _ := id.ParseSuiteID(m.ID)
+	sid, _ := id.ParseSuiteID(m.ID) //nolint:errcheck // stored IDs are always valid
 	return &suite.Suite{
 		Entity:       entityFromTimestamps(m.CreatedAt, m.UpdatedAt),
 		ID:           sid,
@@ -71,18 +71,18 @@ func suiteFromModel(m *suiteModel) *suite.Suite {
 
 type caseModel struct {
 	bun.BaseModel `bun:"table:sentinel_cases"`
-	ID            string                 `bun:"id,pk"`
-	SuiteID       string                 `bun:"suite_id,notnull"`
-	Name          string                 `bun:"name,notnull"`
-	Input         string                 `bun:"input,notnull"`
-	Expected      string                 `bun:"expected"`
-	ScenarioType  string                 `bun:"scenario_type,notnull"`
+	ID            string                  `bun:"id,pk"`
+	SuiteID       string                  `bun:"suite_id,notnull"`
+	Name          string                  `bun:"name,notnull"`
+	Input         string                  `bun:"input,notnull"`
+	Expected      string                  `bun:"expected"`
+	ScenarioType  string                  `bun:"scenario_type,notnull"`
 	Scorers       []testcase.ScorerConfig `bun:"scorers,type:jsonb"`
-	Tags          []string               `bun:"tags,type:jsonb"`
-	Context       map[string]any         `bun:"context,type:jsonb"`
-	Metadata      map[string]any         `bun:"metadata,type:jsonb"`
-	CreatedAt     time.Time              `bun:"created_at,notnull"`
-	UpdatedAt     time.Time              `bun:"updated_at,notnull"`
+	Tags          []string                `bun:"tags,type:jsonb"`
+	Context       map[string]any          `bun:"context,type:jsonb"`
+	Metadata      map[string]any          `bun:"metadata,type:jsonb"`
+	CreatedAt     time.Time               `bun:"created_at,notnull"`
+	UpdatedAt     time.Time               `bun:"updated_at,notnull"`
 }
 
 func caseToModel(tc *testcase.Case) *caseModel {
@@ -103,8 +103,8 @@ func caseToModel(tc *testcase.Case) *caseModel {
 }
 
 func caseFromModel(m *caseModel) *testcase.Case {
-	cid, _ := id.ParseCaseID(m.ID)
-	sid, _ := id.ParseSuiteID(m.SuiteID)
+	cid, _ := id.ParseCaseID(m.ID)       //nolint:errcheck // stored IDs are always valid
+	sid, _ := id.ParseSuiteID(m.SuiteID) //nolint:errcheck // stored IDs are always valid
 	return &testcase.Case{
 		Entity:       entityFromTimestamps(m.CreatedAt, m.UpdatedAt),
 		ID:           cid,
@@ -125,30 +125,30 @@ func caseFromModel(m *caseModel) *testcase.Case {
 // ──────────────────────────────────────────────────
 
 type runModel struct {
-	bun.BaseModel  `bun:"table:sentinel_runs"`
-	ID             string             `bun:"id,pk"`
-	SuiteID        string             `bun:"suite_id,notnull"`
-	Model          string             `bun:"model,notnull"`
-	SystemPrompt   string             `bun:"system_prompt"`
-	Temperature    float64            `bun:"temperature,notnull"`
-	TotalCases     int                `bun:"total_cases,notnull"`
-	Passed         int                `bun:"passed,notnull"`
-	Failed         int                `bun:"failed,notnull"`
-	PassRate       float64            `bun:"pass_rate,notnull"`
-	AvgScore       float64            `bun:"avg_score,notnull"`
-	AvgLatencyMs   int                `bun:"avg_latency_ms,notnull"`
-	TotalTokens    int                `bun:"total_tokens,notnull"`
-	TotalCost      float64            `bun:"total_cost,notnull"`
-	AppID          string             `bun:"app_id,notnull"`
-	TargetTenantID string             `bun:"target_tenant_id"`
-	PersonaRef     string             `bun:"persona_ref"`
-	Config         map[string]any     `bun:"config,type:jsonb"`
-	State          string             `bun:"state,notnull"`
-	Error          string             `bun:"error"`
-	CompletedAt    *time.Time         `bun:"completed_at"`
+	bun.BaseModel   `bun:"table:sentinel_runs"`
+	ID              string             `bun:"id,pk"`
+	SuiteID         string             `bun:"suite_id,notnull"`
+	Model           string             `bun:"model,notnull"`
+	SystemPrompt    string             `bun:"system_prompt"`
+	Temperature     float64            `bun:"temperature,notnull"`
+	TotalCases      int                `bun:"total_cases,notnull"`
+	Passed          int                `bun:"passed,notnull"`
+	Failed          int                `bun:"failed,notnull"`
+	PassRate        float64            `bun:"pass_rate,notnull"`
+	AvgScore        float64            `bun:"avg_score,notnull"`
+	AvgLatencyMs    int                `bun:"avg_latency_ms,notnull"`
+	TotalTokens     int                `bun:"total_tokens,notnull"`
+	TotalCost       float64            `bun:"total_cost,notnull"`
+	AppID           string             `bun:"app_id,notnull"`
+	TargetTenantID  string             `bun:"target_tenant_id"`
+	PersonaRef      string             `bun:"persona_ref"`
+	Config          map[string]any     `bun:"config,type:jsonb"`
+	State           string             `bun:"state,notnull"`
+	Error           string             `bun:"error"`
+	CompletedAt     *time.Time         `bun:"completed_at"`
 	DimensionScores map[string]float64 `bun:"dimension_scores,type:jsonb"`
-	CreatedAt      time.Time          `bun:"created_at,notnull"`
-	UpdatedAt      time.Time          `bun:"updated_at,notnull"`
+	CreatedAt       time.Time          `bun:"created_at,notnull"`
+	UpdatedAt       time.Time          `bun:"updated_at,notnull"`
 }
 
 func runToModel(r *evalrun.Run) *runModel {
@@ -180,8 +180,8 @@ func runToModel(r *evalrun.Run) *runModel {
 }
 
 func runFromModel(m *runModel) *evalrun.Run {
-	rid, _ := id.ParseEvalRunID(m.ID)
-	sid, _ := id.ParseSuiteID(m.SuiteID)
+	rid, _ := id.ParseEvalRunID(m.ID)    //nolint:errcheck // stored IDs are always valid
+	sid, _ := id.ParseSuiteID(m.SuiteID) //nolint:errcheck // stored IDs are always valid
 	return &evalrun.Run{
 		Entity:          entityFromTimestamps(m.CreatedAt, m.UpdatedAt),
 		ID:              rid,
@@ -254,9 +254,9 @@ func resultToModel(r *evalrun.Result) *resultModel {
 }
 
 func resultFromModel(m *resultModel) *evalrun.Result {
-	rid, _ := id.ParseEvalResultID(m.ID)
-	runID, _ := id.ParseEvalRunID(m.RunID)
-	caseID, _ := id.ParseCaseID(m.CaseID)
+	rid, _ := id.ParseEvalResultID(m.ID)   //nolint:errcheck // stored IDs are always valid
+	runID, _ := id.ParseEvalRunID(m.RunID) //nolint:errcheck // stored IDs are always valid
+	caseID, _ := id.ParseCaseID(m.CaseID)  //nolint:errcheck // stored IDs are always valid
 	return &evalrun.Result{
 		Entity:          entityFromTimestamps(m.CreatedAt, m.UpdatedAt),
 		ID:              rid,
@@ -282,16 +282,16 @@ func resultFromModel(m *resultModel) *evalrun.Result {
 
 type baselineModel struct {
 	bun.BaseModel   `bun:"table:sentinel_baselines"`
-	ID              string                   `bun:"id,pk"`
-	SuiteID         string                   `bun:"suite_id,notnull"`
-	RunID           string                   `bun:"run_id,notnull"`
-	Name            string                   `bun:"name,notnull"`
-	Results         []baseline.BaselineResult `bun:"results,type:jsonb"`
-	PassRate        float64                  `bun:"pass_rate,notnull"`
-	AvgScore        float64                  `bun:"avg_score,notnull"`
-	DimensionScores map[string]float64       `bun:"dimension_scores,type:jsonb"`
-	IsCurrent       bool                     `bun:"is_current,notnull"`
-	CreatedAt       time.Time                `bun:"created_at,notnull"`
+	ID              string             `bun:"id,pk"`
+	SuiteID         string             `bun:"suite_id,notnull"`
+	RunID           string             `bun:"run_id,notnull"`
+	Name            string             `bun:"name,notnull"`
+	Results         []baseline.Result  `bun:"results,type:jsonb"`
+	PassRate        float64            `bun:"pass_rate,notnull"`
+	AvgScore        float64            `bun:"avg_score,notnull"`
+	DimensionScores map[string]float64 `bun:"dimension_scores,type:jsonb"`
+	IsCurrent       bool               `bun:"is_current,notnull"`
+	CreatedAt       time.Time          `bun:"created_at,notnull"`
 }
 
 func baselineToModel(b *baseline.Baseline) *baselineModel {
@@ -310,9 +310,9 @@ func baselineToModel(b *baseline.Baseline) *baselineModel {
 }
 
 func baselineFromModel(m *baselineModel) *baseline.Baseline {
-	bid, _ := id.ParseBaselineID(m.ID)
-	sid, _ := id.ParseSuiteID(m.SuiteID)
-	rid, _ := id.ParseEvalRunID(m.RunID)
+	bid, _ := id.ParseBaselineID(m.ID)   //nolint:errcheck // stored IDs are always valid
+	sid, _ := id.ParseSuiteID(m.SuiteID) //nolint:errcheck // stored IDs are always valid
+	rid, _ := id.ParseEvalRunID(m.RunID) //nolint:errcheck // stored IDs are always valid
 	return &baseline.Baseline{
 		ID:              bid,
 		SuiteID:         sid,
@@ -361,8 +361,8 @@ func promptVersionToModel(pv *promptversion.PromptVersion) *promptVersionModel {
 }
 
 func promptVersionFromModel(m *promptVersionModel) *promptversion.PromptVersion {
-	pvid, _ := id.ParsePromptVersionID(m.ID)
-	sid, _ := id.ParseSuiteID(m.SuiteID)
+	pvid, _ := id.ParsePromptVersionID(m.ID) //nolint:errcheck // stored IDs are always valid
+	sid, _ := id.ParseSuiteID(m.SuiteID)     //nolint:errcheck // stored IDs are always valid
 	return &promptversion.PromptVersion{
 		ID:           pvid,
 		SuiteID:      sid,

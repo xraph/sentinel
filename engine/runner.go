@@ -84,16 +84,16 @@ func (e *Engine) RunEval(ctx context.Context, cfg *RunConfig) (*RunResult, error
 
 	// Create the run record.
 	run := &evalrun.Run{
-		Entity:      sentinel.NewEntity(),
-		ID:          id.NewEvalRunID(),
-		SuiteID:     cfg.SuiteID,
-		Model:       model,
+		Entity:       sentinel.NewEntity(),
+		ID:           id.NewEvalRunID(),
+		SuiteID:      cfg.SuiteID,
+		Model:        model,
 		SystemPrompt: s.SystemPrompt,
-		Temperature: s.Temperature,
-		TotalCases:  len(cases),
-		AppID:       s.AppID,
-		PersonaRef:  personaRef,
-		State:       evalrun.StateRunning,
+		Temperature:  s.Temperature,
+		TotalCases:   len(cases),
+		AppID:        s.AppID,
+		PersonaRef:   personaRef,
+		State:        evalrun.StateRunning,
 	}
 
 	if err := e.store.CreateRun(ctx, run); err != nil {
@@ -213,7 +213,7 @@ func (e *Engine) evaluateCase(
 	scorerCtx["latency_ms"] = float64(result.LatencyMs)
 	scorerCtx["cost"] = result.Cost
 
-	input := &scorer.ScorerInput{
+	input := &scorer.Input{
 		Input:    tc.Input,
 		Expected: tc.Expected,
 		Actual:   output.Output,

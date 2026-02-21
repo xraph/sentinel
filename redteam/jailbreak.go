@@ -15,7 +15,7 @@ type JailbreakGenerator struct{}
 // NewJailbreakGenerator creates a jailbreak generator.
 func NewJailbreakGenerator() *JailbreakGenerator { return &JailbreakGenerator{} }
 
-func (g *JailbreakGenerator) Name() string    { return "jailbreak" }
+func (g *JailbreakGenerator) Name() string     { return "jailbreak" }
 func (g *JailbreakGenerator) Type() AttackType { return AttackJailbreak }
 
 func (g *JailbreakGenerator) Generate(_ context.Context, cfg *GenerateConfig) ([]*testcase.Case, error) {

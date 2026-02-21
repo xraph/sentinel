@@ -38,14 +38,14 @@ func NewLLMTarget(client LLMClient, model, systemPrompt string, temperature floa
 
 func (t *LLMTarget) Name() string { return "llm:" + t.Model }
 
-func (t *LLMTarget) Call(ctx context.Context, input string) (*TargetOutput, error) {
+func (t *LLMTarget) Call(ctx context.Context, input string) (*Output, error) {
 	start := time.Now()
 	resp, err := t.Client.Complete(ctx, t.Model, t.SystemPrompt, input, t.Temperature)
 	elapsed := time.Since(start)
 	if err != nil {
 		return nil, err
 	}
-	return &TargetOutput{
+	return &Output{
 		Output:  resp.Output,
 		Latency: elapsed,
 		Tokens:  resp.Tokens,

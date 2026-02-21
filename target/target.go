@@ -1,5 +1,5 @@
 // Package target defines the interface for evaluation targets — the system
-// under test. Targets can be raw LLM APIs, Cortex agents, or plain functions.
+// under test. Targets can be raw LLM APIs, agents, or plain functions.
 package target
 
 import (
@@ -12,11 +12,11 @@ import (
 // Target is the interface for evaluation targets.
 type Target interface {
 	Name() string
-	Call(ctx context.Context, input string) (*TargetOutput, error)
+	Call(ctx context.Context, input string) (*Output, error)
 }
 
-// TargetOutput includes both the text output and optional execution trace.
-type TargetOutput struct {
+// Output includes both the text output and optional execution trace.
+type Output struct {
 	Output  string            // The text response
 	Latency time.Duration     // Response time
 	Tokens  int               // Tokens used

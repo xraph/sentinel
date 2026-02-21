@@ -26,7 +26,7 @@ func NewCommunicationStyleScorer(client LLMClient, model, tone, format string) *
 
 func (s *CommunicationStyleScorer) Name() string { return "communication_style" }
 
-func (s *CommunicationStyleScorer) Score(ctx context.Context, input *ScorerInput) (*ScorerOutput, error) {
+func (s *CommunicationStyleScorer) Score(ctx context.Context, input *Input) (*Output, error) {
 	systemPrompt := `You are a communication style evaluator. Assess the AI output for tone, formality, and format consistency.
 
 Respond with ONLY a JSON object:
@@ -51,7 +51,7 @@ Rate how well the AI output matches the expected communication style.`,
 
 	score, reason := parseLLMScore(response)
 
-	return &ScorerOutput{
+	return &Output{
 		Score:     score,
 		Passed:    score >= 0.7,
 		Reason:    reason,

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 
 	"github.com/xraph/forge"
@@ -103,16 +104,21 @@ func (a *API) exportReport(ctx forge.Context, req *ExportReportRequest) (any, er
 		return nil, err
 	}
 
-	contentType := "text/plain"
-	if format == report.FormatJSON {
+	var contentType string
+	switch format {
+	case report.FormatJSON:
 		contentType = "application/json"
-	} else if format == report.FormatHTML {
+	case report.FormatHTML:
 		contentType = "text/html"
+	default:
+		contentType = "text/plain"
 	}
 
 	ctx.Response().Header().Set("Content-Type", contentType)
 	ctx.Response().WriteHeader(http.StatusOK)
-	_, _ = ctx.Response().Write(buf.Bytes())
+	if _, err := ctx.Response().Write(buf.Bytes()); err != nil {
+		return nil, fmt.Errorf("sentinel: write response: %w", err)
+	}
 
 	return nil, nil
 }

@@ -16,7 +16,7 @@ type OfftopicGenerator struct{}
 // NewOfftopicGenerator creates an off-topic manipulation generator.
 func NewOfftopicGenerator() *OfftopicGenerator { return &OfftopicGenerator{} }
 
-func (g *OfftopicGenerator) Name() string    { return "offtopic" }
+func (g *OfftopicGenerator) Name() string     { return "offtopic" }
 func (g *OfftopicGenerator) Type() AttackType { return AttackOfftopic }
 
 func (g *OfftopicGenerator) Generate(_ context.Context, cfg *GenerateConfig) ([]*testcase.Case, error) {

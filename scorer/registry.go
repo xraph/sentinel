@@ -5,26 +5,26 @@ import (
 	"sync"
 )
 
-// ScorerFactory creates a scorer from a configuration map.
-type ScorerFactory func(config map[string]any) (Scorer, error)
+// Factory creates a scorer from a configuration map.
+type Factory func(config map[string]any) (Scorer, error)
 
 // Registry holds named scorer factories and creates scorer instances from config.
 type Registry struct {
 	mu        sync.RWMutex
-	factories map[string]ScorerFactory
+	factories map[string]Factory
 }
 
 // NewRegistry creates a scorer registry with built-in scorers pre-registered.
 func NewRegistry() *Registry {
 	r := &Registry{
-		factories: make(map[string]ScorerFactory),
+		factories: make(map[string]Factory),
 	}
 	r.registerBuiltins()
 	return r
 }
 
 // Register adds a scorer factory by name.
-func (r *Registry) Register(name string, factory ScorerFactory) {
+func (r *Registry) Register(name string, factory Factory) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.factories[name] = factory
@@ -70,14 +70,14 @@ func (r *Registry) registerBuiltins() {
 		return s, nil
 	}
 	r.factories["regex"] = func(config map[string]any) (Scorer, error) {
-		pattern, _ := config["pattern"].(string)
+		pattern, _ := config["pattern"].(string) //nolint:errcheck // type assertion returns zero-value
 		return NewRegexScorer(pattern)
 	}
 	r.factories["json_valid"] = func(_ map[string]any) (Scorer, error) {
 		return &JSONValidScorer{}, nil
 	}
 	r.factories["json_schema"] = func(config map[string]any) (Scorer, error) {
-		schema, _ := config["schema"].(string)
+		schema, _ := config["schema"].(string) //nolint:errcheck // type assertion returns zero-value
 		return &JSONSchemaScorer{Schema: schema}, nil
 	}
 	r.factories["length"] = func(config map[string]any) (Scorer, error) {

@@ -15,7 +15,7 @@ type LeakageGenerator struct{}
 // NewLeakageGenerator creates a leakage generator.
 func NewLeakageGenerator() *LeakageGenerator { return &LeakageGenerator{} }
 
-func (g *LeakageGenerator) Name() string    { return "leakage" }
+func (g *LeakageGenerator) Name() string     { return "leakage" }
 func (g *LeakageGenerator) Type() AttackType { return AttackLeakage }
 
 func (g *LeakageGenerator) Generate(_ context.Context, cfg *GenerateConfig) ([]*testcase.Case, error) {
