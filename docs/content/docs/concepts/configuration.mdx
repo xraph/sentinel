@@ -68,3 +68,72 @@ s := &suite.Suite{
 ```
 
 If a suite field is zero-valued, the engine default applies.
+
+## Forge extension options
+
+The `extension.New` function accepts its own set of options:
+
+```go
+ext := extension.New(
+    extension.WithStore(pgStore),
+    extension.WithExtension(metricsPlugin),
+    extension.WithDisableRoutes(),
+    extension.WithDisableMigrate(),
+    extension.WithBasePath("/sentinel"),
+    extension.WithGroveDatabase(""),
+)
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `WithStore(s)` | `store.Store` | -- | Composite store (auto-resolved from grove if not set). |
+| `WithExtension(x)` | `plugin.Extension` | -- | Lifecycle hook plugin (repeatable). |
+| `WithEngineOption(opt)` | `engine.Option` | -- | Pass engine option directly. |
+| `WithConfig(cfg)` | `Config` | defaults | Full config struct. |
+| `WithDisableRoutes()` | -- | `false` | Skip HTTP route registration. |
+| `WithDisableMigrate()` | -- | `false` | Skip migrations on Start. |
+| `WithBasePath(path)` | `string` | `""` | URL prefix for all sentinel routes. |
+| `WithGroveDatabase(name)` | `string` | `""` | Named grove.DB to resolve from DI. |
+| `WithRequireConfig(b)` | `bool` | `false` | Require config in YAML files. |
+
+## File-based configuration (YAML)
+
+When running as a Forge extension, Sentinel automatically loads configuration from YAML config files. The extension looks for config under the following keys (in order):
+
+1. `extensions.sentinel` -- standard Forge extension config namespace
+2. `sentinel` -- top-level shorthand
+
+### Example
+
+```yaml
+# forge.yaml
+extensions:
+  sentinel:
+    disable_routes: false
+    disable_migrate: false
+    base_path: "/sentinel"
+    default_model: "smart"
+    temperature: 0
+    pass_threshold: 0.7
+    concurrency: 4
+    shutdown_timeout: "30s"
+    grove_database: ""
+```
+
+### Config fields
+
+| YAML Key | Type | Default | Description |
+|----------|------|---------|-------------|
+| `disable_routes` | `bool` | `false` | Skip HTTP route registration |
+| `disable_migrate` | `bool` | `false` | Skip migrations on Start |
+| `base_path` | `string` | `""` | URL prefix for all routes |
+| `default_model` | `string` | `"smart"` | LLM model identifier |
+| `temperature` | `float64` | `0` | LLM sampling temperature |
+| `pass_threshold` | `float64` | `0.7` | Minimum score to pass |
+| `concurrency` | `int` | `4` | Parallel evaluation workers |
+| `shutdown_timeout` | `duration` | `"30s"` | Max graceful shutdown wait |
+| `grove_database` | `string` | `""` | Named grove.DB from DI |
+
+### Merge behaviour
+
+File-based configuration is merged with programmatic options. Programmatic boolean flags (`DisableRoutes`, `DisableMigrate`) always win when set to `true`. For other fields, YAML values take precedence, then programmatic values, then defaults.
