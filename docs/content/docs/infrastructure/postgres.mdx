@@ -1,19 +1,24 @@
 ---
 title: PostgreSQL Store
-description: Production-ready persistence with PostgreSQL, bun ORM, and embedded migrations.
+description: Production-ready persistence with PostgreSQL, grove ORM, and programmatic migrations.
 ---
 
-The `store/postgres` package provides a production-ready implementation of the composite `store.Store` interface using PostgreSQL with the [bun](https://bun.uptrace.dev/) ORM.
+The `store/postgres` package provides a production-ready implementation of the composite `store.Store` interface using PostgreSQL with the [grove](https://github.com/xraph/grove) ORM and the PostgreSQL driver.
 
 ## Setup
 
 ```go
 import (
-    "github.com/uptrace/bun"
+    "github.com/xraph/grove"
+    "github.com/xraph/grove/drivers/pgdriver"
     "github.com/xraph/sentinel/store/postgres"
 )
 
-db := connectDB() // your *bun.DB connection
+db, err := grove.Open(pgdriver.Open("postgres://user:pass@localhost:5432/sentinel?sslmode=disable"))
+if err != nil {
+    log.Fatal(err)
+}
+
 pgStore := postgres.New(db)
 
 // Run migrations
@@ -44,6 +49,15 @@ Complex nested structures are stored as JSONB columns:
 - Dimension scores → `dimension_scores JSONB`
 - All entities → `metadata JSONB`
 
+## Internals
+
+| Aspect | Detail |
+|--------|--------|
+| Driver | grove ORM + pgdriver |
+| Migrations | grove orchestrator with programmatic migrations |
+| Transactions | PostgreSQL-level transactions |
+| Concurrency | Full MVCC with row-level locking |
+
 ## Composite store interface
 
 The PostgreSQL store implements all 5 sub-interfaces:
@@ -64,13 +78,13 @@ type Store interface {
 
 ## Embedded migrations
 
-Migrations are embedded in the binary using `embed.FS` and run automatically when `Migrate()` is called. There are 5 migration files:
+Migrations are registered programmatically via grove's migration orchestrator and run automatically when `Migrate()` is called. There are 5 migration steps:
 
-1. `001_suites.sql` — Creates `sentinel_suites`
-2. `002_cases.sql` — Creates `sentinel_cases`
-3. `003_runs.sql` — Creates `sentinel_runs` and `sentinel_results`
-4. `004_baselines.sql` — Creates `sentinel_baselines`
-5. `005_prompt_versions.sql` — Creates `sentinel_prompt_versions`
+1. `create_suites` — Creates `sentinel_suites`
+2. `create_cases` — Creates `sentinel_cases`
+3. `create_runs_and_results` — Creates `sentinel_runs` and `sentinel_results`
+4. `create_baselines` — Creates `sentinel_baselines`
+5. `create_prompt_versions` — Creates `sentinel_prompt_versions`
 
 ## Other store backends
 
@@ -78,9 +92,10 @@ Migrations are embedded in the binary using `embed.FS` and run automatically whe
 |---------|---------|----------|
 | PostgreSQL | `store/postgres` | Production |
 | SQLite | `store/sqlite` | Development, testing, single-machine deployments |
+| MongoDB | `store/mongo` | Document-oriented and horizontally-scalable deployments |
 | Memory | `store/memory` | Unit tests, ephemeral evaluations |
 
-All three backends implement the same `store.Store` interface identically.
+All backends implement the same `store.Store` interface identically.
 
 ## Usage with engine
 

@@ -1,4 +1,4 @@
-package postgres
+package mongo
 
 import (
 	"time"
@@ -20,17 +20,17 @@ import (
 
 type suiteModel struct {
 	grove.BaseModel `grove:"table:sentinel_suites"`
-	ID              string         `grove:"id,pk"`
-	Name            string         `grove:"name,notnull"`
-	Description     string         `grove:"description"`
-	AppID           string         `grove:"app_id,notnull"`
-	SystemPrompt    string         `grove:"system_prompt"`
-	Model           string         `grove:"model,notnull"`
-	Temperature     float64        `grove:"temperature,notnull"`
-	PersonaRef      string         `grove:"persona_ref"`
-	Metadata        map[string]any `grove:"metadata,type:jsonb"`
-	CreatedAt       time.Time      `grove:"created_at,notnull"`
-	UpdatedAt       time.Time      `grove:"updated_at,notnull"`
+	ID              string         `grove:"id,pk" bson:"_id"`
+	Name            string         `grove:"name,notnull" bson:"name"`
+	Description     string         `grove:"description" bson:"description"`
+	AppID           string         `grove:"app_id,notnull" bson:"app_id"`
+	SystemPrompt    string         `grove:"system_prompt" bson:"system_prompt"`
+	Model           string         `grove:"model,notnull" bson:"model"`
+	Temperature     float64        `grove:"temperature,notnull" bson:"temperature"`
+	PersonaRef      string         `grove:"persona_ref" bson:"persona_ref"`
+	Metadata        map[string]any `grove:"metadata" bson:"metadata"`
+	CreatedAt       time.Time      `grove:"created_at,notnull" bson:"created_at"`
+	UpdatedAt       time.Time      `grove:"updated_at,notnull" bson:"updated_at"`
 }
 
 func suiteToModel(s *suite.Suite) *suiteModel {
@@ -71,18 +71,18 @@ func suiteFromModel(m *suiteModel) *suite.Suite {
 
 type caseModel struct {
 	grove.BaseModel `grove:"table:sentinel_cases"`
-	ID              string                  `grove:"id,pk"`
-	SuiteID         string                  `grove:"suite_id,notnull"`
-	Name            string                  `grove:"name,notnull"`
-	Input           string                  `grove:"input,notnull"`
-	Expected        string                  `grove:"expected"`
-	ScenarioType    string                  `grove:"scenario_type,notnull"`
-	Scorers         []testcase.ScorerConfig `grove:"scorers,type:jsonb"`
-	Tags            []string                `grove:"tags,type:jsonb"`
-	Context         map[string]any          `grove:"context,type:jsonb"`
-	Metadata        map[string]any          `grove:"metadata,type:jsonb"`
-	CreatedAt       time.Time               `grove:"created_at,notnull"`
-	UpdatedAt       time.Time               `grove:"updated_at,notnull"`
+	ID              string                  `grove:"id,pk" bson:"_id"`
+	SuiteID         string                  `grove:"suite_id,notnull" bson:"suite_id"`
+	Name            string                  `grove:"name,notnull" bson:"name"`
+	Input           string                  `grove:"input,notnull" bson:"input"`
+	Expected        string                  `grove:"expected" bson:"expected"`
+	ScenarioType    string                  `grove:"scenario_type,notnull" bson:"scenario_type"`
+	Scorers         []testcase.ScorerConfig `grove:"scorers" bson:"scorers"`
+	Tags            []string                `grove:"tags" bson:"tags"`
+	Context         map[string]any          `grove:"context" bson:"context"`
+	Metadata        map[string]any          `grove:"metadata" bson:"metadata"`
+	CreatedAt       time.Time               `grove:"created_at,notnull" bson:"created_at"`
+	UpdatedAt       time.Time               `grove:"updated_at,notnull" bson:"updated_at"`
 }
 
 func caseToModel(tc *testcase.Case) *caseModel {
@@ -126,29 +126,29 @@ func caseFromModel(m *caseModel) *testcase.Case {
 
 type runModel struct {
 	grove.BaseModel `grove:"table:sentinel_runs"`
-	ID              string             `grove:"id,pk"`
-	SuiteID         string             `grove:"suite_id,notnull"`
-	Model           string             `grove:"model,notnull"`
-	SystemPrompt    string             `grove:"system_prompt"`
-	Temperature     float64            `grove:"temperature,notnull"`
-	TotalCases      int                `grove:"total_cases,notnull"`
-	Passed          int                `grove:"passed,notnull"`
-	Failed          int                `grove:"failed,notnull"`
-	PassRate        float64            `grove:"pass_rate,notnull"`
-	AvgScore        float64            `grove:"avg_score,notnull"`
-	AvgLatencyMs    int                `grove:"avg_latency_ms,notnull"`
-	TotalTokens     int                `grove:"total_tokens,notnull"`
-	TotalCost       float64            `grove:"total_cost,notnull"`
-	AppID           string             `grove:"app_id,notnull"`
-	TargetTenantID  string             `grove:"target_tenant_id"`
-	PersonaRef      string             `grove:"persona_ref"`
-	Config          map[string]any     `grove:"config,type:jsonb"`
-	State           string             `grove:"state,notnull"`
-	Error           string             `grove:"error"`
-	CompletedAt     *time.Time         `grove:"completed_at"`
-	DimensionScores map[string]float64 `grove:"dimension_scores,type:jsonb"`
-	CreatedAt       time.Time          `grove:"created_at,notnull"`
-	UpdatedAt       time.Time          `grove:"updated_at,notnull"`
+	ID              string             `grove:"id,pk" bson:"_id"`
+	SuiteID         string             `grove:"suite_id,notnull" bson:"suite_id"`
+	Model           string             `grove:"model,notnull" bson:"model"`
+	SystemPrompt    string             `grove:"system_prompt" bson:"system_prompt"`
+	Temperature     float64            `grove:"temperature,notnull" bson:"temperature"`
+	TotalCases      int                `grove:"total_cases,notnull" bson:"total_cases"`
+	Passed          int                `grove:"passed,notnull" bson:"passed"`
+	Failed          int                `grove:"failed,notnull" bson:"failed"`
+	PassRate        float64            `grove:"pass_rate,notnull" bson:"pass_rate"`
+	AvgScore        float64            `grove:"avg_score,notnull" bson:"avg_score"`
+	AvgLatencyMs    int                `grove:"avg_latency_ms,notnull" bson:"avg_latency_ms"`
+	TotalTokens     int                `grove:"total_tokens,notnull" bson:"total_tokens"`
+	TotalCost       float64            `grove:"total_cost,notnull" bson:"total_cost"`
+	AppID           string             `grove:"app_id,notnull" bson:"app_id"`
+	TargetTenantID  string             `grove:"target_tenant_id" bson:"target_tenant_id"`
+	PersonaRef      string             `grove:"persona_ref" bson:"persona_ref"`
+	Config          map[string]any     `grove:"config" bson:"config"`
+	State           string             `grove:"state,notnull" bson:"state"`
+	Error           string             `grove:"error" bson:"error"`
+	CompletedAt     *time.Time         `grove:"completed_at" bson:"completed_at"`
+	DimensionScores map[string]float64 `grove:"dimension_scores" bson:"dimension_scores"`
+	CreatedAt       time.Time          `grove:"created_at,notnull" bson:"created_at"`
+	UpdatedAt       time.Time          `grove:"updated_at,notnull" bson:"updated_at"`
 }
 
 func runToModel(r *evalrun.Run) *runModel {
@@ -214,22 +214,22 @@ func runFromModel(m *runModel) *evalrun.Run {
 
 type resultModel struct {
 	grove.BaseModel `grove:"table:sentinel_results"`
-	ID              string                 `grove:"id,pk"`
-	RunID           string                 `grove:"run_id,notnull"`
-	CaseID          string                 `grove:"case_id,notnull"`
-	CaseName        string                 `grove:"case_name,notnull"`
-	Status          string                 `grove:"status,notnull"`
-	Score           float64                `grove:"score,notnull"`
-	Output          string                 `grove:"output"`
-	LatencyMs       int                    `grove:"latency_ms,notnull"`
-	TokensUsed      int                    `grove:"tokens_used,notnull"`
-	Cost            float64                `grove:"cost,notnull"`
-	ScorerResults   []evalrun.ScorerResult `grove:"scorer_results,type:jsonb"`
-	Error           string                 `grove:"error"`
-	DimensionScores map[string]float64     `grove:"dimension_scores,type:jsonb"`
-	RunTrace        *evalrun.RunTrace      `grove:"run_trace,type:jsonb"`
-	CreatedAt       time.Time              `grove:"created_at,notnull"`
-	UpdatedAt       time.Time              `grove:"updated_at,notnull"`
+	ID              string                 `grove:"id,pk" bson:"_id"`
+	RunID           string                 `grove:"run_id,notnull" bson:"run_id"`
+	CaseID          string                 `grove:"case_id,notnull" bson:"case_id"`
+	CaseName        string                 `grove:"case_name,notnull" bson:"case_name"`
+	Status          string                 `grove:"status,notnull" bson:"status"`
+	Score           float64                `grove:"score,notnull" bson:"score"`
+	Output          string                 `grove:"output" bson:"output"`
+	LatencyMs       int                    `grove:"latency_ms,notnull" bson:"latency_ms"`
+	TokensUsed      int                    `grove:"tokens_used,notnull" bson:"tokens_used"`
+	Cost            float64                `grove:"cost,notnull" bson:"cost"`
+	ScorerResults   []evalrun.ScorerResult `grove:"scorer_results" bson:"scorer_results"`
+	Error           string                 `grove:"error" bson:"error"`
+	DimensionScores map[string]float64     `grove:"dimension_scores" bson:"dimension_scores"`
+	RunTrace        *evalrun.RunTrace      `grove:"run_trace" bson:"run_trace"`
+	CreatedAt       time.Time              `grove:"created_at,notnull" bson:"created_at"`
+	UpdatedAt       time.Time              `grove:"updated_at,notnull" bson:"updated_at"`
 }
 
 func resultToModel(r *evalrun.Result) *resultModel {
@@ -282,16 +282,16 @@ func resultFromModel(m *resultModel) *evalrun.Result {
 
 type baselineModel struct {
 	grove.BaseModel `grove:"table:sentinel_baselines"`
-	ID              string             `grove:"id,pk"`
-	SuiteID         string             `grove:"suite_id,notnull"`
-	RunID           string             `grove:"run_id,notnull"`
-	Name            string             `grove:"name,notnull"`
-	Results         []baseline.Result  `grove:"results,type:jsonb"`
-	PassRate        float64            `grove:"pass_rate,notnull"`
-	AvgScore        float64            `grove:"avg_score,notnull"`
-	DimensionScores map[string]float64 `grove:"dimension_scores,type:jsonb"`
-	IsCurrent       bool               `grove:"is_current,notnull"`
-	CreatedAt       time.Time          `grove:"created_at,notnull"`
+	ID              string             `grove:"id,pk" bson:"_id"`
+	SuiteID         string             `grove:"suite_id,notnull" bson:"suite_id"`
+	RunID           string             `grove:"run_id,notnull" bson:"run_id"`
+	Name            string             `grove:"name,notnull" bson:"name"`
+	Results         []baseline.Result  `grove:"results" bson:"results"`
+	PassRate        float64            `grove:"pass_rate,notnull" bson:"pass_rate"`
+	AvgScore        float64            `grove:"avg_score,notnull" bson:"avg_score"`
+	DimensionScores map[string]float64 `grove:"dimension_scores" bson:"dimension_scores"`
+	IsCurrent       bool               `grove:"is_current,notnull" bson:"is_current"`
+	CreatedAt       time.Time          `grove:"created_at,notnull" bson:"created_at"`
 }
 
 func baselineToModel(b *baseline.Baseline) *baselineModel {
@@ -333,16 +333,16 @@ func baselineFromModel(m *baselineModel) *baseline.Baseline {
 
 type promptVersionModel struct {
 	grove.BaseModel `grove:"table:sentinel_prompt_versions"`
-	ID              string    `grove:"id,pk"`
-	SuiteID         string    `grove:"suite_id,notnull"`
-	Version         int       `grove:"version,notnull"`
-	SystemPrompt    string    `grove:"system_prompt,notnull"`
-	Changelog       string    `grove:"changelog"`
-	IsCurrent       bool      `grove:"is_current,notnull"`
-	RunID           string    `grove:"run_id"`
-	PassRate        *float64  `grove:"pass_rate"`
-	AvgScore        *float64  `grove:"avg_score"`
-	CreatedAt       time.Time `grove:"created_at,notnull"`
+	ID              string    `grove:"id,pk" bson:"_id"`
+	SuiteID         string    `grove:"suite_id,notnull" bson:"suite_id"`
+	Version         int       `grove:"version,notnull" bson:"version"`
+	SystemPrompt    string    `grove:"system_prompt,notnull" bson:"system_prompt"`
+	Changelog       string    `grove:"changelog" bson:"changelog"`
+	IsCurrent       bool      `grove:"is_current,notnull" bson:"is_current"`
+	RunID           string    `grove:"run_id" bson:"run_id"`
+	PassRate        *float64  `grove:"pass_rate" bson:"pass_rate"`
+	AvgScore        *float64  `grove:"avg_score" bson:"avg_score"`
+	CreatedAt       time.Time `grove:"created_at,notnull" bson:"created_at"`
 }
 
 func promptVersionToModel(pv *promptversion.PromptVersion) *promptVersionModel {

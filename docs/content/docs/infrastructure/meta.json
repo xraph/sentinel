@@ -1,4 +1,4 @@
 {
   "title": "Infrastructure",
-  "pages": ["postgres", "plugins", "observability", "audit"]
+  "pages": ["postgres", "sqlite", "mongo", "plugins", "observability", "audit"]
 }

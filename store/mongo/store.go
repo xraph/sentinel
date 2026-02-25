@@ -1,18 +1,17 @@
-// Package postgres provides a PostgreSQL implementation of the Sentinel
-// composite store using grove ORM with Go-based migrations.
-package postgres
+package mongo
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+
 	"github.com/xraph/grove"
-	"github.com/xraph/grove/drivers/pgdriver"
-	_ "github.com/xraph/grove/drivers/pgdriver/pgmigrate" // register pg migration executor
-	"github.com/xraph/grove/migrate"
+	"github.com/xraph/grove/drivers/mongodriver"
+	"github.com/xraph/grove/drivers/mongodriver/mongomigrate"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/baseline"
@@ -24,32 +23,41 @@ import (
 	"github.com/xraph/sentinel/testcase"
 )
 
+const (
+	colSuites         = "sentinel_suites"
+	colCases          = "sentinel_cases"
+	colRuns           = "sentinel_runs"
+	colResults        = "sentinel_results"
+	colBaselines      = "sentinel_baselines"
+	colPromptVersions = "sentinel_prompt_versions"
+)
+
 // Compile-time interface check.
 var _ store.Store = (*Store)(nil)
 
-// Store is a PostgreSQL implementation of the composite Sentinel store.
+// Store is a MongoDB implementation of the composite Sentinel store.
 type Store struct {
-	db   *grove.DB
-	pgdb *pgdriver.PgDB
+	db  *grove.DB
+	mdb *mongodriver.MongoDB
 }
 
-// New creates a new PostgreSQL store.
+// New creates a new MongoDB store.
 func New(db *grove.DB) *Store {
 	return &Store{
-		db:   db,
-		pgdb: pgdriver.Unwrap(db),
+		db:  db,
+		mdb: mongodriver.Unwrap(db),
 	}
 }
 
-// Migrate runs programmatic migrations via the grove orchestrator.
+// Migrate runs grove migrations for the Sentinel schema (creates indexes).
 func (s *Store) Migrate(ctx context.Context) error {
-	executor, err := migrate.NewExecutorFor(s.pgdb)
-	if err != nil {
-		return fmt.Errorf("sentinel: create migration executor: %w", err)
-	}
-	orch := migrate.NewOrchestrator(executor, Migrations)
-	if _, err := orch.Migrate(ctx); err != nil {
-		return fmt.Errorf("sentinel: migration failed: %w", err)
+	exec := mongomigrate.New(s.mdb)
+	for _, m := range Migrations.Migrations() {
+		if m.Up != nil {
+			if err := m.Up(ctx, exec); err != nil {
+				return fmt.Errorf("sentinel: %w: %s: %w", sentinel.ErrMigrationFailed, m.Name, err)
+			}
+		}
 	}
 	return nil
 }
@@ -73,7 +81,7 @@ func (s *Store) CreateSuite(ctx context.Context, su *suite.Suite) error {
 	su.CreatedAt = now
 	su.UpdatedAt = now
 	m := suiteToModel(su)
-	_, err := s.pgdb.NewInsert(m).Exec(ctx)
+	_, err := s.mdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create suite: %w", err)
 	}
@@ -82,9 +90,9 @@ func (s *Store) CreateSuite(ctx context.Context, su *suite.Suite) error {
 
 func (s *Store) GetSuite(ctx context.Context, suiteID id.SuiteID) (*suite.Suite, error) {
 	m := new(suiteModel)
-	err := s.pgdb.NewSelect(m).Where("id = ?", suiteID.String()).Scan(ctx)
+	err := s.mdb.NewFind(m).Filter(bson.M{"_id": suiteID.String()}).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, sentinel.ErrSuiteNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get suite: %w", err)
@@ -94,12 +102,12 @@ func (s *Store) GetSuite(ctx context.Context, suiteID id.SuiteID) (*suite.Suite,
 
 func (s *Store) GetSuiteByName(ctx context.Context, appID, name string) (*suite.Suite, error) {
 	m := new(suiteModel)
-	err := s.pgdb.NewSelect(m).
-		Where("app_id = ?", appID).
-		Where("name = ?", name).
+	err := s.mdb.NewFind(m).
+		Filter(bson.M{"app_id": appID}).
+		Filter(bson.M{"name": name}).
 		Scan(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, sentinel.ErrSuiteNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get suite by name: %w", err)
@@ -110,15 +118,20 @@ func (s *Store) GetSuiteByName(ctx context.Context, appID, name string) (*suite.
 func (s *Store) UpdateSuite(ctx context.Context, su *suite.Suite) error {
 	su.UpdatedAt = time.Now().UTC()
 	m := suiteToModel(su)
-	_, err := s.pgdb.NewUpdate(m).WherePK().Exec(ctx)
+	res, err := s.mdb.NewUpdate(m).Filter(bson.M{"_id": m.ID}).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: update suite: %w", err)
+	}
+	if n := res.MatchedCount(); n == 0 {
+		return sentinel.ErrSuiteNotFound
 	}
 	return nil
 }
 
 func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
-	_, err := s.pgdb.NewDelete((*suiteModel)(nil)).Where("id = ?", suiteID.String()).Exec(ctx)
+	_, err := s.mdb.NewDelete((*suiteModel)(nil)).
+		Filter(bson.M{"_id": suiteID.String()}).
+		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: delete suite: %w", err)
 	}
@@ -127,16 +140,16 @@ func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
 
 func (s *Store) ListSuites(ctx context.Context, filter *suite.ListFilter) ([]*suite.Suite, error) {
 	var models []suiteModel
-	q := s.pgdb.NewSelect(&models).OrderExpr("created_at ASC")
+	q := s.mdb.NewFind(&models).Sort(bson.D{{Key: "created_at", Value: 1}})
 	if filter != nil {
 		if filter.AppID != "" {
-			q = q.Where("app_id = ?", filter.AppID)
+			q = q.Filter(bson.M{"app_id": filter.AppID})
 		}
 		if filter.Limit > 0 {
-			q = q.Limit(filter.Limit)
+			q = q.Limit(int64(filter.Limit))
 		}
 		if filter.Offset > 0 {
-			q = q.Offset(filter.Offset)
+			q = q.Skip(int64(filter.Offset))
 		}
 	}
 	if err := q.Scan(ctx); err != nil {
@@ -158,7 +171,7 @@ func (s *Store) CreateCase(ctx context.Context, tc *testcase.Case) error {
 	tc.CreatedAt = now
 	tc.UpdatedAt = now
 	m := caseToModel(tc)
-	_, err := s.pgdb.NewInsert(m).Exec(ctx)
+	_, err := s.mdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create case: %w", err)
 	}
@@ -166,6 +179,9 @@ func (s *Store) CreateCase(ctx context.Context, tc *testcase.Case) error {
 }
 
 func (s *Store) CreateCaseBatch(ctx context.Context, cases []*testcase.Case) error {
+	if len(cases) == 0 {
+		return nil
+	}
 	now := time.Now().UTC()
 	models := make([]caseModel, len(cases))
 	for i, tc := range cases {
@@ -173,7 +189,7 @@ func (s *Store) CreateCaseBatch(ctx context.Context, cases []*testcase.Case) err
 		tc.UpdatedAt = now
 		models[i] = *caseToModel(tc)
 	}
-	_, err := s.pgdb.NewInsert(&models).Exec(ctx)
+	_, err := s.mdb.NewInsert(&models).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create case batch: %w", err)
 	}
@@ -182,9 +198,9 @@ func (s *Store) CreateCaseBatch(ctx context.Context, cases []*testcase.Case) err
 
 func (s *Store) GetCase(ctx context.Context, caseID id.CaseID) (*testcase.Case, error) {
 	m := new(caseModel)
-	err := s.pgdb.NewSelect(m).Where("id = ?", caseID.String()).Scan(ctx)
+	err := s.mdb.NewFind(m).Filter(bson.M{"_id": caseID.String()}).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, sentinel.ErrCaseNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get case: %w", err)
@@ -195,15 +211,20 @@ func (s *Store) GetCase(ctx context.Context, caseID id.CaseID) (*testcase.Case, 
 func (s *Store) UpdateCase(ctx context.Context, tc *testcase.Case) error {
 	tc.UpdatedAt = time.Now().UTC()
 	m := caseToModel(tc)
-	_, err := s.pgdb.NewUpdate(m).WherePK().Exec(ctx)
+	res, err := s.mdb.NewUpdate(m).Filter(bson.M{"_id": m.ID}).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: update case: %w", err)
+	}
+	if n := res.MatchedCount(); n == 0 {
+		return sentinel.ErrCaseNotFound
 	}
 	return nil
 }
 
 func (s *Store) DeleteCase(ctx context.Context, caseID id.CaseID) error {
-	_, err := s.pgdb.NewDelete((*caseModel)(nil)).Where("id = ?", caseID.String()).Exec(ctx)
+	_, err := s.mdb.NewDelete((*caseModel)(nil)).
+		Filter(bson.M{"_id": caseID.String()}).
+		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: delete case: %w", err)
 	}
@@ -212,9 +233,9 @@ func (s *Store) DeleteCase(ctx context.Context, caseID id.CaseID) error {
 
 func (s *Store) ListCases(ctx context.Context, suiteID id.SuiteID) ([]*testcase.Case, error) {
 	var models []caseModel
-	err := s.pgdb.NewSelect(&models).
-		Where("suite_id = ?", suiteID.String()).
-		OrderExpr("created_at ASC").
+	err := s.mdb.NewFind(&models).
+		Filter(bson.M{"suite_id": suiteID.String()}).
+		Sort(bson.D{{Key: "created_at", Value: 1}}).
 		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list cases: %w", err)
@@ -227,8 +248,8 @@ func (s *Store) ListCases(ctx context.Context, suiteID id.SuiteID) ([]*testcase.
 }
 
 func (s *Store) CountCases(ctx context.Context, suiteID id.SuiteID) (int64, error) {
-	count, err := s.pgdb.NewSelect((*caseModel)(nil)).
-		Where("suite_id = ?", suiteID.String()).
+	count, err := s.mdb.NewFind((*caseModel)(nil)).
+		Filter(bson.M{"suite_id": suiteID.String()}).
 		Count(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("sentinel: count cases: %w", err)
@@ -249,7 +270,7 @@ func (s *Store) CreateRun(ctx context.Context, run *evalrun.Run) error {
 	run.CreatedAt = now
 	run.UpdatedAt = now
 	m := runToModel(run)
-	_, err := s.pgdb.NewInsert(m).Exec(ctx)
+	_, err := s.mdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create run: %w", err)
 	}
@@ -258,9 +279,9 @@ func (s *Store) CreateRun(ctx context.Context, run *evalrun.Run) error {
 
 func (s *Store) GetRun(ctx context.Context, runID id.EvalRunID) (*evalrun.Run, error) {
 	m := new(runModel)
-	err := s.pgdb.NewSelect(m).Where("id = ?", runID.String()).Scan(ctx)
+	err := s.mdb.NewFind(m).Filter(bson.M{"_id": runID.String()}).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, sentinel.ErrRunNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get run: %w", err)
@@ -271,31 +292,34 @@ func (s *Store) GetRun(ctx context.Context, runID id.EvalRunID) (*evalrun.Run, e
 func (s *Store) UpdateRun(ctx context.Context, run *evalrun.Run) error {
 	run.UpdatedAt = time.Now().UTC()
 	m := runToModel(run)
-	_, err := s.pgdb.NewUpdate(m).WherePK().Exec(ctx)
+	res, err := s.mdb.NewUpdate(m).Filter(bson.M{"_id": m.ID}).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: update run: %w", err)
+	}
+	if n := res.MatchedCount(); n == 0 {
+		return sentinel.ErrRunNotFound
 	}
 	return nil
 }
 
 func (s *Store) ListRuns(ctx context.Context, filter *evalrun.ListFilter) ([]*evalrun.Run, error) {
 	var models []runModel
-	q := s.pgdb.NewSelect(&models).OrderExpr("created_at DESC")
+	q := s.mdb.NewFind(&models).Sort(bson.D{{Key: "created_at", Value: -1}})
 	if filter != nil {
 		if filter.SuiteID.String() != "" {
-			q = q.Where("suite_id = ?", filter.SuiteID.String())
+			q = q.Filter(bson.M{"suite_id": filter.SuiteID.String()})
 		}
 		if filter.AppID != "" {
-			q = q.Where("app_id = ?", filter.AppID)
+			q = q.Filter(bson.M{"app_id": filter.AppID})
 		}
 		if filter.State != "" {
-			q = q.Where("state = ?", string(filter.State))
+			q = q.Filter(bson.M{"state": string(filter.State)})
 		}
 		if filter.Limit > 0 {
-			q = q.Limit(filter.Limit)
+			q = q.Limit(int64(filter.Limit))
 		}
 		if filter.Offset > 0 {
-			q = q.Offset(filter.Offset)
+			q = q.Skip(int64(filter.Offset))
 		}
 	}
 	if err := q.Scan(ctx); err != nil {
@@ -310,9 +334,9 @@ func (s *Store) ListRuns(ctx context.Context, filter *evalrun.ListFilter) ([]*ev
 
 func (s *Store) ListRunsBySuite(ctx context.Context, suiteID id.SuiteID) ([]*evalrun.Run, error) {
 	var models []runModel
-	err := s.pgdb.NewSelect(&models).
-		Where("suite_id = ?", suiteID.String()).
-		OrderExpr("created_at DESC").
+	err := s.mdb.NewFind(&models).
+		Filter(bson.M{"suite_id": suiteID.String()}).
+		Sort(bson.D{{Key: "created_at", Value: -1}}).
 		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list runs by suite: %w", err)
@@ -333,7 +357,7 @@ func (s *Store) CreateResult(ctx context.Context, result *evalrun.Result) error 
 	result.CreatedAt = now
 	result.UpdatedAt = now
 	m := resultToModel(result)
-	_, err := s.pgdb.NewInsert(m).Exec(ctx)
+	_, err := s.mdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create result: %w", err)
 	}
@@ -341,6 +365,9 @@ func (s *Store) CreateResult(ctx context.Context, result *evalrun.Result) error 
 }
 
 func (s *Store) CreateResultBatch(ctx context.Context, results []*evalrun.Result) error {
+	if len(results) == 0 {
+		return nil
+	}
 	now := time.Now().UTC()
 	models := make([]resultModel, len(results))
 	for i, r := range results {
@@ -348,7 +375,7 @@ func (s *Store) CreateResultBatch(ctx context.Context, results []*evalrun.Result
 		r.UpdatedAt = now
 		models[i] = *resultToModel(r)
 	}
-	_, err := s.pgdb.NewInsert(&models).Exec(ctx)
+	_, err := s.mdb.NewInsert(&models).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create result batch: %w", err)
 	}
@@ -357,9 +384,9 @@ func (s *Store) CreateResultBatch(ctx context.Context, results []*evalrun.Result
 
 func (s *Store) ListResults(ctx context.Context, runID id.EvalRunID) ([]*evalrun.Result, error) {
 	var models []resultModel
-	err := s.pgdb.NewSelect(&models).
-		Where("run_id = ?", runID.String()).
-		OrderExpr("created_at ASC").
+	err := s.mdb.NewFind(&models).
+		Filter(bson.M{"run_id": runID.String()}).
+		Sort(bson.D{{Key: "created_at", Value: 1}}).
 		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list results: %w", err)
@@ -423,16 +450,17 @@ func (s *Store) GetResultStats(ctx context.Context, runID id.EvalRunID) (*evalru
 func (s *Store) SaveBaseline(ctx context.Context, b *baseline.Baseline) error {
 	b.CreatedAt = time.Now().UTC()
 	if b.IsCurrent {
-		_, err := s.pgdb.NewUpdate((*baselineModel)(nil)).
-			Set("is_current = ?", false).
-			Where("suite_id = ?", b.SuiteID.String()).
-			Exec(ctx)
+		coll := s.mdb.Collection(colBaselines)
+		_, err := coll.UpdateMany(ctx,
+			bson.M{"suite_id": b.SuiteID.String()},
+			bson.M{"$set": bson.M{"is_current": false}},
+		)
 		if err != nil {
 			return fmt.Errorf("sentinel: reset baselines: %w", err)
 		}
 	}
 	m := baselineToModel(b)
-	_, err := s.pgdb.NewInsert(m).Exec(ctx)
+	_, err := s.mdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: save baseline: %w", err)
 	}
@@ -441,9 +469,9 @@ func (s *Store) SaveBaseline(ctx context.Context, b *baseline.Baseline) error {
 
 func (s *Store) GetBaseline(ctx context.Context, baselineID id.BaselineID) (*baseline.Baseline, error) {
 	m := new(baselineModel)
-	err := s.pgdb.NewSelect(m).Where("id = ?", baselineID.String()).Scan(ctx)
+	err := s.mdb.NewFind(m).Filter(bson.M{"_id": baselineID.String()}).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, sentinel.ErrBaselineNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get baseline: %w", err)
@@ -453,12 +481,12 @@ func (s *Store) GetBaseline(ctx context.Context, baselineID id.BaselineID) (*bas
 
 func (s *Store) GetLatestBaseline(ctx context.Context, suiteID id.SuiteID) (*baseline.Baseline, error) {
 	m := new(baselineModel)
-	err := s.pgdb.NewSelect(m).
-		Where("suite_id = ?", suiteID.String()).
-		Where("is_current = ?", true).
+	err := s.mdb.NewFind(m).
+		Filter(bson.M{"suite_id": suiteID.String()}).
+		Filter(bson.M{"is_current": true}).
 		Scan(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, sentinel.ErrBaselineNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get latest baseline: %w", err)
@@ -468,9 +496,9 @@ func (s *Store) GetLatestBaseline(ctx context.Context, suiteID id.SuiteID) (*bas
 
 func (s *Store) ListBaselines(ctx context.Context, suiteID id.SuiteID) ([]*baseline.Baseline, error) {
 	var models []baselineModel
-	err := s.pgdb.NewSelect(&models).
-		Where("suite_id = ?", suiteID.String()).
-		OrderExpr("created_at DESC").
+	err := s.mdb.NewFind(&models).
+		Filter(bson.M{"suite_id": suiteID.String()}).
+		Sort(bson.D{{Key: "created_at", Value: -1}}).
 		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list baselines: %w", err)
@@ -483,7 +511,9 @@ func (s *Store) ListBaselines(ctx context.Context, suiteID id.SuiteID) ([]*basel
 }
 
 func (s *Store) DeleteBaseline(ctx context.Context, baselineID id.BaselineID) error {
-	_, err := s.pgdb.NewDelete((*baselineModel)(nil)).Where("id = ?", baselineID.String()).Exec(ctx)
+	_, err := s.mdb.NewDelete((*baselineModel)(nil)).
+		Filter(bson.M{"_id": baselineID.String()}).
+		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: delete baseline: %w", err)
 	}
@@ -497,7 +527,7 @@ func (s *Store) DeleteBaseline(ctx context.Context, baselineID id.BaselineID) er
 func (s *Store) CreatePromptVersion(ctx context.Context, pv *promptversion.PromptVersion) error {
 	pv.CreatedAt = time.Now().UTC()
 	m := promptVersionToModel(pv)
-	_, err := s.pgdb.NewInsert(m).Exec(ctx)
+	_, err := s.mdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create prompt version: %w", err)
 	}
@@ -506,9 +536,9 @@ func (s *Store) CreatePromptVersion(ctx context.Context, pv *promptversion.Promp
 
 func (s *Store) GetPromptVersion(ctx context.Context, pvID id.PromptVersionID) (*promptversion.PromptVersion, error) {
 	m := new(promptVersionModel)
-	err := s.pgdb.NewSelect(m).Where("id = ?", pvID.String()).Scan(ctx)
+	err := s.mdb.NewFind(m).Filter(bson.M{"_id": pvID.String()}).Scan(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, sentinel.ErrPromptVersionNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get prompt version: %w", err)
@@ -518,9 +548,9 @@ func (s *Store) GetPromptVersion(ctx context.Context, pvID id.PromptVersionID) (
 
 func (s *Store) ListPromptVersions(ctx context.Context, suiteID id.SuiteID) ([]*promptversion.PromptVersion, error) {
 	var models []promptVersionModel
-	err := s.pgdb.NewSelect(&models).
-		Where("suite_id = ?", suiteID.String()).
-		OrderExpr("version ASC").
+	err := s.mdb.NewFind(&models).
+		Filter(bson.M{"suite_id": suiteID.String()}).
+		Sort(bson.D{{Key: "version", Value: 1}}).
 		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list prompt versions: %w", err)
@@ -534,12 +564,12 @@ func (s *Store) ListPromptVersions(ctx context.Context, suiteID id.SuiteID) ([]*
 
 func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID) (*promptversion.PromptVersion, error) {
 	m := new(promptVersionModel)
-	err := s.pgdb.NewSelect(m).
-		Where("suite_id = ?", suiteID.String()).
-		Where("is_current = ?", true).
+	err := s.mdb.NewFind(m).
+		Filter(bson.M{"suite_id": suiteID.String()}).
+		Filter(bson.M{"is_current": true}).
 		Scan(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, sentinel.ErrPromptVersionNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get current prompt version: %w", err)
@@ -548,19 +578,27 @@ func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID)
 }
 
 func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
-	_, err := s.pgdb.NewUpdate((*promptVersionModel)(nil)).
-		Set("is_current = ?", false).
-		Where("suite_id = ?", suiteID.String()).
-		Exec(ctx)
+	// Reset all prompt versions for this suite to not current.
+	coll := s.mdb.Collection(colPromptVersions)
+	_, err := coll.UpdateMany(ctx,
+		bson.M{"suite_id": suiteID.String()},
+		bson.M{"$set": bson.M{"is_current": false}},
+	)
 	if err != nil {
 		return fmt.Errorf("sentinel: reset prompt versions: %w", err)
 	}
-	_, err = s.pgdb.NewUpdate((*promptVersionModel)(nil)).
-		Set("is_current = ?", true).
-		Where("id = ?", pvID.String()).
-		Exec(ctx)
+	_, err = coll.UpdateOne(ctx,
+		bson.M{"_id": pvID.String()},
+		bson.M{"$set": bson.M{"is_current": true}},
+	)
 	if err != nil {
 		return fmt.Errorf("sentinel: set current prompt version: %w", err)
 	}
 	return nil
+}
+
+// isNotFound checks whether an error indicates no documents were found.
+func isNotFound(err error) bool {
+	return errors.Is(err, mongo.ErrNoDocuments) ||
+		errors.Is(err, grove.ErrNoRows)
 }

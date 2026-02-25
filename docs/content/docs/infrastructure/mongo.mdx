@@ -1,0 +1,70 @@
+---
+title: MongoDB Store
+description: MongoDB store for document-oriented and horizontally-scalable deployments.
+---
+
+The `store/mongo` package implements Sentinel's `store.Store` interface using the grove ORM with the MongoDB driver. It stores suites, cases, runs, results, baselines, and prompt versions as documents, making it a natural fit for deployments that already run MongoDB.
+
+## Usage
+
+```go
+import (
+    "github.com/xraph/grove"
+    "github.com/xraph/grove/drivers/mongodriver"
+    "github.com/xraph/sentinel/store/mongo"
+)
+
+db, err := grove.Open(mongodriver.Open("mongodb://localhost:27017", "sentinel"))
+if err != nil {
+    log.Fatal(err)
+}
+
+s := mongo.New(db)
+if err := s.Migrate(ctx); err != nil {
+    log.Fatal(err)
+}
+
+eng, err := engine.New(
+    engine.WithStore(s),
+)
+```
+
+## Collections
+
+The MongoDB store uses the following collections:
+
+| Collection | Entity | Key fields |
+|------------|--------|------------|
+| `sentinel_suites` | Suites | `_id`, `app_id`, `name`, `system_prompt`, `model`, `persona_ref`, `metadata` |
+| `sentinel_cases` | Cases | `_id`, `suite_id`, `name`, `input`, `expected`, `scenario_type`, `scorers`, `tags` |
+| `sentinel_runs` | Runs | `_id`, `suite_id`, `app_id`, `model`, `state`, `pass_rate`, `avg_score`, `dimension_scores` |
+| `sentinel_results` | Results | `_id`, `run_id`, `case_id`, `status`, `score`, `output`, `scorer_results`, `run_trace` |
+| `sentinel_baselines` | Baselines | `_id`, `suite_id`, `run_id`, `name`, `results`, `dimension_scores`, `is_current` |
+| `sentinel_prompt_versions` | Prompt versions | `_id`, `suite_id`, `version`, `system_prompt`, `changelog`, `is_current` |
+
+## Internals
+
+| Aspect | Detail |
+|--------|--------|
+| Driver | grove ORM + mongodriver |
+| Migrations | Index creation on collections via mongomigrate |
+| Transactions | MongoDB sessions (replica-set required for multi-doc txns) |
+| JSON fields | Stored natively as BSON documents |
+
+## Indexes
+
+Migrations create the following indexes:
+
+- `sentinel_suites` — unique compound on `(app_id, name)`, plus `app_id` and `created_at`
+- `sentinel_cases` — `suite_id`, compound `(suite_id, scenario_type)`, `created_at`
+- `sentinel_runs` — compound `(suite_id, state)`, `app_id`, `created_at`
+- `sentinel_results` — `run_id`, compound `(run_id, case_id)`, `created_at`
+- `sentinel_baselines` — compound `(suite_id, is_current)`, `created_at`
+- `sentinel_prompt_versions` — unique compound `(suite_id, version)`, compound `(suite_id, is_current)`
+
+## When to use
+
+- Document-oriented workloads where MongoDB is the primary data store.
+- Horizontally-scaled environments requiring sharding.
+- Teams already running MongoDB in their infrastructure.
+- Deployments where native BSON document storage simplifies complex nested evaluation data.

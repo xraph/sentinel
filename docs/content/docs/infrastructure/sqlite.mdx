@@ -1,0 +1,66 @@
+---
+title: SQLite Store
+description: Lightweight SQLite store for development, testing, and single-node deployments.
+---
+
+The `store/sqlite` package implements Sentinel's `store.Store` interface using the grove ORM with the SQLite driver. It requires no external database process, making it ideal for development, integration tests, and single-node deployments.
+
+## Usage
+
+```go
+import (
+    "github.com/xraph/grove"
+    "github.com/xraph/grove/drivers/sqlitedriver"
+    "github.com/xraph/sentinel/store/sqlite"
+)
+
+db, err := grove.Open(sqlitedriver.Open("sentinel.db"))
+if err != nil {
+    log.Fatal(err)
+}
+
+s := sqlite.New(db)
+if err := s.Migrate(ctx); err != nil {
+    log.Fatal(err)
+}
+
+eng, err := engine.New(
+    engine.WithStore(s),
+)
+```
+
+Pass `":memory:"` for a fully in-process, zero-persistence store useful in tests:
+
+```go
+db, err := grove.Open(sqlitedriver.Open(":memory:"))
+```
+
+## Tables
+
+The SQLite store creates the same tables as the PostgreSQL store, with SQLite-appropriate types:
+
+| Table | Entity | Key columns |
+|-------|--------|-------------|
+| `sentinel_suites` | Suites | `id`, `app_id`, `name`, `system_prompt`, `model`, `persona_ref`, `metadata` (TEXT/JSON) |
+| `sentinel_cases` | Cases | `id`, `suite_id`, `name`, `input`, `expected`, `scenario_type`, `scorers` (TEXT/JSON), `tags` (TEXT/JSON) |
+| `sentinel_runs` | Runs | `id`, `suite_id`, `app_id`, `model`, `state`, `pass_rate`, `avg_score`, `dimension_scores` (TEXT/JSON) |
+| `sentinel_results` | Results | `id`, `run_id`, `case_id`, `status`, `score`, `output`, `scorer_results` (TEXT/JSON), `run_trace` (TEXT/JSON) |
+| `sentinel_baselines` | Baselines | `id`, `suite_id`, `run_id`, `name`, `results` (TEXT/JSON), `dimension_scores` (TEXT/JSON), `is_current` |
+| `sentinel_prompt_versions` | Prompt versions | `id`, `suite_id`, `version`, `system_prompt`, `changelog`, `is_current` |
+
+## Internals
+
+| Aspect | Detail |
+|--------|--------|
+| Driver | grove ORM + sqlitedriver |
+| Migrations | grove orchestrator with programmatic migrations |
+| Transactions | SQLite-level transactions |
+| Concurrency | Multiple readers, single writer (WAL mode) |
+| JSON columns | Stored as TEXT with JSON serialization/deserialization |
+
+## When to use
+
+- Development and local testing without external dependencies.
+- Single-process or embedded deployments.
+- CI pipelines where spinning up PostgreSQL is impractical.
+- Quick prototyping and evaluation experiments on a single machine.

@@ -1,5 +1,3 @@
-// Package sqlite provides a SQLite implementation of the Sentinel composite
-// store using bun ORM. Suitable for local development and single-node testing.
 package sqlite
 
 import (
@@ -9,7 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/uptrace/bun"
+	"github.com/xraph/grove"
+	"github.com/xraph/grove/drivers/sqlitedriver"
+	"github.com/xraph/grove/migrate"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/baseline"
@@ -26,69 +26,34 @@ var _ store.Store = (*Store)(nil)
 
 // Store is a SQLite implementation of the composite Sentinel store.
 type Store struct {
-	db *bun.DB
+	db  *grove.DB
+	sdb *sqlitedriver.SqliteDB
 }
 
-// New creates a new SQLite store.
-func New(db *bun.DB) *Store {
-	return &Store{db: db}
-}
-
-// Migrate creates tables if they don't exist.
-func (s *Store) Migrate(ctx context.Context) error {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS sentinel_suites (
-			id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '',
-			app_id TEXT NOT NULL, system_prompt TEXT DEFAULT '', model TEXT NOT NULL,
-			temperature REAL DEFAULT 0, persona_ref TEXT DEFAULT '',
-			metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-			UNIQUE(app_id, name))`,
-		`CREATE TABLE IF NOT EXISTS sentinel_cases (
-			id TEXT PRIMARY KEY, suite_id TEXT NOT NULL REFERENCES sentinel_suites(id),
-			name TEXT NOT NULL, input TEXT NOT NULL, expected TEXT DEFAULT '',
-			scenario_type TEXT DEFAULT 'standard', scorers TEXT DEFAULT '[]',
-			tags TEXT DEFAULT '[]', context TEXT DEFAULT '{}', metadata TEXT DEFAULT '{}',
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS sentinel_runs (
-			id TEXT PRIMARY KEY, suite_id TEXT NOT NULL REFERENCES sentinel_suites(id),
-			model TEXT NOT NULL, system_prompt TEXT DEFAULT '', temperature REAL DEFAULT 0,
-			total_cases INT DEFAULT 0, passed INT DEFAULT 0, failed INT DEFAULT 0,
-			pass_rate REAL DEFAULT 0, avg_score REAL DEFAULT 0, avg_latency_ms INT DEFAULT 0,
-			total_tokens INT DEFAULT 0, total_cost REAL DEFAULT 0,
-			app_id TEXT NOT NULL, target_tenant_id TEXT DEFAULT '', persona_ref TEXT DEFAULT '',
-			config TEXT DEFAULT '{}', state TEXT DEFAULT 'running', error TEXT DEFAULT '',
-			completed_at TEXT, dimension_scores TEXT DEFAULT '{}',
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS sentinel_results (
-			id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES sentinel_runs(id),
-			case_id TEXT NOT NULL, case_name TEXT NOT NULL, status TEXT NOT NULL,
-			score REAL DEFAULT 0, output TEXT DEFAULT '', latency_ms INT DEFAULT 0,
-			tokens_used INT DEFAULT 0, cost REAL DEFAULT 0, scorer_results TEXT DEFAULT '[]',
-			error TEXT DEFAULT '', dimension_scores TEXT DEFAULT '{}', run_trace TEXT,
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS sentinel_baselines (
-			id TEXT PRIMARY KEY, suite_id TEXT NOT NULL REFERENCES sentinel_suites(id),
-			run_id TEXT NOT NULL, name TEXT NOT NULL, results TEXT NOT NULL,
-			pass_rate REAL DEFAULT 0, avg_score REAL DEFAULT 0,
-			dimension_scores TEXT DEFAULT '{}', is_current INTEGER DEFAULT 0,
-			created_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS sentinel_prompt_versions (
-			id TEXT PRIMARY KEY, suite_id TEXT NOT NULL REFERENCES sentinel_suites(id),
-			version INT NOT NULL, system_prompt TEXT NOT NULL, changelog TEXT DEFAULT '',
-			is_current INTEGER DEFAULT 0, run_id TEXT DEFAULT '', pass_rate REAL, avg_score REAL,
-			created_at TEXT NOT NULL, UNIQUE(suite_id, version))`,
+// New creates a new SQLite store backed by grove ORM.
+func New(db *grove.DB) *Store {
+	return &Store{
+		db:  db,
+		sdb: sqlitedriver.Unwrap(db),
 	}
-	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("sentinel: %w: %w", sentinel.ErrMigrationFailed, err)
-		}
+}
+
+// Migrate runs programmatic migrations via the grove orchestrator.
+func (s *Store) Migrate(ctx context.Context) error {
+	executor, err := migrate.NewExecutorFor(s.sdb)
+	if err != nil {
+		return fmt.Errorf("sentinel/sqlite: create migration executor: %w", err)
+	}
+	orch := migrate.NewOrchestrator(executor, Migrations)
+	if _, err := orch.Migrate(ctx); err != nil {
+		return fmt.Errorf("sentinel/sqlite: migration failed: %w", err)
 	}
 	return nil
 }
 
 // Ping verifies the database connection.
 func (s *Store) Ping(ctx context.Context) error {
-	return s.db.PingContext(ctx)
+	return s.db.Ping(ctx)
 }
 
 // Close closes the database connection.
@@ -104,7 +69,8 @@ func (s *Store) CreateSuite(ctx context.Context, su *suite.Suite) error {
 	now := time.Now().UTC()
 	su.CreatedAt = now
 	su.UpdatedAt = now
-	_, err := s.db.NewInsert().Model(su).Exec(ctx)
+	m := suiteToModel(su)
+	_, err := s.sdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create suite: %w", err)
 	}
@@ -112,32 +78,36 @@ func (s *Store) CreateSuite(ctx context.Context, su *suite.Suite) error {
 }
 
 func (s *Store) GetSuite(ctx context.Context, suiteID id.SuiteID) (*suite.Suite, error) {
-	su := new(suite.Suite)
-	err := s.db.NewSelect().Model(su).Where("id = ?", suiteID.String()).Scan(ctx)
+	m := new(suiteModel)
+	err := s.sdb.NewSelect(m).Where("id = ?", suiteID.String()).Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrSuiteNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get suite: %w", err)
 	}
-	return su, nil
+	return suiteFromModel(m)
 }
 
 func (s *Store) GetSuiteByName(ctx context.Context, appID, name string) (*suite.Suite, error) {
-	su := new(suite.Suite)
-	err := s.db.NewSelect().Model(su).Where("app_id = ?", appID).Where("name = ?", name).Scan(ctx)
+	m := new(suiteModel)
+	err := s.sdb.NewSelect(m).
+		Where("app_id = ?", appID).
+		Where("name = ?", name).
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrSuiteNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get suite by name: %w", err)
 	}
-	return su, nil
+	return suiteFromModel(m)
 }
 
 func (s *Store) UpdateSuite(ctx context.Context, su *suite.Suite) error {
 	su.UpdatedAt = time.Now().UTC()
-	_, err := s.db.NewUpdate().Model(su).WherePK().Exec(ctx)
+	m := suiteToModel(su)
+	_, err := s.sdb.NewUpdate(m).WherePK().Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: update suite: %w", err)
 	}
@@ -145,7 +115,7 @@ func (s *Store) UpdateSuite(ctx context.Context, su *suite.Suite) error {
 }
 
 func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
-	_, err := s.db.NewDelete().Model((*suite.Suite)(nil)).Where("id = ?", suiteID.String()).Exec(ctx)
+	_, err := s.sdb.NewDelete((*suiteModel)(nil)).Where("id = ?", suiteID.String()).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: delete suite: %w", err)
 	}
@@ -153,8 +123,8 @@ func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
 }
 
 func (s *Store) ListSuites(ctx context.Context, filter *suite.ListFilter) ([]*suite.Suite, error) {
-	var result []*suite.Suite
-	q := s.db.NewSelect().Model(&result).OrderExpr("created_at ASC")
+	var models []suiteModel
+	q := s.sdb.NewSelect(&models).OrderExpr("created_at ASC")
 	if filter != nil {
 		if filter.AppID != "" {
 			q = q.Where("app_id = ?", filter.AppID)
@@ -169,6 +139,14 @@ func (s *Store) ListSuites(ctx context.Context, filter *suite.ListFilter) ([]*su
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("sentinel: list suites: %w", err)
 	}
+	result := make([]*suite.Suite, len(models))
+	for i := range models {
+		su, convErr := suiteFromModel(&models[i])
+		if convErr != nil {
+			return nil, convErr
+		}
+		result[i] = su
+	}
 	return result, nil
 }
 
@@ -180,7 +158,8 @@ func (s *Store) CreateCase(ctx context.Context, tc *testcase.Case) error {
 	now := time.Now().UTC()
 	tc.CreatedAt = now
 	tc.UpdatedAt = now
-	_, err := s.db.NewInsert().Model(tc).Exec(ctx)
+	m := caseToModel(tc)
+	_, err := s.sdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create case: %w", err)
 	}
@@ -189,11 +168,13 @@ func (s *Store) CreateCase(ctx context.Context, tc *testcase.Case) error {
 
 func (s *Store) CreateCaseBatch(ctx context.Context, cases []*testcase.Case) error {
 	now := time.Now().UTC()
-	for _, tc := range cases {
+	models := make([]caseModel, len(cases))
+	for i, tc := range cases {
 		tc.CreatedAt = now
 		tc.UpdatedAt = now
+		models[i] = *caseToModel(tc)
 	}
-	_, err := s.db.NewInsert().Model(&cases).Exec(ctx)
+	_, err := s.sdb.NewInsert(&models).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create case batch: %w", err)
 	}
@@ -201,20 +182,21 @@ func (s *Store) CreateCaseBatch(ctx context.Context, cases []*testcase.Case) err
 }
 
 func (s *Store) GetCase(ctx context.Context, caseID id.CaseID) (*testcase.Case, error) {
-	tc := new(testcase.Case)
-	err := s.db.NewSelect().Model(tc).Where("id = ?", caseID.String()).Scan(ctx)
+	m := new(caseModel)
+	err := s.sdb.NewSelect(m).Where("id = ?", caseID.String()).Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrCaseNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get case: %w", err)
 	}
-	return tc, nil
+	return caseFromModel(m)
 }
 
 func (s *Store) UpdateCase(ctx context.Context, tc *testcase.Case) error {
 	tc.UpdatedAt = time.Now().UTC()
-	_, err := s.db.NewUpdate().Model(tc).WherePK().Exec(ctx)
+	m := caseToModel(tc)
+	_, err := s.sdb.NewUpdate(m).WherePK().Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: update case: %w", err)
 	}
@@ -222,7 +204,7 @@ func (s *Store) UpdateCase(ctx context.Context, tc *testcase.Case) error {
 }
 
 func (s *Store) DeleteCase(ctx context.Context, caseID id.CaseID) error {
-	_, err := s.db.NewDelete().Model((*testcase.Case)(nil)).Where("id = ?", caseID.String()).Exec(ctx)
+	_, err := s.sdb.NewDelete((*caseModel)(nil)).Where("id = ?", caseID.String()).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: delete case: %w", err)
 	}
@@ -230,20 +212,33 @@ func (s *Store) DeleteCase(ctx context.Context, caseID id.CaseID) error {
 }
 
 func (s *Store) ListCases(ctx context.Context, suiteID id.SuiteID) ([]*testcase.Case, error) {
-	var result []*testcase.Case
-	err := s.db.NewSelect().Model(&result).Where("suite_id = ?", suiteID.String()).OrderExpr("created_at ASC").Scan(ctx)
+	var models []caseModel
+	err := s.sdb.NewSelect(&models).
+		Where("suite_id = ?", suiteID.String()).
+		OrderExpr("created_at ASC").
+		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list cases: %w", err)
+	}
+	result := make([]*testcase.Case, len(models))
+	for i := range models {
+		tc, convErr := caseFromModel(&models[i])
+		if convErr != nil {
+			return nil, convErr
+		}
+		result[i] = tc
 	}
 	return result, nil
 }
 
 func (s *Store) CountCases(ctx context.Context, suiteID id.SuiteID) (int64, error) {
-	count, err := s.db.NewSelect().Model((*testcase.Case)(nil)).Where("suite_id = ?", suiteID.String()).Count(ctx)
+	count, err := s.sdb.NewSelect((*caseModel)(nil)).
+		Where("suite_id = ?", suiteID.String()).
+		Count(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("sentinel: count cases: %w", err)
 	}
-	return int64(count), nil
+	return count, nil
 }
 
 func (s *Store) ImportCases(_ context.Context, _ id.SuiteID, _ string, _ []byte) (int64, error) {
@@ -258,7 +253,8 @@ func (s *Store) CreateRun(ctx context.Context, run *evalrun.Run) error {
 	now := time.Now().UTC()
 	run.CreatedAt = now
 	run.UpdatedAt = now
-	_, err := s.db.NewInsert().Model(run).Exec(ctx)
+	m := runToModel(run)
+	_, err := s.sdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create run: %w", err)
 	}
@@ -266,20 +262,21 @@ func (s *Store) CreateRun(ctx context.Context, run *evalrun.Run) error {
 }
 
 func (s *Store) GetRun(ctx context.Context, runID id.EvalRunID) (*evalrun.Run, error) {
-	run := new(evalrun.Run)
-	err := s.db.NewSelect().Model(run).Where("id = ?", runID.String()).Scan(ctx)
+	m := new(runModel)
+	err := s.sdb.NewSelect(m).Where("id = ?", runID.String()).Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrRunNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get run: %w", err)
 	}
-	return run, nil
+	return runFromModel(m)
 }
 
 func (s *Store) UpdateRun(ctx context.Context, run *evalrun.Run) error {
 	run.UpdatedAt = time.Now().UTC()
-	_, err := s.db.NewUpdate().Model(run).WherePK().Exec(ctx)
+	m := runToModel(run)
+	_, err := s.sdb.NewUpdate(m).WherePK().Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: update run: %w", err)
 	}
@@ -287,8 +284,8 @@ func (s *Store) UpdateRun(ctx context.Context, run *evalrun.Run) error {
 }
 
 func (s *Store) ListRuns(ctx context.Context, filter *evalrun.ListFilter) ([]*evalrun.Run, error) {
-	var result []*evalrun.Run
-	q := s.db.NewSelect().Model(&result).OrderExpr("created_at DESC")
+	var models []runModel
+	q := s.sdb.NewSelect(&models).OrderExpr("created_at DESC")
 	if filter != nil {
 		if filter.SuiteID.String() != "" {
 			q = q.Where("suite_id = ?", filter.SuiteID.String())
@@ -309,14 +306,33 @@ func (s *Store) ListRuns(ctx context.Context, filter *evalrun.ListFilter) ([]*ev
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("sentinel: list runs: %w", err)
 	}
+	result := make([]*evalrun.Run, len(models))
+	for i := range models {
+		r, convErr := runFromModel(&models[i])
+		if convErr != nil {
+			return nil, convErr
+		}
+		result[i] = r
+	}
 	return result, nil
 }
 
 func (s *Store) ListRunsBySuite(ctx context.Context, suiteID id.SuiteID) ([]*evalrun.Run, error) {
-	var result []*evalrun.Run
-	err := s.db.NewSelect().Model(&result).Where("suite_id = ?", suiteID.String()).OrderExpr("created_at DESC").Scan(ctx)
+	var models []runModel
+	err := s.sdb.NewSelect(&models).
+		Where("suite_id = ?", suiteID.String()).
+		OrderExpr("created_at DESC").
+		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list runs by suite: %w", err)
+	}
+	result := make([]*evalrun.Run, len(models))
+	for i := range models {
+		r, convErr := runFromModel(&models[i])
+		if convErr != nil {
+			return nil, convErr
+		}
+		result[i] = r
 	}
 	return result, nil
 }
@@ -329,7 +345,8 @@ func (s *Store) CreateResult(ctx context.Context, result *evalrun.Result) error 
 	now := time.Now().UTC()
 	result.CreatedAt = now
 	result.UpdatedAt = now
-	_, err := s.db.NewInsert().Model(result).Exec(ctx)
+	m := resultToModel(result)
+	_, err := s.sdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create result: %w", err)
 	}
@@ -338,11 +355,13 @@ func (s *Store) CreateResult(ctx context.Context, result *evalrun.Result) error 
 
 func (s *Store) CreateResultBatch(ctx context.Context, results []*evalrun.Result) error {
 	now := time.Now().UTC()
-	for _, r := range results {
+	models := make([]resultModel, len(results))
+	for i, r := range results {
 		r.CreatedAt = now
 		r.UpdatedAt = now
+		models[i] = *resultToModel(r)
 	}
-	_, err := s.db.NewInsert().Model(&results).Exec(ctx)
+	_, err := s.sdb.NewInsert(&models).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create result batch: %w", err)
 	}
@@ -350,10 +369,21 @@ func (s *Store) CreateResultBatch(ctx context.Context, results []*evalrun.Result
 }
 
 func (s *Store) ListResults(ctx context.Context, runID id.EvalRunID) ([]*evalrun.Result, error) {
-	var result []*evalrun.Result
-	err := s.db.NewSelect().Model(&result).Where("run_id = ?", runID.String()).OrderExpr("created_at ASC").Scan(ctx)
+	var models []resultModel
+	err := s.sdb.NewSelect(&models).
+		Where("run_id = ?", runID.String()).
+		OrderExpr("created_at ASC").
+		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list results: %w", err)
+	}
+	result := make([]*evalrun.Result, len(models))
+	for i := range models {
+		r, convErr := resultFromModel(&models[i])
+		if convErr != nil {
+			return nil, convErr
+		}
+		result[i] = r
 	}
 	return result, nil
 }
@@ -363,16 +393,20 @@ func (s *Store) GetResultStats(ctx context.Context, runID id.EvalRunID) (*evalru
 	if err != nil {
 		return nil, err
 	}
-	stats := &evalrun.ResultStats{DimensionScores: make(map[string]float64)}
+	stats := &evalrun.ResultStats{
+		DimensionScores: make(map[string]float64),
+	}
 	dimCounts := make(map[string]int)
 	var totalScore float64
 	var totalLatency int64
+
 	for _, r := range results {
 		stats.TotalCases++
 		totalScore += r.Score
 		totalLatency += int64(r.LatencyMs)
 		stats.TotalTokens += r.TokensUsed
 		stats.TotalCost += r.Cost
+
 		switch r.Status {
 		case evalrun.StatusPass:
 			stats.Passed++
@@ -406,11 +440,16 @@ func (s *Store) GetResultStats(ctx context.Context, runID id.EvalRunID) (*evalru
 func (s *Store) SaveBaseline(ctx context.Context, b *baseline.Baseline) error {
 	b.CreatedAt = time.Now().UTC()
 	if b.IsCurrent {
-		if _, err := s.db.NewUpdate().Model((*baseline.Baseline)(nil)).Set("is_current = ?", false).Where("suite_id = ?", b.SuiteID.String()).Exec(ctx); err != nil {
+		_, err := s.sdb.NewUpdate((*baselineModel)(nil)).
+			Set("is_current = ?", false).
+			Where("suite_id = ?", b.SuiteID.String()).
+			Exec(ctx)
+		if err != nil {
 			return fmt.Errorf("sentinel: reset baselines: %w", err)
 		}
 	}
-	_, err := s.db.NewInsert().Model(b).Exec(ctx)
+	m := baselineToModel(b)
+	_, err := s.sdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: save baseline: %w", err)
 	}
@@ -418,40 +457,54 @@ func (s *Store) SaveBaseline(ctx context.Context, b *baseline.Baseline) error {
 }
 
 func (s *Store) GetBaseline(ctx context.Context, baselineID id.BaselineID) (*baseline.Baseline, error) {
-	b := new(baseline.Baseline)
-	err := s.db.NewSelect().Model(b).Where("id = ?", baselineID.String()).Scan(ctx)
+	m := new(baselineModel)
+	err := s.sdb.NewSelect(m).Where("id = ?", baselineID.String()).Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrBaselineNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get baseline: %w", err)
 	}
-	return b, nil
+	return baselineFromModel(m)
 }
 
 func (s *Store) GetLatestBaseline(ctx context.Context, suiteID id.SuiteID) (*baseline.Baseline, error) {
-	b := new(baseline.Baseline)
-	err := s.db.NewSelect().Model(b).Where("suite_id = ?", suiteID.String()).Where("is_current = ?", true).Scan(ctx)
+	m := new(baselineModel)
+	err := s.sdb.NewSelect(m).
+		Where("suite_id = ?", suiteID.String()).
+		Where("is_current = ?", true).
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrBaselineNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get latest baseline: %w", err)
 	}
-	return b, nil
+	return baselineFromModel(m)
 }
 
 func (s *Store) ListBaselines(ctx context.Context, suiteID id.SuiteID) ([]*baseline.Baseline, error) {
-	var result []*baseline.Baseline
-	err := s.db.NewSelect().Model(&result).Where("suite_id = ?", suiteID.String()).OrderExpr("created_at DESC").Scan(ctx)
+	var models []baselineModel
+	err := s.sdb.NewSelect(&models).
+		Where("suite_id = ?", suiteID.String()).
+		OrderExpr("created_at DESC").
+		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list baselines: %w", err)
+	}
+	result := make([]*baseline.Baseline, len(models))
+	for i := range models {
+		b, convErr := baselineFromModel(&models[i])
+		if convErr != nil {
+			return nil, convErr
+		}
+		result[i] = b
 	}
 	return result, nil
 }
 
 func (s *Store) DeleteBaseline(ctx context.Context, baselineID id.BaselineID) error {
-	_, err := s.db.NewDelete().Model((*baseline.Baseline)(nil)).Where("id = ?", baselineID.String()).Exec(ctx)
+	_, err := s.sdb.NewDelete((*baselineModel)(nil)).Where("id = ?", baselineID.String()).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: delete baseline: %w", err)
 	}
@@ -464,7 +517,8 @@ func (s *Store) DeleteBaseline(ctx context.Context, baselineID id.BaselineID) er
 
 func (s *Store) CreatePromptVersion(ctx context.Context, pv *promptversion.PromptVersion) error {
 	pv.CreatedAt = time.Now().UTC()
-	_, err := s.db.NewInsert().Model(pv).Exec(ctx)
+	m := promptVersionToModel(pv)
+	_, err := s.sdb.NewInsert(m).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: create prompt version: %w", err)
 	}
@@ -472,43 +526,60 @@ func (s *Store) CreatePromptVersion(ctx context.Context, pv *promptversion.Promp
 }
 
 func (s *Store) GetPromptVersion(ctx context.Context, pvID id.PromptVersionID) (*promptversion.PromptVersion, error) {
-	pv := new(promptversion.PromptVersion)
-	err := s.db.NewSelect().Model(pv).Where("id = ?", pvID.String()).Scan(ctx)
+	m := new(promptVersionModel)
+	err := s.sdb.NewSelect(m).Where("id = ?", pvID.String()).Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrPromptVersionNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get prompt version: %w", err)
 	}
-	return pv, nil
+	return promptVersionFromModel(m), nil
 }
 
 func (s *Store) ListPromptVersions(ctx context.Context, suiteID id.SuiteID) ([]*promptversion.PromptVersion, error) {
-	var result []*promptversion.PromptVersion
-	err := s.db.NewSelect().Model(&result).Where("suite_id = ?", suiteID.String()).OrderExpr("version ASC").Scan(ctx)
+	var models []promptVersionModel
+	err := s.sdb.NewSelect(&models).
+		Where("suite_id = ?", suiteID.String()).
+		OrderExpr("version ASC").
+		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: list prompt versions: %w", err)
+	}
+	result := make([]*promptversion.PromptVersion, len(models))
+	for i := range models {
+		result[i] = promptVersionFromModel(&models[i])
 	}
 	return result, nil
 }
 
 func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID) (*promptversion.PromptVersion, error) {
-	pv := new(promptversion.PromptVersion)
-	err := s.db.NewSelect().Model(pv).Where("suite_id = ?", suiteID.String()).Where("is_current = ?", true).Scan(ctx)
+	m := new(promptVersionModel)
+	err := s.sdb.NewSelect(m).
+		Where("suite_id = ?", suiteID.String()).
+		Where("is_current = ?", true).
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sentinel.ErrPromptVersionNotFound
 		}
 		return nil, fmt.Errorf("sentinel: get current prompt version: %w", err)
 	}
-	return pv, nil
+	return promptVersionFromModel(m), nil
 }
 
 func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
-	if _, err := s.db.NewUpdate().Model((*promptversion.PromptVersion)(nil)).Set("is_current = ?", false).Where("suite_id = ?", suiteID.String()).Exec(ctx); err != nil {
+	_, err := s.sdb.NewUpdate((*promptVersionModel)(nil)).
+		Set("is_current = ?", false).
+		Where("suite_id = ?", suiteID.String()).
+		Exec(ctx)
+	if err != nil {
 		return fmt.Errorf("sentinel: reset prompt versions: %w", err)
 	}
-	_, err := s.db.NewUpdate().Model((*promptversion.PromptVersion)(nil)).Set("is_current = ?", true).Where("id = ?", pvID.String()).Exec(ctx)
+	_, err = s.sdb.NewUpdate((*promptVersionModel)(nil)).
+		Set("is_current = ?", true).
+		Where("id = ?", pvID.String()).
+		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: set current prompt version: %w", err)
 	}
