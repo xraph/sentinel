@@ -1,154 +1,277 @@
-// Package id provides TypeID-based identity types for all Sentinel entities.
+// Package id defines TypeID-based identity types for all Sentinel entities.
 //
-// Every entity in Sentinel gets a type-prefixed, K-sortable, UUIDv7-based
-// identifier. IDs are validated at parse time to ensure the prefix matches
-// the expected type.
-//
-// Examples:
-//
-//	suite_01h2xcejqtf2nbrexx3vqjhp41
-//	tcase_01h2xcejqtf2nbrexx3vqjhp41
-//	erun_01h455vb4pex5vsknk084sn02q
+// Every entity in Sentinel uses a single ID struct with a prefix that identifies
+// the entity type. IDs are K-sortable (UUIDv7-based), globally unique,
+// and URL-safe in the format "prefix_suffix".
 package id
 
 import (
+	"database/sql/driver"
 	"fmt"
 
 	"go.jetify.com/typeid/v2"
 )
 
-// ──────────────────────────────────────────────────
-// Prefix constants
-// ──────────────────────────────────────────────────
+// Prefix identifies the entity type encoded in a TypeID.
+type Prefix string
 
+// Prefix constants for all Sentinel entity types.
 const (
-	// PrefixSuite is the TypeID prefix for evaluation suites.
-	PrefixSuite = "suite"
-
-	// PrefixCase is the TypeID prefix for test cases.
-	PrefixCase = "tcase"
-
-	// PrefixEvalRun is the TypeID prefix for evaluation runs.
-	PrefixEvalRun = "erun"
-
-	// PrefixEvalResult is the TypeID prefix for evaluation results.
-	PrefixEvalResult = "eres"
-
-	// PrefixBaseline is the TypeID prefix for baselines.
-	PrefixBaseline = "base"
-
-	// PrefixRedTeam is the TypeID prefix for red team sessions.
-	PrefixRedTeam = "rteam"
-
-	// PrefixPromptVersion is the TypeID prefix for prompt versions.
-	PrefixPromptVersion = "pver"
+	PrefixSuite         Prefix = "suite"
+	PrefixCase          Prefix = "tcase"
+	PrefixEvalRun       Prefix = "erun"
+	PrefixEvalResult    Prefix = "eres"
+	PrefixBaseline      Prefix = "base"
+	PrefixRedTeam       Prefix = "rteam"
+	PrefixPromptVersion Prefix = "pver"
 )
 
+// ID is the primary identifier type for all Sentinel entities.
+// It wraps a TypeID providing a prefix-qualified, globally unique,
+// sortable, URL-safe identifier in the format "prefix_suffix".
+//
+//nolint:recvcheck // Value receivers for read-only methods, pointer receivers for UnmarshalText/Scan.
+type ID struct {
+	inner typeid.TypeID
+	valid bool
+}
+
+// Nil is the zero-value ID.
+var Nil ID
+
+// New generates a new globally unique ID with the given prefix.
+// It panics if prefix is not a valid TypeID prefix (programming error).
+func New(prefix Prefix) ID {
+	tid, err := typeid.Generate(string(prefix))
+	if err != nil {
+		panic(fmt.Sprintf("id: invalid prefix %q: %v", prefix, err))
+	}
+
+	return ID{inner: tid, valid: true}
+}
+
+// Parse parses a TypeID string (e.g., "suite_01h2xcejqtf2nbrexx3vqjhp41")
+// into an ID. Returns an error if the string is not valid.
+func Parse(s string) (ID, error) {
+	if s == "" {
+		return Nil, fmt.Errorf("id: parse %q: empty string", s)
+	}
+
+	tid, err := typeid.Parse(s)
+	if err != nil {
+		return Nil, fmt.Errorf("id: parse %q: %w", s, err)
+	}
+
+	return ID{inner: tid, valid: true}, nil
+}
+
+// ParseWithPrefix parses a TypeID string and validates that its prefix
+// matches the expected value.
+func ParseWithPrefix(s string, expected Prefix) (ID, error) {
+	parsed, err := Parse(s)
+	if err != nil {
+		return Nil, err
+	}
+
+	if parsed.Prefix() != expected {
+		return Nil, fmt.Errorf("id: expected prefix %q, got %q", expected, parsed.Prefix())
+	}
+
+	return parsed, nil
+}
+
+// MustParse is like Parse but panics on error. Use for hardcoded ID values.
+func MustParse(s string) ID {
+	parsed, err := Parse(s)
+	if err != nil {
+		panic(fmt.Sprintf("id: must parse %q: %v", s, err))
+	}
+
+	return parsed
+}
+
+// MustParseWithPrefix is like ParseWithPrefix but panics on error.
+func MustParseWithPrefix(s string, expected Prefix) ID {
+	parsed, err := ParseWithPrefix(s, expected)
+	if err != nil {
+		panic(fmt.Sprintf("id: must parse with prefix %q: %v", expected, err))
+	}
+
+	return parsed
+}
+
 // ──────────────────────────────────────────────────
-// Type aliases for readability
+// Type aliases for backward compatibility
 // ──────────────────────────────────────────────────
 
 // SuiteID is a type-safe identifier for evaluation suites (prefix: "suite").
-type SuiteID = typeid.TypeID
+type SuiteID = ID
 
 // CaseID is a type-safe identifier for test cases (prefix: "tcase").
-type CaseID = typeid.TypeID
+type CaseID = ID
 
 // EvalRunID is a type-safe identifier for evaluation runs (prefix: "erun").
-type EvalRunID = typeid.TypeID
+type EvalRunID = ID
 
 // EvalResultID is a type-safe identifier for evaluation results (prefix: "eres").
-type EvalResultID = typeid.TypeID
+type EvalResultID = ID
 
 // BaselineID is a type-safe identifier for baselines (prefix: "base").
-type BaselineID = typeid.TypeID
+type BaselineID = ID
 
 // RedTeamID is a type-safe identifier for red team sessions (prefix: "rteam").
-type RedTeamID = typeid.TypeID
+type RedTeamID = ID
 
 // PromptVersionID is a type-safe identifier for prompt versions (prefix: "pver").
-type PromptVersionID = typeid.TypeID
+type PromptVersionID = ID
 
-// AnyID is a TypeID that accepts any valid prefix.
-type AnyID = typeid.TypeID
-
-// ──────────────────────────────────────────────────
-// Constructors
-// ──────────────────────────────────────────────────
-
-// NewSuiteID returns a new random SuiteID.
-func NewSuiteID() SuiteID { return must(typeid.Generate(PrefixSuite)) }
-
-// NewCaseID returns a new random CaseID.
-func NewCaseID() CaseID { return must(typeid.Generate(PrefixCase)) }
-
-// NewEvalRunID returns a new random EvalRunID.
-func NewEvalRunID() EvalRunID { return must(typeid.Generate(PrefixEvalRun)) }
-
-// NewEvalResultID returns a new random EvalResultID.
-func NewEvalResultID() EvalResultID { return must(typeid.Generate(PrefixEvalResult)) }
-
-// NewBaselineID returns a new random BaselineID.
-func NewBaselineID() BaselineID { return must(typeid.Generate(PrefixBaseline)) }
-
-// NewRedTeamID returns a new random RedTeamID.
-func NewRedTeamID() RedTeamID { return must(typeid.Generate(PrefixRedTeam)) }
-
-// NewPromptVersionID returns a new random PromptVersionID.
-func NewPromptVersionID() PromptVersionID { return must(typeid.Generate(PrefixPromptVersion)) }
+// AnyID is a type alias that accepts any valid prefix.
+type AnyID = ID
 
 // ──────────────────────────────────────────────────
-// Parsing (validates prefix at parse time)
+// Convenience constructors
 // ──────────────────────────────────────────────────
 
-// ParseSuiteID parses a string into a SuiteID. Returns an error if the
-// prefix is not "suite" or the suffix is invalid.
-func ParseSuiteID(s string) (SuiteID, error) { return parseWithPrefix(PrefixSuite, s) }
+// NewSuiteID generates a new unique suite ID.
+func NewSuiteID() ID { return New(PrefixSuite) }
 
-// ParseCaseID parses a string into a CaseID.
-func ParseCaseID(s string) (CaseID, error) { return parseWithPrefix(PrefixCase, s) }
+// NewCaseID generates a new unique case ID.
+func NewCaseID() ID { return New(PrefixCase) }
 
-// ParseEvalRunID parses a string into an EvalRunID.
-func ParseEvalRunID(s string) (EvalRunID, error) { return parseWithPrefix(PrefixEvalRun, s) }
+// NewEvalRunID generates a new unique eval run ID.
+func NewEvalRunID() ID { return New(PrefixEvalRun) }
 
-// ParseEvalResultID parses a string into an EvalResultID.
-func ParseEvalResultID(s string) (EvalResultID, error) {
-	return parseWithPrefix(PrefixEvalResult, s)
+// NewEvalResultID generates a new unique eval result ID.
+func NewEvalResultID() ID { return New(PrefixEvalResult) }
+
+// NewBaselineID generates a new unique baseline ID.
+func NewBaselineID() ID { return New(PrefixBaseline) }
+
+// NewRedTeamID generates a new unique red team ID.
+func NewRedTeamID() ID { return New(PrefixRedTeam) }
+
+// NewPromptVersionID generates a new unique prompt version ID.
+func NewPromptVersionID() ID { return New(PrefixPromptVersion) }
+
+// ──────────────────────────────────────────────────
+// Convenience parsers
+// ──────────────────────────────────────────────────
+
+// ParseSuiteID parses a string and validates the "suite" prefix.
+func ParseSuiteID(s string) (ID, error) { return ParseWithPrefix(s, PrefixSuite) }
+
+// ParseCaseID parses a string and validates the "tcase" prefix.
+func ParseCaseID(s string) (ID, error) { return ParseWithPrefix(s, PrefixCase) }
+
+// ParseEvalRunID parses a string and validates the "erun" prefix.
+func ParseEvalRunID(s string) (ID, error) { return ParseWithPrefix(s, PrefixEvalRun) }
+
+// ParseEvalResultID parses a string and validates the "eres" prefix.
+func ParseEvalResultID(s string) (ID, error) { return ParseWithPrefix(s, PrefixEvalResult) }
+
+// ParseBaselineID parses a string and validates the "base" prefix.
+func ParseBaselineID(s string) (ID, error) { return ParseWithPrefix(s, PrefixBaseline) }
+
+// ParseRedTeamID parses a string and validates the "rteam" prefix.
+func ParseRedTeamID(s string) (ID, error) { return ParseWithPrefix(s, PrefixRedTeam) }
+
+// ParsePromptVersionID parses a string and validates the "pver" prefix.
+func ParsePromptVersionID(s string) (ID, error) { return ParseWithPrefix(s, PrefixPromptVersion) }
+
+// ParseAny parses a string into an ID without type checking the prefix.
+func ParseAny(s string) (ID, error) { return Parse(s) }
+
+// ──────────────────────────────────────────────────
+// ID methods
+// ──────────────────────────────────────────────────
+
+// String returns the full TypeID string representation (prefix_suffix).
+// Returns an empty string for the Nil ID.
+func (i ID) String() string {
+	if !i.valid {
+		return ""
+	}
+
+	return i.inner.String()
 }
 
-// ParseBaselineID parses a string into a BaselineID.
-func ParseBaselineID(s string) (BaselineID, error) { return parseWithPrefix(PrefixBaseline, s) }
+// Prefix returns the prefix component of this ID.
+func (i ID) Prefix() Prefix {
+	if !i.valid {
+		return ""
+	}
 
-// ParseRedTeamID parses a string into a RedTeamID.
-func ParseRedTeamID(s string) (RedTeamID, error) { return parseWithPrefix(PrefixRedTeam, s) }
-
-// ParsePromptVersionID parses a string into a PromptVersionID.
-func ParsePromptVersionID(s string) (PromptVersionID, error) {
-	return parseWithPrefix(PrefixPromptVersion, s)
+	return Prefix(i.inner.Prefix())
 }
 
-// ParseAny parses a string into an AnyID, accepting any valid prefix.
-func ParseAny(s string) (AnyID, error) { return typeid.Parse(s) }
+// IsNil reports whether this ID is the zero value.
+func (i ID) IsNil() bool {
+	return !i.valid
+}
 
-// ──────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────
+// MarshalText implements encoding.TextMarshaler.
+func (i ID) MarshalText() ([]byte, error) {
+	if !i.valid {
+		return []byte{}, nil
+	}
 
-// parseWithPrefix parses a TypeID and validates that its prefix matches expected.
-func parseWithPrefix(expected, s string) (typeid.TypeID, error) {
-	tid, err := typeid.Parse(s)
+	return []byte(i.inner.String()), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (i *ID) UnmarshalText(data []byte) error {
+	if len(data) == 0 {
+		*i = Nil
+
+		return nil
+	}
+
+	parsed, err := Parse(string(data))
 	if err != nil {
-		return tid, err
+		return err
 	}
-	if tid.Prefix() != expected {
-		return tid, fmt.Errorf("id: expected prefix %q, got %q", expected, tid.Prefix())
-	}
-	return tid, nil
+
+	*i = parsed
+
+	return nil
 }
 
-func must[T any](v T, err error) T {
-	if err != nil {
-		panic(err)
+// Value implements driver.Valuer for database storage.
+// Returns nil for the Nil ID so that optional foreign key columns store NULL.
+func (i ID) Value() (driver.Value, error) {
+	if !i.valid {
+		return nil, nil //nolint:nilnil // nil is the canonical NULL for driver.Valuer
 	}
-	return v
+
+	return i.inner.String(), nil
+}
+
+// Scan implements sql.Scanner for database retrieval.
+func (i *ID) Scan(src any) error {
+	if src == nil {
+		*i = Nil
+
+		return nil
+	}
+
+	switch v := src.(type) {
+	case string:
+		if v == "" {
+			*i = Nil
+
+			return nil
+		}
+
+		return i.UnmarshalText([]byte(v))
+	case []byte:
+		if len(v) == 0 {
+			*i = Nil
+
+			return nil
+		}
+
+		return i.UnmarshalText(v)
+	default:
+		return fmt.Errorf("id: cannot scan %T into ID", src)
+	}
 }

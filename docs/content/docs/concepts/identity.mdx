@@ -1,65 +1,71 @@
 ---
 title: Identity (TypeID)
-description: How Sentinel uses type-safe, prefix-qualified identifiers for every entity.
+description: How Sentinel uses prefix-qualified, globally unique identifiers for every entity.
 ---
 
-Every entity in Sentinel gets a type-prefixed, K-sortable, UUIDv7-based identifier using the [TypeID](https://github.com/jetify-com/typeid) specification. IDs are validated at parse time to ensure the prefix matches the expected type.
+Every entity in Sentinel has a TypeID. TypeIDs are globally unique, sortable, URL-safe identifiers built on UUIDv7 with a human-readable prefix that tells you what kind of entity you're looking at.
 
-## Prefix table
+A TypeID looks like this:
 
-| Type | Prefix | Go type | Example |
-|------|--------|---------|---------|
-| Suite | `suite_` | `id.SuiteID` | `suite_01h2xcejqtf2nbrexx3vqjhp41` |
-| Case | `tcase_` | `id.CaseID` | `tcase_01h2xcejqtf2nbrexx3vqjhp41` |
-| Eval Run | `erun_` | `id.EvalRunID` | `erun_01h2xcejqtf2nbrexx3vqjhp41` |
-| Eval Result | `eres_` | `id.EvalResultID` | `eres_01h2xcejqtf2nbrexx3vqjhp41` |
-| Baseline | `base_` | `id.BaselineID` | `base_01h2xcejqtf2nbrexx3vqjhp41` |
-| Red Team | `rteam_` | `id.RedTeamID` | `rteam_01h2xcejqtf2nbrexx3vqjhp41` |
-| Prompt Version | `pver_` | `id.PromptVersionID` | `pver_01h455vb4pex5vsknk084sn02q` |
+```
+suite_01h455vb4pex5vsknk084sn02q
+```
 
-## Constructors
+The `suite` prefix identifies this as a suite. The suffix is a base32-encoded UUIDv7 that encodes creation time, so IDs sort chronologically.
 
-Each type has a constructor that generates a new UUIDv7-based ID with the correct prefix:
+## The `id` package
+
+The `id` package wraps the [TypeID Go library](https://github.com/jetify-com/typeid-go) (v2) with a single `ID` struct. All entity types share the same struct -- the prefix distinguishes them.
+
+### Creating IDs
 
 ```go
 import "github.com/xraph/sentinel/id"
 
-suiteID   := id.NewSuiteID()          // suite_01h...
-caseID    := id.NewCaseID()           // tcase_01h...
-runID     := id.NewEvalRunID()        // erun_01h...
-resultID  := id.NewEvalResultID()     // eres_01h...
-baselineID := id.NewBaselineID()      // base_01h...
-redTeamID := id.NewRedTeamID()        // rteam_01h...
-pvID      := id.NewPromptVersionID()  // pver_01h...
+suiteID         := id.New(id.PrefixSuite)          // suite_01h455vb...
+caseID          := id.New(id.PrefixCase)           // tcase_01h455vb...
+evalRunID       := id.New(id.PrefixEvalRun)        // erun_01h455vb...
+evalResultID    := id.New(id.PrefixEvalResult)     // eres_01h455vb...
+baselineID      := id.New(id.PrefixBaseline)       // base_01h455vb...
+redTeamID       := id.New(id.PrefixRedTeam)        // rteam_01h455vb...
+promptVersionID := id.New(id.PrefixPromptVersion)  // pver_01h455vb...
 ```
 
-## Parsing
+Convenience constructors: `id.NewSuiteID()`, `id.NewCaseID()`, `id.NewEvalRunID()`, `id.NewEvalResultID()`, `id.NewBaselineID()`, `id.NewRedTeamID()`, `id.NewPromptVersionID()`.
 
-Parse functions validate both the format and the prefix:
+### Parsing IDs
 
 ```go
-suiteID, err := id.ParseSuiteID("suite_01h2xcejqtf2nbrexx3vqjhp41")
-// err is nil — prefix matches
-
-_, err = id.ParseSuiteID("tcase_01h455vb4pex5vsknk084sn02q")
-// err: id: expected prefix "suite", got "tcase"
+parsed, err := id.Parse("suite_01h455vb4pex5vsknk084sn02q")
+parsed, err := id.ParseWithPrefix("suite_01h455vb...", id.PrefixSuite)  // validates prefix
+parsed, err := id.ParseSuiteID("suite_01h455vb...")                     // convenience
 ```
 
-## K-sortability
-
-TypeIDs embed UUIDv7 timestamps, making them naturally sortable by creation time. This means:
-
-- Database indexes on TypeID columns are efficient for time-range queries
-- IDs created later always sort after earlier IDs
-- No need for separate `created_at` indexes for ordering
-
-## Type safety
-
-All ID types are aliases for `typeid.TypeID`. While Go does not enforce alias-level type safety at compile time, the prefix validation at parse time catches mismatches:
+### Nil ID
 
 ```go
-type SuiteID = typeid.TypeID
-type CaseID = typeid.TypeID
+var empty id.ID
+empty.IsNil()  // true
+empty.String() // ""
+id.Nil.IsNil() // true
 ```
 
-Passing a case ID where a suite ID is expected will succeed at compile time but fail at parse time if the prefix is validated.
+### Database storage
+
+`id.ID` implements `Scanner` and `driver.Valuer`. Stores as a string, returns `NULL` for nil IDs.
+
+### JSON serialization
+
+`id.ID` implements `TextMarshaler` and `TextUnmarshaler`. Nil IDs serialize as empty strings.
+
+## Prefix reference
+
+| Constant | Prefix | Entity |
+|----------|--------|--------|
+| `id.PrefixSuite` | `suite` | Suite |
+| `id.PrefixCase` | `tcase` | Test case |
+| `id.PrefixEvalRun` | `erun` | Eval run |
+| `id.PrefixEvalResult` | `eres` | Eval result |
+| `id.PrefixBaseline` | `base` | Baseline |
+| `id.PrefixRedTeam` | `rteam` | Red team |
+| `id.PrefixPromptVersion` | `pver` | Prompt version |
