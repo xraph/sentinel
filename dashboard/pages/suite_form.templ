@@ -1,0 +1,170 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/suite"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/input"
+	"github.com/xraph/forgeui/components/textarea"
+	"github.com/xraph/forgeui/components/label"
+)
+
+templ SuiteFormPage(s *suite.Suite) {
+	<div class="space-y-6">
+		if s != nil {
+			@components.PageHeader("Edit Suite", "", "Update evaluation suite configuration") {
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Attributes: templ.Attributes{
+						"hx-get":    "/suites/detail?id=" + s.ID.String(),
+						"hx-target": "#content",
+					},
+				}) {
+					Cancel
+				}
+			}
+		} else {
+			@components.PageHeader("New Suite", "", "Create a new evaluation suite") {
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Attributes: templ.Attributes{
+						"hx-get":    "/suites",
+						"hx-target": "#content",
+					},
+				}) {
+					Cancel
+				}
+			}
+		}
+		{{ var formID, endpoint, method string }}
+		if s != nil {
+			{{ formID = "edit-suite-form" }}
+			{{ endpoint = "/sentinel/v1/suites/" + s.ID.String() }}
+			{{ method = "put" }}
+		} else {
+			{{ formID = "create-suite-form" }}
+			{{ endpoint = "/sentinel/v1/suites" }}
+			{{ method = "post" }}
+		}
+		<form id={ formID }
+			{ htmxFormAttrs(endpoint, method, "#"+formID+"-errors", "", "/suites")... }>
+			<div id={ formID + "-errors" } class="text-sm text-destructive mb-4"></div>
+			<div class="grid gap-6 lg:grid-cols-2">
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Basic Information }
+					}
+					@card.Content() {
+						<div class="space-y-4">
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "name"}) { Name }
+								@input.Input(input.Props{
+									Name:        "name",
+									Placeholder: "My Evaluation Suite",
+									Value:       suiteFieldVal(s, "name"),
+									Attributes:  templ.Attributes{"required": "true"},
+								})
+							</div>
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "description"}) { Description }
+								@textarea.Textarea(textarea.Props{
+									Name:        "description",
+									Placeholder: "Describe the purpose of this evaluation suite...",
+									Rows:        3,
+									Value:       suiteFieldVal(s, "description"),
+								})
+							</div>
+						</div>
+					}
+				}
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Configuration }
+					}
+					@card.Content() {
+						<div class="space-y-4">
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "model"}) { Model }
+								@input.Input(input.Props{
+									Name:        "model",
+									Placeholder: "smart",
+									Value:       suiteFieldVal(s, "model"),
+								})
+							</div>
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "temperature"}) { Temperature }
+								@input.Input(input.Props{
+									Name:        "temperature",
+									Type:        "number",
+									Placeholder: "0.0",
+									Value:       suiteFieldVal(s, "temperature"),
+									Attributes:  templ.Attributes{"step": "0.1", "min": "0", "max": "2"},
+								})
+							</div>
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "persona_ref"}) { Persona Reference }
+								@input.Input(input.Props{
+									Name:        "persona_ref",
+									Placeholder: "Optional persona reference...",
+									Value:       suiteFieldVal(s, "persona_ref"),
+								})
+							</div>
+						</div>
+					}
+				}
+			</div>
+			<div class="mt-6 space-y-4">
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { System Prompt }
+					}
+					@card.Content() {
+						@textarea.Textarea(textarea.Props{
+							Name:        "system_prompt",
+							Placeholder: "Enter the system prompt for evaluations...",
+							Rows:        8,
+							Value:       suiteFieldVal(s, "system_prompt"),
+							Class:       "font-mono text-sm",
+						})
+					}
+				}
+			</div>
+			<div class="flex justify-end gap-2 mt-6">
+				if s != nil {
+					@button.Button(button.Props{Type: "submit"}) {
+						Update Suite
+					}
+				} else {
+					@button.Button(button.Props{Type: "submit"}) {
+						Create Suite
+					}
+				}
+			</div>
+		</form>
+	</div>
+}
+
+func suiteFieldVal(s *suite.Suite, field string) string {
+	if s == nil {
+		return ""
+	}
+	switch field {
+	case "name":
+		return s.Name
+	case "description":
+		return s.Description
+	case "model":
+		return s.Model
+	case "temperature":
+		return fmt.Sprintf("%.1f", s.Temperature)
+	case "persona_ref":
+		return s.PersonaRef
+	case "system_prompt":
+		return s.SystemPrompt
+	default:
+		return ""
+	}
+}

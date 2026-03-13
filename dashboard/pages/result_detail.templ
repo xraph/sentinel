@@ -1,0 +1,211 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/evalrun"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/table"
+)
+
+templ ResultDetailPage(res *evalrun.Result) {
+	<div class="space-y-6">
+		@components.PageHeader(res.CaseName, "", "Individual result detail") {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Attributes: templ.Attributes{
+					"hx-get":    "/runs/detail?id=" + res.RunID.String(),
+					"hx-target": "#content",
+				},
+			}) {
+				Back to Run
+			}
+		}
+		<div class="flex items-center gap-4">
+			@components.ResultStatusBadge(string(res.Status))
+			<span class="text-sm text-muted-foreground">Score: { fmt.Sprintf("%.2f", res.Score) }</span>
+			<span class="text-sm text-muted-foreground">Latency: { fmt.Sprintf("%dms", res.LatencyMs) }</span>
+		</div>
+		<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+			@components.StatCard("target", "Score", fmt.Sprintf("%.2f", res.Score), "")
+			@components.StatCard("clock", "Latency", fmt.Sprintf("%dms", res.LatencyMs), "")
+			@components.StatCard("database", "Tokens", fmt.Sprintf("%d", res.TokensUsed), "")
+			@components.StatCard("bar-chart", "Cost", fmt.Sprintf("$%.4f", res.Cost), "")
+		</div>
+		if res.Output != "" {
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Model Output }
+				}
+				@card.Content() {
+					<pre class="bg-muted rounded-md p-3 text-sm font-mono overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">{ res.Output }</pre>
+				}
+			}
+		}
+		if len(res.ScorerResults) > 0 {
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Scorer Results }
+					@card.Description() { { fmt.Sprintf("%d scorers evaluated", len(res.ScorerResults)) } }
+				}
+				@card.Content() {
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { Scorer }
+								@table.Head() { Score }
+								@table.Head() { Passed }
+								@table.Head() { Reason }
+								@table.Head() { Dimension }
+							}
+						}
+						@table.Body() {
+							for _, sr := range res.ScorerResults {
+								@table.Row() {
+									@table.Cell() {
+										<span class="text-sm font-medium">{ sr.ScorerName }</span>
+									}
+									@table.Cell() {
+										@components.ScoreBar(sr.Score)
+									}
+									@table.Cell() {
+										if sr.Passed {
+											@components.ResultStatusBadge("pass")
+										} else {
+											@components.ResultStatusBadge("fail")
+										}
+									}
+									@table.Cell() {
+										if sr.Reason != "" {
+											<span class="text-sm">{ sr.Reason }</span>
+										} else {
+											<span class="text-xs text-muted-foreground">-</span>
+										}
+									}
+									@table.Cell() {
+										if sr.Dimension != "" {
+											<span class="text-sm">{ sr.Dimension }</span>
+										} else {
+											<span class="text-xs text-muted-foreground">-</span>
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		if len(res.DimensionScores) > 0 {
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Dimension Scores }
+				}
+				@card.Content() {
+					<div class="space-y-3">
+						for dim, score := range res.DimensionScores {
+							<div class="flex items-center gap-4">
+								<span class="text-sm w-40 text-muted-foreground">{ dim }</span>
+								<div class="flex-1">
+									@components.ScoreBar(score)
+								</div>
+							</div>
+						}
+					</div>
+				}
+			}
+		}
+		if res.RunTrace != nil {
+			if len(res.RunTrace.Steps) > 0 {
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Run Trace - Steps }
+					}
+					@card.Content() {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() { # }
+									@table.Head() { Type }
+									@table.Head() { Tokens }
+									@table.Head() { Output }
+								}
+							}
+							@table.Body() {
+								for _, step := range res.RunTrace.Steps {
+									@table.Row() {
+										@table.Cell() {
+											<span class="text-sm">{ fmt.Sprintf("%d", step.Index) }</span>
+										}
+										@table.Cell() {
+											<span class="text-sm">{ step.Type }</span>
+										}
+										@table.Cell() {
+											<span class="text-sm">{ fmt.Sprintf("%d", step.TokensUsed) }</span>
+										}
+										@table.Cell() {
+											<pre class="text-xs font-mono max-w-md truncate">{ step.Output }</pre>
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			if len(res.RunTrace.ToolCalls) > 0 {
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Run Trace - Tool Calls }
+					}
+					@card.Content() {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() { Tool }
+									@table.Head() { Arguments }
+									@table.Head() { Result }
+									@table.Head() { Error }
+								}
+							}
+							@table.Body() {
+								for _, tc := range res.RunTrace.ToolCalls {
+									@table.Row() {
+										@table.Cell() {
+											<span class="text-sm font-medium">{ tc.ToolName }</span>
+										}
+										@table.Cell() {
+											<pre class="text-xs font-mono max-w-xs truncate">{ tc.Arguments }</pre>
+										}
+										@table.Cell() {
+											<pre class="text-xs font-mono max-w-xs truncate">{ tc.Result }</pre>
+										}
+										@table.Cell() {
+											if tc.Error != "" {
+												<span class="text-sm text-destructive">{ tc.Error }</span>
+											} else {
+												<span class="text-xs text-muted-foreground">-</span>
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		if res.Error != "" {
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Error }
+				}
+				@card.Content() {
+					<pre class="bg-destructive/10 text-destructive rounded-md p-3 text-sm font-mono overflow-x-auto">{ res.Error }</pre>
+				}
+			}
+		}
+	</div>
+}

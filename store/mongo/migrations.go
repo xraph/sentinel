@@ -25,9 +25,12 @@ func init() {
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				coll := mexec.DB().Collection(colSuites)
 
-				indexes := []mongo.IndexModel{
+				if err := mexec.CreateCollection(ctx, (*suiteModel)(nil)); err != nil {
+					return err
+				}
+
+				return mexec.CreateIndexes(ctx, colSuites, []mongo.IndexModel{
 					{
 						Keys: bson.D{
 							{Key: "app_id", Value: 1},
@@ -43,20 +46,14 @@ func init() {
 						Keys:    bson.D{{Key: "created_at", Value: 1}},
 						Options: options.Index().SetName("idx_sentinel_suites_created_at"),
 					},
-				}
-
-				_, err := coll.Indexes().CreateMany(ctx, indexes)
-				if err != nil {
-					return fmt.Errorf("create sentinel_suites indexes: %w", err)
-				}
-				return nil
+				})
 			},
 			Down: func(ctx context.Context, exec migrate.Executor) error {
 				mexec, ok := exec.(*mongomigrate.Executor)
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				return mexec.DB().Collection(colSuites).Drop(ctx)
+				return mexec.DropCollection(ctx, (*suiteModel)(nil))
 			},
 		},
 		&migrate.Migration{
@@ -67,9 +64,12 @@ func init() {
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				coll := mexec.DB().Collection(colCases)
 
-				indexes := []mongo.IndexModel{
+				if err := mexec.CreateCollection(ctx, (*caseModel)(nil)); err != nil {
+					return err
+				}
+
+				return mexec.CreateIndexes(ctx, colCases, []mongo.IndexModel{
 					{
 						Keys:    bson.D{{Key: "suite_id", Value: 1}},
 						Options: options.Index().SetName("idx_sentinel_cases_suite"),
@@ -85,20 +85,14 @@ func init() {
 						Keys:    bson.D{{Key: "created_at", Value: 1}},
 						Options: options.Index().SetName("idx_sentinel_cases_created_at"),
 					},
-				}
-
-				_, err := coll.Indexes().CreateMany(ctx, indexes)
-				if err != nil {
-					return fmt.Errorf("create sentinel_cases indexes: %w", err)
-				}
-				return nil
+				})
 			},
 			Down: func(ctx context.Context, exec migrate.Executor) error {
 				mexec, ok := exec.(*mongomigrate.Executor)
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				return mexec.DB().Collection(colCases).Drop(ctx)
+				return mexec.DropCollection(ctx, (*caseModel)(nil))
 			},
 		},
 		&migrate.Migration{
@@ -109,9 +103,12 @@ func init() {
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				coll := mexec.DB().Collection(colRuns)
 
-				indexes := []mongo.IndexModel{
+				if err := mexec.CreateCollection(ctx, (*runModel)(nil)); err != nil {
+					return err
+				}
+
+				return mexec.CreateIndexes(ctx, colRuns, []mongo.IndexModel{
 					{
 						Keys: bson.D{
 							{Key: "suite_id", Value: 1},
@@ -127,20 +124,14 @@ func init() {
 						Keys:    bson.D{{Key: "created_at", Value: -1}},
 						Options: options.Index().SetName("idx_sentinel_runs_created_at"),
 					},
-				}
-
-				_, err := coll.Indexes().CreateMany(ctx, indexes)
-				if err != nil {
-					return fmt.Errorf("create sentinel_runs indexes: %w", err)
-				}
-				return nil
+				})
 			},
 			Down: func(ctx context.Context, exec migrate.Executor) error {
 				mexec, ok := exec.(*mongomigrate.Executor)
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				return mexec.DB().Collection(colRuns).Drop(ctx)
+				return mexec.DropCollection(ctx, (*runModel)(nil))
 			},
 		},
 		&migrate.Migration{
@@ -151,9 +142,12 @@ func init() {
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				coll := mexec.DB().Collection(colResults)
 
-				indexes := []mongo.IndexModel{
+				if err := mexec.CreateCollection(ctx, (*resultModel)(nil)); err != nil {
+					return err
+				}
+
+				return mexec.CreateIndexes(ctx, colResults, []mongo.IndexModel{
 					{
 						Keys:    bson.D{{Key: "run_id", Value: 1}},
 						Options: options.Index().SetName("idx_sentinel_results_run"),
@@ -169,20 +163,14 @@ func init() {
 						Keys:    bson.D{{Key: "created_at", Value: 1}},
 						Options: options.Index().SetName("idx_sentinel_results_created_at"),
 					},
-				}
-
-				_, err := coll.Indexes().CreateMany(ctx, indexes)
-				if err != nil {
-					return fmt.Errorf("create sentinel_results indexes: %w", err)
-				}
-				return nil
+				})
 			},
 			Down: func(ctx context.Context, exec migrate.Executor) error {
 				mexec, ok := exec.(*mongomigrate.Executor)
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				return mexec.DB().Collection(colResults).Drop(ctx)
+				return mexec.DropCollection(ctx, (*resultModel)(nil))
 			},
 		},
 		&migrate.Migration{
@@ -193,9 +181,12 @@ func init() {
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				coll := mexec.DB().Collection(colBaselines)
 
-				indexes := []mongo.IndexModel{
+				if err := mexec.CreateCollection(ctx, (*baselineModel)(nil)); err != nil {
+					return err
+				}
+
+				return mexec.CreateIndexes(ctx, colBaselines, []mongo.IndexModel{
 					{
 						Keys: bson.D{
 							{Key: "suite_id", Value: 1},
@@ -207,20 +198,14 @@ func init() {
 						Keys:    bson.D{{Key: "created_at", Value: -1}},
 						Options: options.Index().SetName("idx_sentinel_baselines_created_at"),
 					},
-				}
-
-				_, err := coll.Indexes().CreateMany(ctx, indexes)
-				if err != nil {
-					return fmt.Errorf("create sentinel_baselines indexes: %w", err)
-				}
-				return nil
+				})
 			},
 			Down: func(ctx context.Context, exec migrate.Executor) error {
 				mexec, ok := exec.(*mongomigrate.Executor)
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				return mexec.DB().Collection(colBaselines).Drop(ctx)
+				return mexec.DropCollection(ctx, (*baselineModel)(nil))
 			},
 		},
 		&migrate.Migration{
@@ -231,9 +216,12 @@ func init() {
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				coll := mexec.DB().Collection(colPromptVersions)
 
-				indexes := []mongo.IndexModel{
+				if err := mexec.CreateCollection(ctx, (*promptVersionModel)(nil)); err != nil {
+					return err
+				}
+
+				return mexec.CreateIndexes(ctx, colPromptVersions, []mongo.IndexModel{
 					{
 						Keys: bson.D{
 							{Key: "suite_id", Value: 1},
@@ -248,20 +236,14 @@ func init() {
 						},
 						Options: options.Index().SetName("idx_sentinel_prompts_suite"),
 					},
-				}
-
-				_, err := coll.Indexes().CreateMany(ctx, indexes)
-				if err != nil {
-					return fmt.Errorf("create sentinel_prompt_versions indexes: %w", err)
-				}
-				return nil
+				})
 			},
 			Down: func(ctx context.Context, exec migrate.Executor) error {
 				mexec, ok := exec.(*mongomigrate.Executor)
 				if !ok {
 					return fmt.Errorf("expected mongomigrate executor, got %T", exec)
 				}
-				return mexec.DB().Collection(colPromptVersions).Drop(ctx)
+				return mexec.DropCollection(ctx, (*promptVersionModel)(nil))
 			},
 		},
 	)

@@ -3,7 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
-	"log/slog"
+
+	log "github.com/xraph/go-utils/log"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/baseline"
@@ -19,7 +20,7 @@ import (
 // Engine is the central coordinator for the Sentinel evaluation pipeline.
 type Engine struct {
 	config      sentinel.Config
-	logger      *slog.Logger
+	logger      log.Logger
 	store       store.Store
 	extensions  *plugin.Registry
 	pendingExts []plugin.Extension
@@ -29,7 +30,7 @@ type Engine struct {
 func New(opts ...Option) (*Engine, error) {
 	e := &Engine{
 		config: sentinel.DefaultConfig(),
-		logger: slog.Default(),
+		logger: log.NewNoopLogger(),
 	}
 	for _, opt := range opts {
 		if err := opt(e); err != nil {
@@ -45,6 +46,14 @@ func New(opts ...Option) (*Engine, error) {
 	e.pendingExts = nil
 
 	return e, nil
+}
+
+// Health checks the health of the engine by pinging its store.
+func (e *Engine) Health(ctx context.Context) error {
+	if e.store != nil {
+		return e.store.Ping(ctx)
+	}
+	return nil
 }
 
 // Start initialises the engine. Reserved for future background processes.
@@ -67,7 +76,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 func (e *Engine) Store() store.Store { return e.store }
 
 // Logger returns the engine's logger.
-func (e *Engine) Logger() *slog.Logger { return e.logger }
+func (e *Engine) Logger() log.Logger { return e.logger }
 
 // Config returns a copy of the engine's configuration.
 func (e *Engine) Config() sentinel.Config { return e.config }

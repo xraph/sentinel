@@ -1,0 +1,98 @@
+package components
+
+import "github.com/xraph/forgeui/components/badge"
+
+templ RunStateBadge(state string) {
+	switch state {
+		case "running":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				Running
+			}
+		case "completed":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+				Completed
+			}
+		case "failed":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+				Failed
+			}
+		case "cancelled":
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				Cancelled
+			}
+		default:
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				{ state }
+			}
+	}
+}
+
+templ ResultStatusBadge(status string) {
+	switch status {
+		case "pass":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				Pass
+			}
+		case "fail":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+				Fail
+			}
+		case "error":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+				Error
+			}
+		default:
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				{ status }
+			}
+	}
+}
+
+templ ScenarioTypeBadge(scenario string) {
+	switch scenario {
+		case "standard":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+				Standard
+			}
+		case "skill_challenge":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				Skill Challenge
+			}
+		case "trait_probe":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				Trait Probe
+			}
+		case "behavior_trigger":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				Behavior Trigger
+			}
+		case "cognitive_stress":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+				Cognitive Stress
+			}
+		case "comms_adaptation":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				Comms Adaptation
+			}
+		case "perception_test":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				Perception Test
+			}
+		case "persona_coherence":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				Persona Coherence
+			}
+		default:
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				{ scenario }
+			}
+	}
+}
+
+templ CurrentBadge(isCurrent bool) {
+	if isCurrent {
+		@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+			Current
+		}
+	}
+}

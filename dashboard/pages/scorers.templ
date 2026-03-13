@@ -1,0 +1,71 @@
+package pages
+
+import (
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/sentinel/dashboard/components"
+)
+
+templ ScorersPage() {
+	<div class="space-y-6">
+		@components.PageHeader("Scorers", "10", "Built-in scorer reference")
+		<!-- Deterministic Scorers -->
+		@card.Card(card.Props{}) {
+			@card.Header() {
+				@card.Title() { Deterministic Scorers }
+				@card.Description() { Rule-based scorers that evaluate output against fixed criteria }
+			}
+			@card.Content() {
+				<div class="space-y-4">
+					@scorerEntry("exact", "Exact Match", "Checks if the output exactly matches the expected value.", "case_insensitive: bool (default: false)")
+					@scorerEntry("contains", "Contains", "Checks if the output contains a specified substring.", "substring: string, case_insensitive: bool (default: false)")
+					@scorerEntry("not_contains", "Not Contains", "Checks if the output does NOT contain a specified substring.", "substring: string, case_insensitive: bool (default: false)")
+					@scorerEntry("regex", "Regex Match", "Checks if the output matches a regular expression pattern.", "pattern: string (required)")
+					@scorerEntry("json_valid", "JSON Valid", "Checks if the output is valid JSON.", "No configuration required.")
+					@scorerEntry("json_schema", "JSON Schema", "Validates the output against a JSON schema.", "schema: string (JSON schema)")
+					@scorerEntry("length", "Length", "Checks if the output length (in tokens) falls within bounds.", "min: int, max: int")
+				</div>
+			}
+		}
+		<!-- Performance Scorers -->
+		@card.Card(card.Props{}) {
+			@card.Header() {
+				@card.Title() { Performance Scorers }
+				@card.Description() { Scorers that measure execution performance metrics }
+			}
+			@card.Content() {
+				<div class="space-y-4">
+					@scorerEntry("latency", "Latency", "Checks if the response time is within a threshold.", "max_ms: int (milliseconds)")
+					@scorerEntry("cost", "Cost", "Checks if the API call cost is within budget.", "max_cost: float (USD)")
+				</div>
+			}
+		}
+		<!-- Custom Scorers -->
+		@card.Card(card.Props{}) {
+			@card.Header() {
+				@card.Title() { Custom Scorers }
+				@card.Description() { User-defined scorers for specialized evaluation logic }
+			}
+			@card.Content() {
+				<div class="space-y-4">
+					@scorerEntry("custom", "Custom", "User-defined scorer registered via FromFunc. Must be registered programmatically before use.", "Registered via scorer.FromFunc(name, fn)")
+				</div>
+			}
+		}
+	</div>
+}
+
+templ scorerEntry(name, title, description, config string) {
+	<div class="border rounded-lg p-4 space-y-2">
+		<div class="flex items-center gap-2">
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+				{ name }
+			}
+			<span class="font-medium">{ title }</span>
+		</div>
+		<p class="text-sm text-muted-foreground">{ description }</p>
+		<div class="text-xs font-mono bg-muted p-2 rounded">
+			{ config }
+		</div>
+	</div>
+}

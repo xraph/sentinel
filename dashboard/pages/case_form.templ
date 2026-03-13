@@ -1,0 +1,145 @@
+package pages
+
+import (
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/testcase"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/input"
+	"github.com/xraph/forgeui/components/textarea"
+	"github.com/xraph/forgeui/components/label"
+)
+
+templ CaseFormPage(tc *testcase.Case, suiteIDStr string) {
+	<div class="space-y-6">
+		if tc != nil {
+			@components.PageHeader("Edit Case", "", "Update test case") {
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Attributes: templ.Attributes{
+						"hx-get":    "/suites/cases/detail?id=" + tc.ID.String(),
+						"hx-target": "#content",
+					},
+				}) {
+					Cancel
+				}
+			}
+		} else {
+			@components.PageHeader("New Case", "", "Create a new test case") {
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Attributes: templ.Attributes{
+						"hx-get":    "/suites/cases?suite_id=" + suiteIDStr,
+						"hx-target": "#content",
+					},
+				}) {
+					Cancel
+				}
+			}
+		}
+		{{ var formID, endpoint, method string }}
+		if tc != nil {
+			{{ formID = "edit-case-form" }}
+			{{ endpoint = "/sentinel/v1/suites/" + suiteIDStr + "/cases/" + tc.ID.String() }}
+			{{ method = "put" }}
+		} else {
+			{{ formID = "create-case-form" }}
+			{{ endpoint = "/sentinel/v1/suites/" + suiteIDStr + "/cases" }}
+			{{ method = "post" }}
+		}
+		<form id={ formID }
+			{ htmxFormAttrs(endpoint, method, "#"+formID+"-errors", "", "/suites/cases?suite_id="+suiteIDStr)... }>
+			<div id={ formID + "-errors" } class="text-sm text-destructive mb-4"></div>
+			<div class="grid gap-6 lg:grid-cols-2">
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Basic Information }
+					}
+					@card.Content() {
+						<div class="space-y-4">
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "name"}) { Name }
+								@input.Input(input.Props{
+									Name:        "name",
+									Placeholder: "Test case name",
+									Value:       caseFieldVal(tc, "name"),
+									Attributes:  templ.Attributes{"required": "true"},
+								})
+							</div>
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "scenario_type"}) { Scenario Type }
+								<select name="scenario_type" class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+									<option value="standard" selected?={ caseFieldVal(tc, "scenario_type") == "standard" || caseFieldVal(tc, "scenario_type") == "" }>Standard</option>
+									<option value="skill_challenge" selected?={ caseFieldVal(tc, "scenario_type") == "skill_challenge" }>Skill Challenge</option>
+									<option value="trait_probe" selected?={ caseFieldVal(tc, "scenario_type") == "trait_probe" }>Trait Probe</option>
+									<option value="behavior_trigger" selected?={ caseFieldVal(tc, "scenario_type") == "behavior_trigger" }>Behavior Trigger</option>
+									<option value="cognitive_stress" selected?={ caseFieldVal(tc, "scenario_type") == "cognitive_stress" }>Cognitive Stress</option>
+									<option value="comms_adaptation" selected?={ caseFieldVal(tc, "scenario_type") == "comms_adaptation" }>Comms Adaptation</option>
+									<option value="perception_test" selected?={ caseFieldVal(tc, "scenario_type") == "perception_test" }>Perception Test</option>
+									<option value="persona_coherence" selected?={ caseFieldVal(tc, "scenario_type") == "persona_coherence" }>Persona Coherence</option>
+								</select>
+							</div>
+						</div>
+					}
+				}
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Test Data }
+					}
+					@card.Content() {
+						<div class="space-y-4">
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "input"}) { Input }
+								@textarea.Textarea(textarea.Props{
+									Name:        "input",
+									Placeholder: "The input prompt to evaluate...",
+									Rows:        5,
+									Value:       caseFieldVal(tc, "input"),
+									Attributes:  templ.Attributes{"required": "true"},
+								})
+							</div>
+							<div class="space-y-2">
+								@label.Label(label.Props{For: "expected"}) { Expected Output }
+								@textarea.Textarea(textarea.Props{
+									Name:        "expected",
+									Placeholder: "Expected output or reference answer...",
+									Rows:        5,
+									Value:       caseFieldVal(tc, "expected"),
+								})
+							</div>
+						</div>
+					}
+				}
+			</div>
+			<div class="flex justify-end gap-2 mt-6">
+				if tc != nil {
+					@button.Button(button.Props{Type: "submit"}) {
+						Update Case
+					}
+				} else {
+					@button.Button(button.Props{Type: "submit"}) {
+						Create Case
+					}
+				}
+			</div>
+		</form>
+	</div>
+}
+
+func caseFieldVal(tc *testcase.Case, field string) string {
+	if tc == nil {
+		return ""
+	}
+	switch field {
+	case "name":
+		return tc.Name
+	case "input":
+		return tc.Input
+	case "expected":
+		return tc.Expected
+	case "scenario_type":
+		return string(tc.ScenarioType)
+	default:
+		return ""
+	}
+}

@@ -1,0 +1,108 @@
+package pages
+
+import (
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/label"
+	"github.com/xraph/forgeui/components/textarea"
+	"github.com/xraph/sentinel/dashboard/components"
+)
+
+templ PromptVersionFormPage(suiteIDStr string) {
+	<div class="space-y-6">
+		@components.PageHeader("New Prompt Version", "", "Create a new prompt version for this suite") {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Size:    button.SizeSm,
+				Attributes: templ.Attributes{
+					"hx-get":    "?page=prompts&suite_id=" + suiteIDStr,
+					"hx-target": "#content",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				Cancel
+			}
+		}
+		<form
+			{ htmxFormAttrs(
+				"/sentinel/v1/suites/"+suiteIDStr+"/prompt-versions",
+				"post",
+				"#prompt-form-error",
+				"",
+				"?page=prompts&suite_id="+suiteIDStr,
+			)... }
+		>
+			<div id="prompt-form-error"></div>
+			<div class="space-y-6">
+				@card.Card(card.Props{}) {
+					@card.Header() {
+						@card.Title() { System Prompt }
+						@card.Description() { The full system prompt text for this version }
+					}
+					@card.Content() {
+						<div class="space-y-2">
+							@label.Label(label.Props{For: "system_prompt"}) { System Prompt }
+							@textarea.Textarea(textarea.Props{
+								ID:          "system_prompt",
+								Name:        "system_prompt",
+								Placeholder: "Enter the system prompt...",
+								Rows:        12,
+								Attributes: templ.Attributes{
+									"required": "true",
+								},
+							})
+						</div>
+					}
+				}
+				@card.Card(card.Props{}) {
+					@card.Header() {
+						@card.Title() { Changelog }
+						@card.Description() { Describe what changed in this version }
+					}
+					@card.Content() {
+						<div class="space-y-2">
+							@label.Label(label.Props{For: "changelog"}) { Changelog }
+							@textarea.Textarea(textarea.Props{
+								ID:          "changelog",
+								Name:        "changelog",
+								Placeholder: "Describe the changes made in this version...",
+								Rows:        4,
+							})
+						</div>
+					}
+				}
+				@card.Card(card.Props{}) {
+					@card.Header() {
+						@card.Title() { Options }
+					}
+					@card.Content() {
+						<div class="flex items-center gap-3">
+							<input type="checkbox" id="is_current" name="is_current" value="true" class="h-4 w-4 rounded border-input"/>
+							@label.Label(label.Props{For: "is_current"}) { Set as current version }
+						</div>
+					}
+				}
+				<div class="flex justify-end gap-2">
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Attributes: templ.Attributes{
+							"hx-get":    "?page=prompts&suite_id=" + suiteIDStr,
+							"hx-target": "#content",
+							"hx-swap":   "innerHTML",
+							"type":      "button",
+						},
+					}) {
+						Cancel
+					}
+					@button.Button(button.Props{
+						Attributes: templ.Attributes{
+							"type": "submit",
+						},
+					}) {
+						Create Version
+					}
+				</div>
+			</div>
+		</form>
+	</div>
+}

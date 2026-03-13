@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
+
 	"time"
+
+	log "github.com/xraph/go-utils/log"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/evalrun"
@@ -151,8 +153,8 @@ func (e *Engine) RunEval(ctx context.Context, cfg *RunConfig) (*RunResult, error
 
 	if err := e.store.UpdateRun(ctx, run); err != nil {
 		e.logger.Warn("failed to update run record",
-			slog.String("run_id", run.ID.String()),
-			slog.String("error", err.Error()),
+			log.String("run_id", run.ID.String()),
+			log.String("error", err.Error()),
 		)
 	}
 
@@ -293,8 +295,8 @@ func (e *Engine) failRun(ctx context.Context, run *evalrun.Run, suiteID id.Suite
 
 	if err := e.store.UpdateRun(ctx, run); err != nil {
 		e.logger.Warn("failed to update failed run",
-			slog.String("run_id", run.ID.String()),
-			slog.String("error", err.Error()),
+			log.String("run_id", run.ID.String()),
+			log.String("error", err.Error()),
 		)
 	}
 

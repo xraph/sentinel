@@ -2,8 +2,9 @@ package plugin
 
 import (
 	"context"
-	"log/slog"
 	"time"
+
+	log "github.com/xraph/go-utils/log"
 
 	"github.com/xraph/sentinel/id"
 )
@@ -90,7 +91,7 @@ type shutdownEntry struct {
 // iterate only over plugins that implement the relevant hook.
 type Registry struct {
 	extensions []Extension
-	logger     *slog.Logger
+	logger     log.Logger
 
 	// Type-cached slices for each lifecycle hook.
 	evalRunStarted       []evalRunStartedEntry
@@ -111,7 +112,7 @@ type Registry struct {
 }
 
 // NewRegistry creates a plugin registry with the given logger.
-func NewRegistry(logger *slog.Logger) *Registry {
+func NewRegistry(logger log.Logger) *Registry {
 	return &Registry{logger: logger}
 }
 
@@ -346,8 +347,8 @@ func (r *Registry) EmitShutdown(ctx context.Context) {
 // Errors from hooks are never propagated — they must not block the eval pipeline.
 func (r *Registry) logHookError(hook, extName string, err error) {
 	r.logger.Warn("plugin hook error",
-		slog.String("hook", hook),
-		slog.String("plugin", extName),
-		slog.String("error", err.Error()),
+		log.String("hook", hook),
+		log.String("plugin", extName),
+		log.String("error", err.Error()),
 	)
 }

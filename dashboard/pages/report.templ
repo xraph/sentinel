@@ -1,0 +1,163 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/evalrun"
+)
+
+templ ReportPage(r *evalrun.Run, results []*evalrun.Result, stats *evalrun.ResultStats) {
+	<div class="space-y-6">
+		@components.PageHeader("Run Report", "", "Evaluation report for run "+r.ID.String()) {
+			<div class="flex gap-2">
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"hx-get":    fmt.Sprintf("?page=runs/detail&id=%s", r.ID.String()),
+						"hx-target": "#content",
+						"hx-swap":   "innerHTML",
+					},
+				}) {
+					Back to Run
+				}
+			</div>
+		}
+		<!-- Report Summary -->
+		@card.Card(card.Props{}) {
+			@card.Header() {
+				@card.Title() { Summary }
+			}
+			@card.Content() {
+				<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+					<div>
+						<span class="text-muted-foreground">State</span>
+						<div class="mt-1">
+							@components.RunStateBadge(string(r.State))
+						</div>
+					</div>
+					<div>
+						<span class="text-muted-foreground">Model</span>
+						<p class="mt-1 font-medium">{ r.Model }</p>
+					</div>
+					if stats != nil {
+						<div>
+							<span class="text-muted-foreground">Pass Rate</span>
+							<p class="mt-1 font-medium">{ fmt.Sprintf("%.1f%%", stats.PassRate*100) }</p>
+						</div>
+						<div>
+							<span class="text-muted-foreground">Avg Score</span>
+							<p class="mt-1 font-medium">{ fmt.Sprintf("%.3f", stats.AvgScore) }</p>
+						</div>
+					}
+				</div>
+			}
+		}
+		<!-- Stats Cards -->
+		if stats != nil {
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+				@components.StatCard("Total Cases", fmt.Sprintf("%d", stats.TotalCases), "Cases evaluated", "file-text")
+				@components.StatCard("Passed", fmt.Sprintf("%d", stats.Passed), fmt.Sprintf("%.1f%% pass rate", stats.PassRate*100), "check-circle")
+				@components.StatCard("Failed", fmt.Sprintf("%d", stats.Failed), "Cases that failed", "x-circle")
+				@components.StatCard("Errored", fmt.Sprintf("%d", stats.Errored), "Cases with errors", "alert-triangle")
+			</div>
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+				@components.StatCard("Avg Latency", fmt.Sprintf("%dms", stats.AvgLatencyMs), "Average response time", "clock")
+				@components.StatCard("Total Tokens", fmt.Sprintf("%d", stats.TotalTokens), "Tokens consumed", "hash")
+				@components.StatCard("Total Cost", fmt.Sprintf("$%.4f", stats.TotalCost), "API costs", "dollar-sign")
+				@components.StatCard("Avg Score", fmt.Sprintf("%.3f", stats.AvgScore), "Mean score", "bar-chart-2")
+			</div>
+		}
+		<!-- Dimension Scores -->
+		if stats != nil && len(stats.DimensionScores) > 0 {
+			@card.Card(card.Props{}) {
+				@card.Header() {
+					@card.Title() { Dimension Scores }
+				}
+				@card.Content() {
+					<div class="space-y-3">
+						for dim, score := range stats.DimensionScores {
+							<div class="flex items-center justify-between">
+								<span class="text-sm font-medium">{ dim }</span>
+								<div class="flex items-center gap-2">
+									@components.ScoreBar(score)
+									<span class="text-sm text-muted-foreground w-14 text-right">{ fmt.Sprintf("%.3f", score) }</span>
+								</div>
+							</div>
+						}
+					</div>
+				}
+			}
+		}
+		<!-- Results Table -->
+		@card.Card(card.Props{}) {
+			@card.Header() {
+				@card.Title() { Results }
+				@card.Description() { Per-case evaluation results }
+			}
+			@card.Content() {
+				if len(results) == 0 {
+					@components.EmptyState("file-text", "No results", "This run has no results yet.")
+				} else {
+					@table.Table(table.Props{}) {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { Case }
+								@table.Head() { Status }
+								@table.Head() { Score }
+								@table.Head() { Latency }
+								@table.Head() { Tokens }
+								@table.Head() { Cost }
+								@table.Head() { Scorers }
+							}
+						}
+						@table.Body() {
+							for _, res := range results {
+								@table.Row() {
+									@table.Cell() {
+										<span class="font-medium">{ res.CaseName }</span>
+									}
+									@table.Cell() {
+										@components.ResultStatusBadge(string(res.Status))
+									}
+									@table.Cell() {
+										@components.ScoreBar(res.Score)
+									}
+									@table.Cell() {
+										<span class="text-sm">{ fmt.Sprintf("%dms", res.LatencyMs) }</span>
+									}
+									@table.Cell() {
+										<span class="text-sm">{ fmt.Sprintf("%d", res.TokensUsed) }</span>
+									}
+									@table.Cell() {
+										<span class="text-sm">{ fmt.Sprintf("$%.4f", res.Cost) }</span>
+									}
+									@table.Cell() {
+										<div class="flex flex-wrap gap-1">
+											for _, sr := range res.ScorerResults {
+												if sr.Passed {
+													@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
+														{ sr.ScorerName }
+													}
+												} else {
+													@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+														{ sr.ScorerName }
+													}
+												}
+											}
+										</div>
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	</div>
+}

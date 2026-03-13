@@ -1,0 +1,344 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/sentinel/baseline"
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/evalrun"
+	"github.com/xraph/sentinel/promptversion"
+	"github.com/xraph/sentinel/suite"
+	"github.com/xraph/sentinel/testcase"
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/table"
+)
+
+templ SuiteDetailPage(s *suite.Suite, cases []*testcase.Case, caseCount int64, runs []*evalrun.Run, baselines []*baseline.Baseline, prompts []*promptversion.PromptVersion) {
+	<div class="space-y-6">
+		@components.PageHeader(s.Name, "", s.Description) {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Attributes: templ.Attributes{
+					"hx-get":    "/suites/edit?id=" + s.ID.String(),
+					"hx-target": "#content",
+				},
+			}) {
+				Edit
+			}
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Attributes: templ.Attributes{
+					"hx-get":    "/suites",
+					"hx-target": "#content",
+				},
+			}) {
+				Back
+			}
+		}
+		<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+			@components.StatCard("database", "Cases", fmt.Sprintf("%d", caseCount), "")
+			@components.StatCard("play", "Runs", fmt.Sprintf("%d", len(runs)), "")
+			@components.StatCard("git-branch", "Baselines", fmt.Sprintf("%d", len(baselines)), "")
+			@components.StatCard("file-text", "Prompt Versions", fmt.Sprintf("%d", len(prompts)), "")
+		</div>
+		@card.Card() {
+			@card.Header() {
+				@card.Title() { Configuration }
+			}
+			@card.Content() {
+				<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+					<div>
+						<span class="text-muted-foreground">Model</span>
+						<p class="font-medium">
+							if s.Model != "" {
+								{ s.Model }
+							} else {
+								<span class="text-muted-foreground">default</span>
+							}
+						</p>
+					</div>
+					<div>
+						<span class="text-muted-foreground">Temperature</span>
+						<p class="font-medium">{ fmt.Sprintf("%.1f", s.Temperature) }</p>
+					</div>
+					<div>
+						<span class="text-muted-foreground">Persona</span>
+						<p class="font-medium">
+							if s.PersonaRef != "" {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+									{ s.PersonaRef }
+								}
+							} else {
+								<span class="text-muted-foreground">None</span>
+							}
+						</p>
+					</div>
+					<div>
+						<span class="text-muted-foreground">ID</span>
+						<p class="font-mono text-xs">{ s.ID.String() }</p>
+					</div>
+				</div>
+				if s.SystemPrompt != "" {
+					<div class="mt-4">
+						<span class="text-sm text-muted-foreground">System Prompt</span>
+						<pre class="mt-1 bg-muted rounded-md p-3 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto">{ s.SystemPrompt }</pre>
+					</div>
+				}
+			}
+		}
+		@card.Card() {
+			@card.Header() {
+				@card.Title() { Test Cases }
+				@card.Description() { { fmt.Sprintf("%d cases in this suite", caseCount) } }
+			}
+			@card.Content() {
+				<div class="flex gap-2 mb-4">
+					@button.Button(button.Props{
+						Size: button.SizeSm,
+						Attributes: templ.Attributes{
+							"hx-get":    "/suites/cases/create?suite_id=" + s.ID.String(),
+							"hx-target": "#content",
+						},
+					}) {
+						New Case
+					}
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Size:    button.SizeSm,
+						Attributes: templ.Attributes{
+							"hx-get":    "/suites/cases?suite_id=" + s.ID.String(),
+							"hx-target": "#content",
+						},
+					}) {
+						View All
+					}
+				</div>
+				if len(cases) == 0 {
+					@components.EmptyState("flask-conical", "No cases yet", "Add test cases to start evaluating.")
+				} else {
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { Name }
+								@table.Head() { Scenario }
+								@table.Head() { Tags }
+								@table.Head() { Action }
+							}
+						}
+						@table.Body() {
+							for _, tc := range cases {
+								@table.Row() {
+									@table.Cell() {
+										<a class="font-medium hover:underline cursor-pointer"
+											hx-get={ "/suites/cases/detail?id=" + tc.ID.String() }
+											hx-target="#content">
+											{ tc.Name }
+										</a>
+									}
+									@table.Cell() {
+										@components.ScenarioTypeBadge(string(tc.ScenarioType))
+									}
+									@table.Cell() {
+										<div class="flex gap-1 flex-wrap">
+											for _, tag := range tc.Tags {
+												@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+													{ tag }
+												}
+											}
+											if len(tc.Tags) == 0 {
+												<span class="text-xs text-muted-foreground">-</span>
+											}
+										</div>
+									}
+									@table.Cell() {
+										@button.Button(button.Props{
+											Variant: button.VariantOutline,
+											Size:    button.SizeSm,
+											Attributes: templ.Attributes{
+												"hx-get":    "/suites/cases/detail?id=" + tc.ID.String(),
+												"hx-target": "#content",
+											},
+										}) {
+											View
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		@card.Card() {
+			@card.Header() {
+				@card.Title() { Evaluation Runs }
+				@card.Description() { { fmt.Sprintf("%d runs for this suite", len(runs)) } }
+			}
+			@card.Content() {
+				if len(runs) == 0 {
+					@components.EmptyState("play", "No runs yet", "Execute an evaluation to see results.")
+				} else {
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { Model }
+								@table.Head() { State }
+								@table.Head() { Pass Rate }
+								@table.Head() { Avg Score }
+								@table.Head() { Created }
+								@table.Head() { Action }
+							}
+						}
+						@table.Body() {
+							for _, r := range runs {
+								@table.Row() {
+									@table.Cell() {
+										<span class="text-sm">{ r.Model }</span>
+									}
+									@table.Cell() {
+										@components.RunStateBadge(string(r.State))
+									}
+									@table.Cell() {
+										@components.ScoreBar(r.PassRate)
+									}
+									@table.Cell() {
+										<span class="text-sm">{ fmt.Sprintf("%.2f", r.AvgScore) }</span>
+									}
+									@table.Cell() {
+										{{ created := r.CreatedAt.Format("Jan 02 15:04") }}
+										<span class="text-xs text-muted-foreground">{ created }</span>
+									}
+									@table.Cell() {
+										@button.Button(button.Props{
+											Variant: button.VariantOutline,
+											Size:    button.SizeSm,
+											Attributes: templ.Attributes{
+												"hx-get":    "/runs/detail?id=" + r.ID.String(),
+												"hx-target": "#content",
+											},
+										}) {
+											View
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Baselines }
+				}
+				@card.Content() {
+					if len(baselines) == 0 {
+						@components.EmptyState("git-branch", "No baselines", "Save a baseline from a completed run.")
+					} else {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() { Name }
+									@table.Head() { Pass Rate }
+									@table.Head() { Status }
+									@table.Head() { Action }
+								}
+							}
+							@table.Body() {
+								for _, b := range baselines {
+									@table.Row() {
+										@table.Cell() {
+											<span class="text-sm font-medium">{ b.Name }</span>
+										}
+										@table.Cell() {
+											@components.ScoreBar(b.PassRate)
+										}
+										@table.Cell() {
+											@components.CurrentBadge(b.IsCurrent)
+										}
+										@table.Cell() {
+											@button.Button(button.Props{
+												Variant: button.VariantOutline,
+												Size:    button.SizeSm,
+												Attributes: templ.Attributes{
+													"hx-get":    "/baselines/detail?id=" + b.ID.String(),
+													"hx-target": "#content",
+												},
+											}) {
+												View
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Prompt Versions }
+				}
+				@card.Content() {
+					<div class="mb-4">
+						@button.Button(button.Props{
+							Size: button.SizeSm,
+							Attributes: templ.Attributes{
+								"hx-get":    "/prompts/create?suite_id=" + s.ID.String(),
+								"hx-target": "#content",
+							},
+						}) {
+							New Version
+						}
+					</div>
+					if len(prompts) == 0 {
+						@components.EmptyState("file-text", "No versions", "Create a prompt version to track changes.")
+					} else {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() { Version }
+									@table.Head() { Status }
+									@table.Head() { Created }
+									@table.Head() { Action }
+								}
+							}
+							@table.Body() {
+								for _, pv := range prompts {
+									@table.Row() {
+										@table.Cell() {
+											<span class="text-sm font-medium">{ fmt.Sprintf("v%d", pv.Version) }</span>
+										}
+										@table.Cell() {
+											@components.CurrentBadge(pv.IsCurrent)
+										}
+										@table.Cell() {
+											{{ pvCreated := pv.CreatedAt.Format("Jan 02 15:04") }}
+											<span class="text-xs text-muted-foreground">{ pvCreated }</span>
+										}
+										@table.Cell() {
+											@button.Button(button.Props{
+												Variant: button.VariantOutline,
+												Size:    button.SizeSm,
+												Attributes: templ.Attributes{
+													"hx-get":    "/prompts/detail?id=" + pv.ID.String(),
+													"hx-target": "#content",
+												},
+											}) {
+												View
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		</div>
+		@components.DialogHelpers()
+	</div>
+}

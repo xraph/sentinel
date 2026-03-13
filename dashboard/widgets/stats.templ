@@ -1,0 +1,17 @@
+package widgets
+
+import (
+	"fmt"
+
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/dashboard/shared"
+)
+
+templ StatsWidget(counts shared.EntityCounts, avgPassRate float64) {
+	<div class="grid gap-4 md:grid-cols-4">
+		@components.StatCard("folders", "Suites", fmt.Sprintf("%d", counts.Suites), "")
+		@components.StatCard("play", "Runs", fmt.Sprintf("%d", counts.Runs), "")
+		@components.StatCard("target", "Avg Pass Rate", fmt.Sprintf("%.1f%%", avgPassRate*100), "")
+		@components.StatCard("database", "Cases", fmt.Sprintf("%d", counts.Cases), "")
+	</div>
+}

@@ -1,0 +1,115 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/promptversion"
+	"github.com/xraph/sentinel/suite"
+)
+
+templ PromptVersionsPage(s *suite.Suite, items []*promptversion.PromptVersion) {
+	<div class="space-y-6">
+		@components.PageHeader("Prompt Versions", fmt.Sprintf("%d", len(items)), "Prompt iterations for suite: "+s.Name) {
+			<div class="flex gap-2">
+				@button.Button(button.Props{
+					Variant: button.VariantDefault,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"hx-get":    fmt.Sprintf("?page=prompts/create&suite_id=%s", s.ID.String()),
+						"hx-target": "#content",
+						"hx-swap":   "innerHTML",
+					},
+				}) {
+					New Version
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"hx-get":    fmt.Sprintf("?page=suites/detail&id=%s", s.ID.String()),
+						"hx-target": "#content",
+						"hx-swap":   "innerHTML",
+					},
+				}) {
+					Back to Suite
+				}
+			</div>
+		}
+		if len(items) == 0 {
+			@components.EmptyState("file-text", "No prompt versions", "Create a prompt version to track system prompt changes.")
+		} else {
+			@table.Table(table.Props{}) {
+				@table.Header() {
+					@table.Row() {
+						@table.Head() { Version }
+						@table.Head() { Changelog }
+						@table.Head() { Current }
+						@table.Head() { Pass Rate }
+						@table.Head() { Avg Score }
+						@table.Head() { Created }
+						@table.Head() { Actions }
+					}
+				}
+				@table.Body() {
+					for _, pv := range items {
+						@table.Row() {
+							@table.Cell() {
+								<span class="font-mono font-medium">{ fmt.Sprintf("v%d", pv.Version) }</span>
+							}
+							@table.Cell() {
+								if pv.Changelog != "" {
+									<span class="text-sm">{ promptTruncate(pv.Changelog, 60) }</span>
+								} else {
+									<span class="text-muted-foreground">-</span>
+								}
+							}
+							@table.Cell() {
+								@components.CurrentBadge(pv.IsCurrent)
+							}
+							@table.Cell() {
+								if pv.PassRate != nil {
+									@components.ScoreBar(*pv.PassRate)
+								} else {
+									<span class="text-muted-foreground">-</span>
+								}
+							}
+							@table.Cell() {
+								if pv.AvgScore != nil {
+									@components.ScoreBar(*pv.AvgScore)
+								} else {
+									<span class="text-muted-foreground">-</span>
+								}
+							}
+							@table.Cell() {
+								<span class="text-sm text-muted-foreground">{ pv.CreatedAt.Format("Jan 2, 2006") }</span>
+							}
+							@table.Cell() {
+								@button.Button(button.Props{
+									Variant: button.VariantGhost,
+									Size:    button.SizeSm,
+									Attributes: templ.Attributes{
+										"hx-get":    fmt.Sprintf("?page=prompts/detail&id=%s", pv.ID.String()),
+										"hx-target": "#content",
+										"hx-swap":   "innerHTML",
+									},
+								}) {
+									View
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	</div>
+}
+
+func promptTruncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
+}

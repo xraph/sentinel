@@ -1,0 +1,134 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/promptversion"
+)
+
+templ PromptVersionDetailPage(pv *promptversion.PromptVersion) {
+	<div class="space-y-6">
+		@components.PageHeader(fmt.Sprintf("Prompt Version %d", pv.Version), "", pv.Changelog) {
+			<div class="flex gap-2">
+				@components.CurrentBadge(pv.IsCurrent)
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"hx-get":    fmt.Sprintf("?page=prompts&suite_id=%s", pv.SuiteID.String()),
+						"hx-target": "#content",
+						"hx-swap":   "innerHTML",
+					},
+				}) {
+					Back
+				}
+			</div>
+		}
+		<!-- Stats -->
+		<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+			@components.StatCard("Version", fmt.Sprintf("v%d", pv.Version), "Version number", "hash")
+			if pv.PassRate != nil {
+				@components.StatCard("Pass Rate", fmt.Sprintf("%.1f%%", *pv.PassRate*100), "From linked run", "check-circle")
+			} else {
+				@components.StatCard("Pass Rate", "-", "No linked run", "check-circle")
+			}
+			if pv.AvgScore != nil {
+				@components.StatCard("Avg Score", fmt.Sprintf("%.3f", *pv.AvgScore), "From linked run", "bar-chart-2")
+			} else {
+				@components.StatCard("Avg Score", "-", "No linked run", "bar-chart-2")
+			}
+			if pv.RunID != "" {
+				@components.StatCard("Run ID", promptDetailTruncateID(pv.RunID), "Linked evaluation run", "play")
+			} else {
+				@components.StatCard("Run ID", "-", "No linked run", "play")
+			}
+		</div>
+		<!-- System Prompt -->
+		@card.Card(card.Props{}) {
+			@card.Header() {
+				@card.Title() { System Prompt }
+				@card.Description() { The full system prompt for this version }
+			}
+			@card.Content() {
+				<pre class="text-sm bg-muted p-4 rounded-md whitespace-pre-wrap max-h-[500px] overflow-y-auto">{ pv.SystemPrompt }</pre>
+			}
+		}
+		<!-- Changelog -->
+		if pv.Changelog != "" {
+			@card.Card(card.Props{}) {
+				@card.Header() {
+					@card.Title() { Changelog }
+				}
+				@card.Content() {
+					<p class="text-sm">{ pv.Changelog }</p>
+				}
+			}
+		}
+		<!-- Details -->
+		@card.Card(card.Props{}) {
+			@card.Header() {
+				@card.Title() { Details }
+			}
+			@card.Content() {
+				<div class="grid grid-cols-2 gap-4 text-sm">
+					<div>
+						<span class="text-muted-foreground">Version ID</span>
+						<p class="font-mono text-xs mt-1">{ pv.ID.String() }</p>
+					</div>
+					<div>
+						<span class="text-muted-foreground">Suite ID</span>
+						<p class="font-mono text-xs mt-1">{ pv.SuiteID.String() }</p>
+					</div>
+					<div>
+						<span class="text-muted-foreground">Is Current</span>
+						<p class="mt-1">
+							if pv.IsCurrent {
+								Yes
+							} else {
+								No
+							}
+						</p>
+					</div>
+					<div>
+						<span class="text-muted-foreground">Created</span>
+						<p class="mt-1">{ pv.CreatedAt.Format("Jan 2, 2006 15:04:05") }</p>
+					</div>
+				</div>
+			}
+		}
+		<!-- Link to Run -->
+		if pv.RunID != "" {
+			@card.Card(card.Props{}) {
+				@card.Header() {
+					@card.Title() { Linked Evaluation Run }
+				}
+				@card.Content() {
+					<div class="flex items-center gap-4">
+						<span class="font-mono text-sm">{ pv.RunID }</span>
+						@button.Button(button.Props{
+							Variant: button.VariantOutline,
+							Size:    button.SizeSm,
+							Attributes: templ.Attributes{
+								"hx-get":    fmt.Sprintf("?page=runs/detail&id=%s", pv.RunID),
+								"hx-target": "#content",
+								"hx-swap":   "innerHTML",
+							},
+						}) {
+							View Run
+						}
+					</div>
+				}
+			}
+		}
+	</div>
+}
+
+func promptDetailTruncateID(s string) string {
+	if len(s) > 16 {
+		return s[:16] + "..."
+	}
+	return s
+}

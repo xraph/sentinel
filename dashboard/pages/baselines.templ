@@ -1,0 +1,133 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/sentinel/baseline"
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/dashboard/shared"
+	"github.com/xraph/sentinel/suite"
+)
+
+templ BaselinesPage(items []*baseline.Baseline, suiteFilter string, suites []*suite.Suite, suiteNames map[string]string, pg shared.PaginationMeta) {
+	<div class="space-y-6">
+		@components.PageHeader("Baselines", fmt.Sprintf("%d", pg.Total), "Evaluation baselines for regression detection")
+		<!-- Filters -->
+		<div class="flex gap-4 items-end">
+			<div class="space-y-1">
+				<label class="text-sm font-medium text-muted-foreground">Suite</label>
+				<select
+					class="flex h-9 w-[200px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+					hx-get="?page=baselines"
+					hx-target="#content"
+					hx-swap="innerHTML"
+					name="suite_id"
+				>
+					<option value="">All Suites</option>
+					for _, s := range suites {
+						<option
+							value={ s.ID.String() }
+							if s.ID.String() == suiteFilter {
+								selected
+							}
+						>{ s.Name }</option>
+					}
+				</select>
+			</div>
+		</div>
+		if len(items) == 0 {
+			@components.EmptyState("git-branch", "No baselines yet", "Save a baseline from a completed evaluation run.")
+		} else {
+			@table.Table(table.Props{}) {
+				@table.Header() {
+					@table.Row() {
+						@table.Head() { Name }
+						@table.Head() { Suite }
+						@table.Head() { Pass Rate }
+						@table.Head() { Avg Score }
+						@table.Head() { Cases }
+						@table.Head() { Current }
+						@table.Head() { Created }
+						@table.Head() { Actions }
+					}
+				}
+				@table.Body() {
+					for _, b := range items {
+						@table.Row() {
+							@table.Cell() {
+								<span class="font-medium">{ b.Name }</span>
+							}
+							@table.Cell() {
+								<span class="text-muted-foreground">{ baselinesLookupSuite(b.SuiteID.String(), suiteNames) }</span>
+							}
+							@table.Cell() {
+								@components.ScoreBar(b.PassRate)
+							}
+							@table.Cell() {
+								@components.ScoreBar(b.AvgScore)
+							}
+							@table.Cell() {
+								@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+									{ fmt.Sprintf("%d", len(b.Results)) }
+								}
+							}
+							@table.Cell() {
+								@components.CurrentBadge(b.IsCurrent)
+							}
+							@table.Cell() {
+								<span class="text-sm text-muted-foreground">{ b.CreatedAt.Format("Jan 2, 2006") }</span>
+							}
+							@table.Cell() {
+								<div class="flex gap-1">
+									@button.Button(button.Props{
+										Variant: button.VariantGhost,
+										Size:    button.SizeSm,
+										Attributes: templ.Attributes{
+											"hx-get":    fmt.Sprintf("?page=baselines/detail&id=%s", b.ID.String()),
+											"hx-target": "#content",
+											"hx-swap":   "innerHTML",
+										},
+									}) {
+										View
+									}
+									@button.Button(button.Props{
+										Variant: button.VariantGhost,
+										Size:    button.SizeSm,
+										Attributes: templ.Attributes{
+											"onclick": fmt.Sprintf("tuiOpenDialog('delete-baseline-%s')", b.ID.String()),
+										},
+									}) {
+										<span class="text-destructive">Delete</span>
+									}
+								</div>
+							}
+						}
+					}
+				}
+			}
+			@Pagination(pg, "?page=baselines&suite_id="+suiteFilter)
+		}
+		<!-- Delete dialogs -->
+		for _, b := range items {
+			@components.ConfirmDialog(components.ConfirmDialogProps{
+				ID:           fmt.Sprintf("delete-baseline-%s", b.ID.String()),
+				Title:        "Delete Baseline",
+				Description:  fmt.Sprintf("Are you sure you want to delete baseline \"%s\"? This action cannot be undone.", b.Name),
+				ConfirmLabel: "Delete",
+				HxEndpoint:   fmt.Sprintf("/sentinel/v1/baselines/%s", b.ID.String()),
+				HxMethod:     "delete",
+			})
+		}
+		@components.DialogHelpers()
+	</div>
+}
+
+func baselinesLookupSuite(suiteID string, names map[string]string) string {
+	if name, ok := names[suiteID]; ok {
+		return name
+	}
+	return suiteID
+}

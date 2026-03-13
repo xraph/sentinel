@@ -1,0 +1,37 @@
+package components
+
+templ PathRewriter(pagesBase string) {
+	<div data-sentinel-pages-base={ pagesBase }>
+		{ children... }
+	</div>
+	<script>
+	(function(){
+		if (window.__sentinelPathRewriterAttached) return;
+		window.__sentinelPathRewriterAttached = true;
+
+		document.addEventListener('htmx:configRequest', function(e) {
+			var el = e.detail.elt;
+			var wrapper = el.closest('[data-sentinel-pages-base]');
+			if (!wrapper && document.querySelector('[data-sentinel-pages-base]')) {
+				wrapper = document.querySelector('[data-sentinel-pages-base]');
+			}
+			if (!wrapper) return;
+
+			var base = wrapper.getAttribute('data-sentinel-pages-base');
+			if (!base) return;
+
+			var dashBase = base.replace(/\/ext\/[^/]+\/pages$/, '');
+			var path = e.detail.path;
+			if (!path || !path.startsWith('/')) return;
+
+			if (path.startsWith(base)) return;
+			if (path.startsWith('/sentinel/')) return;
+			if (path.startsWith('/ext/')) {
+				e.detail.path = dashBase + path;
+				return;
+			}
+			e.detail.path = base + path;
+		});
+	})();
+	</script>
+}

@@ -1,0 +1,26 @@
+package components
+
+import "fmt"
+
+templ ScoreBar(score float64) {
+	<div class="flex items-center gap-2">
+		<div class="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+			<div
+				class={ "h-full rounded-full", scoreBarColor(score) }
+				style={ fmt.Sprintf("width: %.0f%%", score*100) }
+			></div>
+		</div>
+		<span class="text-sm font-medium w-12 text-right">{ fmt.Sprintf("%.0f%%", score*100) }</span>
+	</div>
+}
+
+func scoreBarColor(score float64) string {
+	switch {
+	case score >= 0.8:
+		return "bg-green-500"
+	case score >= 0.5:
+		return "bg-yellow-500"
+	default:
+		return "bg-red-500"
+	}
+}

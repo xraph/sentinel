@@ -1,0 +1,126 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/dashboard/shared"
+	"github.com/xraph/sentinel/suite"
+	"github.com/xraph/sentinel/testcase"
+	"github.com/xraph/forgeui/components/badge"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/table"
+)
+
+templ CasesPage(s *suite.Suite, items []*testcase.Case, pg shared.PaginationMeta) {
+	<div class="space-y-6">
+		@components.PageHeader("Test Cases", fmt.Sprintf("%d", pg.Total), "Cases for suite: "+s.Name) {
+			@button.Button(button.Props{
+				Attributes: templ.Attributes{
+					"hx-get":    "/suites/cases/create?suite_id=" + s.ID.String(),
+					"hx-target": "#content",
+				},
+			}) {
+				New Case
+			}
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Attributes: templ.Attributes{
+					"hx-get":    "/suites/detail?id=" + s.ID.String(),
+					"hx-target": "#content",
+				},
+			}) {
+				Back to Suite
+			}
+		}
+		if len(items) == 0 {
+			@components.EmptyState("flask-conical", "No cases yet", "Add test cases to this suite.")
+		} else {
+			@table.Table() {
+				@table.Header() {
+					@table.Row() {
+						@table.Head() { Name }
+						@table.Head() { Scenario Type }
+						@table.Head() { Tags }
+						@table.Head() { Scorers }
+						@table.Head() { Actions }
+					}
+				}
+				@table.Body() {
+					for _, tc := range items {
+						@table.Row() {
+							@table.Cell() {
+								<a class="font-medium hover:underline cursor-pointer"
+									hx-get={ "/suites/cases/detail?id=" + tc.ID.String() }
+									hx-target="#content">
+									{ tc.Name }
+								</a>
+							}
+							@table.Cell() {
+								@components.ScenarioTypeBadge(string(tc.ScenarioType))
+							}
+							@table.Cell() {
+								<div class="flex gap-1 flex-wrap">
+									for _, tag := range tc.Tags {
+										@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+											{ tag }
+										}
+									}
+									if len(tc.Tags) == 0 {
+										<span class="text-xs text-muted-foreground">-</span>
+									}
+								</div>
+							}
+							@table.Cell() {
+								<span class="text-sm">{ fmt.Sprintf("%d", len(tc.Scorers)) }</span>
+							}
+							@table.Cell() {
+								<div class="flex gap-1">
+									@button.Button(button.Props{
+										Variant: button.VariantOutline,
+										Size:    button.SizeSm,
+										Attributes: templ.Attributes{
+											"hx-get":    "/suites/cases/detail?id=" + tc.ID.String(),
+											"hx-target": "#content",
+										},
+									}) {
+										View
+									}
+									@button.Button(button.Props{
+										Variant: button.VariantOutline,
+										Size:    button.SizeSm,
+										Attributes: templ.Attributes{
+											"hx-get":    "/suites/cases/edit?id=" + tc.ID.String() + "&suite_id=" + s.ID.String(),
+											"hx-target": "#content",
+										},
+									}) {
+										Edit
+									}
+									@button.Button(button.Props{
+										Variant: button.VariantDestructive,
+										Size:    button.SizeSm,
+										Attributes: templ.Attributes{
+											"onclick": fmt.Sprintf("tuiOpenDialog('delete-case-%s')", tc.ID.String()),
+										},
+									}) {
+										Delete
+									}
+									@components.ConfirmDialog(components.ConfirmDialogProps{
+										ID:           "delete-case-" + tc.ID.String(),
+										Title:        "Delete Case",
+										Description:  "Are you sure you want to delete case \"" + tc.Name + "\"?",
+										ConfirmLabel: "Delete",
+										HxEndpoint:   "/sentinel/v1/suites/" + s.ID.String() + "/cases/" + tc.ID.String(),
+										HxMethod:     "delete",
+									})
+								</div>
+							}
+						}
+					}
+				}
+			}
+			@Pagination(pg, "/suites/cases?suite_id=" + s.ID.String())
+		}
+		@components.DialogHelpers()
+	</div>
+}

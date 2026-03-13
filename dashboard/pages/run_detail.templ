@@ -1,0 +1,145 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/evalrun"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/table"
+)
+
+templ RunDetailPage(r *evalrun.Run, results []*evalrun.Result, stats *evalrun.ResultStats, suiteName string, duration string) {
+	<div class="space-y-6">
+		@components.PageHeader("Run Detail", "", suiteName+" - "+r.Model) {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Attributes: templ.Attributes{
+					"hx-get":    "/runs/report?id=" + r.ID.String(),
+					"hx-target": "#content",
+				},
+			}) {
+				View Report
+			}
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Attributes: templ.Attributes{
+					"hx-get":    "/runs",
+					"hx-target": "#content",
+				},
+			}) {
+				Back
+			}
+		}
+		<div class="flex items-center gap-4">
+			@components.RunStateBadge(string(r.State))
+			<span class="text-sm text-muted-foreground">Duration: { duration }</span>
+			<code class="text-xs bg-muted px-2 py-1 rounded">{ r.ID.String() }</code>
+		</div>
+		if stats != nil {
+			<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+				@components.StatCard("check-circle", "Passed", fmt.Sprintf("%d", stats.Passed), fmt.Sprintf("of %d total", stats.TotalCases))
+				@components.StatCard("x-circle", "Failed", fmt.Sprintf("%d", stats.Failed), "")
+				@components.StatCard("target", "Pass Rate", fmt.Sprintf("%.1f%%", stats.PassRate*100), "")
+				@components.StatCard("sparkles", "Avg Score", fmt.Sprintf("%.2f", stats.AvgScore), "")
+			</div>
+			<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+				@components.StatCard("clock", "Avg Latency", fmt.Sprintf("%dms", stats.AvgLatencyMs), "")
+				@components.StatCard("database", "Total Tokens", fmt.Sprintf("%d", stats.TotalTokens), "")
+				@components.StatCard("bar-chart", "Total Cost", fmt.Sprintf("$%.4f", stats.TotalCost), "")
+				@components.StatCard("alert-circle", "Errored", fmt.Sprintf("%d", stats.Errored), "")
+			</div>
+		}
+		if len(stats.DimensionScores) > 0 {
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Dimension Scores }
+				}
+				@card.Content() {
+					<div class="space-y-3">
+						for dim, score := range stats.DimensionScores {
+							<div class="flex items-center gap-4">
+								<span class="text-sm w-40 text-muted-foreground">{ dim }</span>
+								<div class="flex-1">
+									@components.ScoreBar(score)
+								</div>
+							</div>
+						}
+					</div>
+				}
+			}
+		}
+		@card.Card() {
+			@card.Header() {
+				@card.Title() { Results }
+				@card.Description() { { fmt.Sprintf("%d results", len(results)) } }
+			}
+			@card.Content() {
+				if len(results) == 0 {
+					@components.EmptyState("target", "No results", "Results will appear as evaluation completes.")
+				} else {
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { Case }
+								@table.Head() { Status }
+								@table.Head() { Score }
+								@table.Head() { Latency }
+								@table.Head() { Tokens }
+								@table.Head() { Cost }
+								@table.Head() { Action }
+							}
+						}
+						@table.Body() {
+							for _, res := range results {
+								@table.Row() {
+									@table.Cell() {
+										<span class="text-sm font-medium">{ res.CaseName }</span>
+									}
+									@table.Cell() {
+										@components.ResultStatusBadge(string(res.Status))
+									}
+									@table.Cell() {
+										@components.ScoreBar(res.Score)
+									}
+									@table.Cell() {
+										<span class="text-sm">{ fmt.Sprintf("%dms", res.LatencyMs) }</span>
+									}
+									@table.Cell() {
+										<span class="text-sm">{ fmt.Sprintf("%d", res.TokensUsed) }</span>
+									}
+									@table.Cell() {
+										<span class="text-sm">{ fmt.Sprintf("$%.4f", res.Cost) }</span>
+									}
+									@table.Cell() {
+										@button.Button(button.Props{
+											Variant: button.VariantOutline,
+											Size:    button.SizeSm,
+											Attributes: templ.Attributes{
+												"hx-get":    "/runs/results/detail?id=" + res.ID.String() + "&run_id=" + r.ID.String(),
+												"hx-target": "#content",
+											},
+										}) {
+											Detail
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		if r.Error != "" {
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Error }
+				}
+				@card.Content() {
+					<pre class="bg-destructive/10 text-destructive rounded-md p-3 text-sm font-mono overflow-x-auto">{ r.Error }</pre>
+				}
+			}
+		}
+	</div>
+}

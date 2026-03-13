@@ -1,0 +1,58 @@
+package widgets
+
+import (
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/evalrun"
+	"github.com/xraph/forgeui/components/table"
+)
+
+templ RecentRunsWidget(runs []*evalrun.Run, suiteNames map[string]string) {
+	if len(runs) == 0 {
+		@components.EmptyState("play", "No recent runs", "Run an evaluation to see results here.")
+	} else {
+		@table.Table() {
+			@table.Header() {
+				@table.Row() {
+					@table.Head() { Suite }
+					@table.Head() { Model }
+					@table.Head() { State }
+					@table.Head() { Pass Rate }
+					@table.Head() { Created }
+				}
+			}
+			@table.Body() {
+				for _, r := range runs {
+					{{ name := widgetLookupSuite(r.SuiteID.String(), suiteNames) }}
+					@table.Row() {
+						@table.Cell() {
+							<span class="text-sm font-medium">{ name }</span>
+						}
+						@table.Cell() {
+							<span class="text-sm">{ r.Model }</span>
+						}
+						@table.Cell() {
+							@components.RunStateBadge(string(r.State))
+						}
+						@table.Cell() {
+							@components.ScoreBar(r.PassRate)
+						}
+						@table.Cell() {
+							{{ created := r.CreatedAt.Format("Jan 02 15:04") }}
+							<span class="text-xs text-muted-foreground">{ created }</span>
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func widgetLookupSuite(suiteIDStr string, nameMap map[string]string) string {
+	if name, ok := nameMap[suiteIDStr]; ok {
+		return name
+	}
+	if len(suiteIDStr) > 12 {
+		return suiteIDStr[:12] + "..."
+	}
+	return suiteIDStr
+}

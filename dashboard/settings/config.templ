@@ -1,0 +1,41 @@
+package settings
+
+import (
+	"fmt"
+
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/sentinel"
+)
+
+templ ConfigPanel(cfg sentinel.Config) {
+	@card.Card() {
+		@card.Header(card.HeaderProps{}) {
+			@card.Title() {
+				Engine Settings
+			}
+			@card.Description() {
+				Sentinel engine configuration (read-only)
+			}
+		}
+		@card.Content(card.ContentProps{}) {
+			<div class="space-y-4 text-sm">
+				<div class="flex justify-between">
+					<span class="text-muted-foreground">Default Model</span>
+					<span class="font-medium">{ cfg.DefaultModel }</span>
+				</div>
+				<div class="flex justify-between">
+					<span class="text-muted-foreground">Temperature</span>
+					<span class="font-medium">{ fmt.Sprintf("%.1f", cfg.Temperature) }</span>
+				</div>
+				<div class="flex justify-between">
+					<span class="text-muted-foreground">Pass Threshold</span>
+					<span class="font-medium">{ fmt.Sprintf("%.1f%%", cfg.PassThreshold*100) }</span>
+				</div>
+				<div class="flex justify-between">
+					<span class="text-muted-foreground">Concurrency</span>
+					<span class="font-medium">{ fmt.Sprintf("%d", cfg.Concurrency) }</span>
+				</div>
+			</div>
+		}
+	}
+}

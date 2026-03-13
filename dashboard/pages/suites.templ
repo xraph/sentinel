@@ -1,0 +1,146 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/dashboard/shared"
+	"github.com/xraph/sentinel/suite"
+	"github.com/xraph/forgeui/components/button"
+	"github.com/xraph/forgeui/components/input"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/forgeui/components/badge"
+)
+
+templ SuitesPage(items []*suite.Suite, search string, pg shared.PaginationMeta) {
+	<div class="space-y-6">
+		@components.PageHeader("Suites", fmt.Sprintf("%d", pg.Total), "Manage evaluation suites") {
+			@button.Button(button.Props{
+				Attributes: templ.Attributes{
+					"hx-get":    "/suites/create",
+					"hx-target": "#content",
+				},
+			}) {
+				New Suite
+			}
+		}
+		<div class="flex gap-4">
+			@input.Input(input.Props{
+				Type:        "search",
+				Placeholder: "Search suites...",
+				Value:       search,
+				Class:       "max-w-sm",
+				Attributes: templ.Attributes{
+					"name":        "search",
+					"hx-get":      "/suites",
+					"hx-target":   "#content",
+					"hx-trigger":  "input changed delay:300ms",
+					"hx-push-url": "true",
+					"hx-include":  "this",
+				},
+			})
+		</div>
+		if len(items) == 0 {
+			@components.EmptyState("folders", "No suites found", "Create your first evaluation suite to get started.")
+		} else {
+			@table.Table() {
+				@table.Header() {
+					@table.Row() {
+						@table.Head() { Name }
+						@table.Head() { Model }
+						@table.Head() { Temperature }
+						@table.Head() { Persona }
+						@table.Head() { Actions }
+					}
+				}
+				@table.Body() {
+					for _, s := range items {
+						@table.Row() {
+							@table.Cell() {
+								<a class="font-medium hover:underline cursor-pointer"
+									hx-get={ "/suites/detail?id=" + s.ID.String() }
+									hx-target="#content">
+									{ s.Name }
+								</a>
+								if s.Description != "" {
+									<p class="text-xs text-muted-foreground">{ truncate(s.Description, 60) }</p>
+								}
+							}
+							@table.Cell() {
+								if s.Model != "" {
+									@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+										{ s.Model }
+									}
+								} else {
+									<span class="text-xs text-muted-foreground">default</span>
+								}
+							}
+							@table.Cell() {
+								<span class="text-sm">{ fmt.Sprintf("%.1f", s.Temperature) }</span>
+							}
+							@table.Cell() {
+								if s.PersonaRef != "" {
+									@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+										{ s.PersonaRef }
+									}
+								} else {
+									<span class="text-xs text-muted-foreground">-</span>
+								}
+							}
+							@table.Cell() {
+								<div class="flex gap-1">
+									@button.Button(button.Props{
+										Variant: button.VariantOutline,
+										Size:    button.SizeSm,
+										Attributes: templ.Attributes{
+											"hx-get":    "/suites/detail?id=" + s.ID.String(),
+											"hx-target": "#content",
+										},
+									}) {
+										View
+									}
+									@button.Button(button.Props{
+										Variant: button.VariantOutline,
+										Size:    button.SizeSm,
+										Attributes: templ.Attributes{
+											"hx-get":    "/suites/edit?id=" + s.ID.String(),
+											"hx-target": "#content",
+										},
+									}) {
+										Edit
+									}
+									@button.Button(button.Props{
+										Variant: button.VariantDestructive,
+										Size:    button.SizeSm,
+										Attributes: templ.Attributes{
+											"onclick": fmt.Sprintf("tuiOpenDialog('delete-suite-%s')", s.ID.String()),
+										},
+									}) {
+										Delete
+									}
+									@components.ConfirmDialog(components.ConfirmDialogProps{
+										ID:           "delete-suite-" + s.ID.String(),
+										Title:        "Delete Suite",
+										Description:  "Are you sure you want to delete suite \"" + s.Name + "\"? This will also delete all associated cases, runs, and baselines.",
+										ConfirmLabel: "Delete",
+										HxEndpoint:   "/sentinel/v1/suites/" + s.ID.String(),
+										HxMethod:     "delete",
+									})
+								</div>
+							}
+						}
+					}
+				}
+			}
+			@Pagination(pg, "/suites?search=" + search)
+		}
+		@components.DialogHelpers()
+	</div>
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}

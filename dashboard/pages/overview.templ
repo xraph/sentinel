@@ -1,0 +1,168 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/xraph/sentinel/dashboard/components"
+	"github.com/xraph/sentinel/dashboard/shared"
+	"github.com/xraph/sentinel/evalrun"
+	"github.com/xraph/forgeui/components/card"
+	"github.com/xraph/forgeui/components/table"
+	"github.com/xraph/forgeui/components/button"
+)
+
+templ OverviewPage(counts shared.EntityCounts, recentRuns []*evalrun.Run, activeRuns []*evalrun.Run, avgPassRate float64, suiteNames map[string]string) {
+	<div class="space-y-8">
+		<div>
+			<h1 class="text-3xl font-bold tracking-tight">Overview</h1>
+			<p class="text-muted-foreground mt-1">Sentinel evaluation dashboard</p>
+		</div>
+		<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+			@components.StatCard("folders", "Suites", fmt.Sprintf("%d", counts.Suites), "Evaluation suites")
+			@components.StatCard("play", "Runs", fmt.Sprintf("%d", counts.Runs), "Total evaluation runs")
+			@components.StatCard("target", "Avg Pass Rate", fmt.Sprintf("%.1f%%", avgPassRate*100), "Across completed runs")
+			@components.StatCard("database", "Cases", fmt.Sprintf("%d", counts.Cases), "Total test cases")
+		</div>
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Recent Runs
+					}
+					@card.Description() {
+						Last 10 evaluation runs
+					}
+				}
+				@card.Content() {
+					if len(recentRuns) == 0 {
+						@components.EmptyState("play", "No runs yet", "Run an evaluation to see results here")
+					} else {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() { Suite }
+									@table.Head() { Model }
+									@table.Head() { State }
+									@table.Head() { Pass Rate }
+									@table.Head() { Created }
+								}
+							}
+							@table.Body() {
+								for _, r := range recentRuns {
+									{{ name := overviewLookupSuite(r.SuiteID.String(), suiteNames) }}
+									@table.Row() {
+										@table.Cell() {
+											<a class="text-sm font-medium hover:underline cursor-pointer"
+												hx-get={ "/suites/detail?id=" + r.SuiteID.String() }
+												hx-target="#content">
+												{ name }
+											</a>
+										}
+										@table.Cell() {
+											<span class="text-sm">{ r.Model }</span>
+										}
+										@table.Cell() {
+											@components.RunStateBadge(string(r.State))
+										}
+										@table.Cell() {
+											@components.ScoreBar(r.PassRate)
+										}
+										@table.Cell() {
+											{{ created := r.CreatedAt.Format("Jan 02 15:04") }}
+											<span class="text-xs text-muted-foreground">{ created }</span>
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Active Runs
+					}
+					@card.Description() {
+						Currently running evaluations
+					}
+				}
+				@card.Content() {
+					if len(activeRuns) == 0 {
+						@components.EmptyState("activity", "No active runs", "All evaluations are complete")
+					} else {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() { Suite }
+									@table.Head() { Model }
+									@table.Head() { Progress }
+									@table.Head() { Action }
+								}
+							}
+							@table.Body() {
+								for _, r := range activeRuns {
+									{{ aName := overviewLookupSuite(r.SuiteID.String(), suiteNames) }}
+									@table.Row() {
+										@table.Cell() {
+											<span class="text-sm font-medium">{ aName }</span>
+										}
+										@table.Cell() {
+											<span class="text-sm">{ r.Model }</span>
+										}
+										@table.Cell() {
+											<span class="text-sm">
+												{ fmt.Sprintf("%d/%d cases", r.Passed+r.Failed, r.TotalCases) }
+											</span>
+										}
+										@table.Cell() {
+											@button.Button(button.Props{
+												Variant: button.VariantOutline,
+												Size:    button.SizeSm,
+												Attributes: templ.Attributes{
+													"hx-get":    "/runs/detail?id=" + r.ID.String(),
+													"hx-target": "#content",
+												},
+											}) {
+												View
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		</div>
+		<div class="flex gap-2">
+			@button.Button(button.Props{
+				Attributes: templ.Attributes{
+					"hx-get":    "/suites",
+					"hx-target": "#content",
+				},
+			}) {
+				View All Suites
+			}
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Attributes: templ.Attributes{
+					"hx-get":    "/runs",
+					"hx-target": "#content",
+				},
+			}) {
+				View All Runs
+			}
+		</div>
+	</div>
+}
+
+func overviewLookupSuite(suiteIDStr string, nameMap map[string]string) string {
+	if name, ok := nameMap[suiteIDStr]; ok {
+		return name
+	}
+	if len(suiteIDStr) > 12 {
+		return suiteIDStr[:12] + "..."
+	}
+	return suiteIDStr
+}
