@@ -25,6 +25,7 @@ func (a *API) registerPromptRoutes(router forge.Router) {
 		forge.WithSummary("List prompt versions"),
 		forge.WithDescription("Returns all prompt versions for a suite."),
 		forge.WithOperationID("listPromptVersions"),
+		forge.WithRequestSchema(ListPromptVersionsRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Prompt version list", []*promptversion.PromptVersion{}),
 		forge.WithErrorResponses(),
 	)
@@ -58,7 +59,7 @@ func (a *API) createPromptVersion(ctx forge.Context, req *CreatePromptVersionReq
 	return pv, ctx.JSON(http.StatusCreated, pv)
 }
 
-func (a *API) listPromptVersions(ctx forge.Context, _ *struct{}) ([]*promptversion.PromptVersion, error) {
+func (a *API) listPromptVersions(ctx forge.Context, _ *ListPromptVersionsRequest) ([]*promptversion.PromptVersion, error) {
 	suiteID, err := id.ParseSuiteID(ctx.Param("suiteId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid suite ID")

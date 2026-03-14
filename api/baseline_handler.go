@@ -25,6 +25,7 @@ func (a *API) registerBaselineRoutes(router forge.Router) {
 		forge.WithSummary("List baselines"),
 		forge.WithDescription("Returns all baselines for a suite."),
 		forge.WithOperationID("listBaselines"),
+		forge.WithRequestSchema(ListBaselinesRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Baseline list", []*baseline.Baseline{}),
 		forge.WithErrorResponses(),
 	)
@@ -33,6 +34,7 @@ func (a *API) registerBaselineRoutes(router forge.Router) {
 		forge.WithSummary("Get baseline"),
 		forge.WithDescription("Returns details of a specific baseline."),
 		forge.WithOperationID("getBaseline"),
+		forge.WithRequestSchema(GetBaselineRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Baseline details", &baseline.Baseline{}),
 		forge.WithErrorResponses(),
 	)
@@ -98,7 +100,7 @@ func (a *API) saveBaseline(ctx forge.Context, req *SaveBaselineRequest) (*baseli
 	return b, ctx.JSON(http.StatusCreated, b)
 }
 
-func (a *API) listBaselines(ctx forge.Context, _ *struct{}) ([]*baseline.Baseline, error) {
+func (a *API) listBaselines(ctx forge.Context, _ *ListBaselinesRequest) ([]*baseline.Baseline, error) {
 	suiteID, err := id.ParseSuiteID(ctx.Param("suiteId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid suite ID")
@@ -112,7 +114,7 @@ func (a *API) listBaselines(ctx forge.Context, _ *struct{}) ([]*baseline.Baselin
 	return baselines, ctx.JSON(http.StatusOK, baselines)
 }
 
-func (a *API) getBaseline(ctx forge.Context, _ *struct{}) (*baseline.Baseline, error) {
+func (a *API) getBaseline(ctx forge.Context, _ *GetBaselineRequest) (*baseline.Baseline, error) {
 	baselineID, err := id.ParseBaselineID(ctx.Param("baselineId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid baseline ID")

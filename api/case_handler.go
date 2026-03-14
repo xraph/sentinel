@@ -35,6 +35,7 @@ func (a *API) registerCaseRoutes(router forge.Router) {
 		forge.WithSummary("List test cases"),
 		forge.WithDescription("Returns all test cases in a suite."),
 		forge.WithOperationID("getCases"),
+		forge.WithRequestSchema(ListCasesRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Case list", []*testcase.Case{}),
 		forge.WithErrorResponses(),
 	)
@@ -43,6 +44,7 @@ func (a *API) registerCaseRoutes(router forge.Router) {
 		forge.WithSummary("Get test case"),
 		forge.WithDescription("Returns a specific test case."),
 		forge.WithOperationID("getCase"),
+		forge.WithRequestSchema(GetCaseRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Case details", &testcase.Case{}),
 		forge.WithErrorResponses(),
 	)
@@ -51,6 +53,7 @@ func (a *API) registerCaseRoutes(router forge.Router) {
 		forge.WithSummary("Delete test case"),
 		forge.WithDescription("Deletes a test case."),
 		forge.WithOperationID("deleteCase"),
+		forge.WithRequestSchema(DeleteCaseRequest{}),
 		forge.WithNoContentResponse(),
 		forge.WithErrorResponses(),
 	)
@@ -110,7 +113,7 @@ func (a *API) importCases(ctx forge.Context, req *ImportCasesRequest) (any, erro
 	return result, ctx.JSON(http.StatusCreated, result)
 }
 
-func (a *API) getCases(ctx forge.Context, _ *struct{}) ([]*testcase.Case, error) {
+func (a *API) getCases(ctx forge.Context, _ *ListCasesRequest) ([]*testcase.Case, error) {
 	suiteID, err := id.ParseSuiteID(ctx.Param("suiteId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid suite ID")
@@ -124,7 +127,7 @@ func (a *API) getCases(ctx forge.Context, _ *struct{}) ([]*testcase.Case, error)
 	return cases, ctx.JSON(http.StatusOK, cases)
 }
 
-func (a *API) getCase(ctx forge.Context, _ *struct{}) (*testcase.Case, error) {
+func (a *API) getCase(ctx forge.Context, _ *GetCaseRequest) (*testcase.Case, error) {
 	caseID, err := id.ParseCaseID(ctx.Param("caseId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid case ID")
@@ -138,7 +141,7 @@ func (a *API) getCase(ctx forge.Context, _ *struct{}) (*testcase.Case, error) {
 	return tc, ctx.JSON(http.StatusOK, tc)
 }
 
-func (a *API) deleteCase(ctx forge.Context, _ *struct{}) (any, error) {
+func (a *API) deleteCase(ctx forge.Context, _ *DeleteCaseRequest) (any, error) {
 	caseID, err := id.ParseCaseID(ctx.Param("caseId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid case ID")

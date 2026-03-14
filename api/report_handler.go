@@ -18,6 +18,7 @@ func (a *API) registerReportRoutes(router forge.Router) {
 		forge.WithSummary("Get report"),
 		forge.WithDescription("Returns a JSON report for an evaluation run."),
 		forge.WithOperationID("getReport"),
+		forge.WithRequestSchema(GetReportRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Evaluation report", &report.Report{}),
 		forge.WithErrorResponses(),
 	)
@@ -32,7 +33,7 @@ func (a *API) registerReportRoutes(router forge.Router) {
 	)
 }
 
-func (a *API) getReport(ctx forge.Context, _ *struct{}) (*report.Report, error) {
+func (a *API) getReport(ctx forge.Context, _ *GetReportRequest) (*report.Report, error) {
 	runID, err := id.ParseEvalRunID(ctx.Param("runId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid run ID")

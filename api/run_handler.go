@@ -35,6 +35,7 @@ func (a *API) registerRunRoutes(router forge.Router) {
 		forge.WithSummary("Get run"),
 		forge.WithDescription("Returns details of an evaluation run."),
 		forge.WithOperationID("getRun"),
+		forge.WithRequestSchema(GetRunRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Run details", &evalrun.Run{}),
 		forge.WithErrorResponses(),
 	)
@@ -52,6 +53,7 @@ func (a *API) registerRunRoutes(router forge.Router) {
 		forge.WithSummary("Get run results"),
 		forge.WithDescription("Returns all results for an evaluation run."),
 		forge.WithOperationID("getRunResults"),
+		forge.WithRequestSchema(GetRunResultsRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Run results", []*evalrun.Result{}),
 		forge.WithErrorResponses(),
 	)
@@ -60,6 +62,7 @@ func (a *API) registerRunRoutes(router forge.Router) {
 		forge.WithSummary("Get run statistics"),
 		forge.WithDescription("Returns aggregate statistics for a run."),
 		forge.WithOperationID("getRunStats"),
+		forge.WithRequestSchema(GetRunStatsRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Run statistics", &evalrun.ResultStats{}),
 		forge.WithErrorResponses(),
 	)
@@ -96,7 +99,7 @@ func (a *API) compareModels(_ forge.Context, _ *CompareModelsRequest) (any, erro
 	return nil, forge.BadRequest("model comparison must be configured programmatically with target adapters")
 }
 
-func (a *API) getRun(ctx forge.Context, _ *struct{}) (*evalrun.Run, error) {
+func (a *API) getRun(ctx forge.Context, _ *GetRunRequest) (*evalrun.Run, error) {
 	runID, err := id.ParseEvalRunID(ctx.Param("runId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid run ID")
@@ -131,7 +134,7 @@ func (a *API) listRuns(ctx forge.Context, req *ListRunsRequest) ([]*evalrun.Run,
 	return runs, ctx.JSON(http.StatusOK, runs)
 }
 
-func (a *API) getRunResults(ctx forge.Context, _ *struct{}) ([]*evalrun.Result, error) {
+func (a *API) getRunResults(ctx forge.Context, _ *GetRunResultsRequest) ([]*evalrun.Result, error) {
 	runID, err := id.ParseEvalRunID(ctx.Param("runId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid run ID")
@@ -145,7 +148,7 @@ func (a *API) getRunResults(ctx forge.Context, _ *struct{}) ([]*evalrun.Result, 
 	return results, ctx.JSON(http.StatusOK, results)
 }
 
-func (a *API) getRunStats(ctx forge.Context, _ *struct{}) (*evalrun.ResultStats, error) {
+func (a *API) getRunStats(ctx forge.Context, _ *GetRunStatsRequest) (*evalrun.ResultStats, error) {
 	runID, err := id.ParseEvalRunID(ctx.Param("runId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid run ID")

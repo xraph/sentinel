@@ -35,6 +35,7 @@ func (a *API) registerSuiteRoutes(router forge.Router) {
 		forge.WithSummary("Get suite"),
 		forge.WithDescription("Returns details of a specific suite."),
 		forge.WithOperationID("getSuite"),
+		forge.WithRequestSchema(GetSuiteRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Suite details", &suite.Suite{}),
 		forge.WithErrorResponses(),
 	)
@@ -43,7 +44,7 @@ func (a *API) registerSuiteRoutes(router forge.Router) {
 		forge.WithSummary("Update suite"),
 		forge.WithDescription("Updates an evaluation suite."),
 		forge.WithOperationID("updateSuite"),
-		forge.WithRequestSchema(CreateSuiteRequest{}),
+		forge.WithRequestSchema(UpdateSuiteRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Updated suite", &suite.Suite{}),
 		forge.WithErrorResponses(),
 	)
@@ -52,6 +53,7 @@ func (a *API) registerSuiteRoutes(router forge.Router) {
 		forge.WithSummary("Delete suite"),
 		forge.WithDescription("Deletes an evaluation suite."),
 		forge.WithOperationID("deleteSuite"),
+		forge.WithRequestSchema(DeleteSuiteRequest{}),
 		forge.WithNoContentResponse(),
 		forge.WithErrorResponses(),
 	)
@@ -91,7 +93,7 @@ func (a *API) listSuites(ctx forge.Context, req *ListSuitesRequest) ([]*suite.Su
 	return suites, ctx.JSON(http.StatusOK, suites)
 }
 
-func (a *API) getSuite(ctx forge.Context, _ *struct{}) (*suite.Suite, error) {
+func (a *API) getSuite(ctx forge.Context, _ *GetSuiteRequest) (*suite.Suite, error) {
 	suiteID, err := id.ParseSuiteID(ctx.Param("suiteId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid suite ID")
@@ -105,7 +107,7 @@ func (a *API) getSuite(ctx forge.Context, _ *struct{}) (*suite.Suite, error) {
 	return s, ctx.JSON(http.StatusOK, s)
 }
 
-func (a *API) updateSuite(ctx forge.Context, req *CreateSuiteRequest) (*suite.Suite, error) {
+func (a *API) updateSuite(ctx forge.Context, req *UpdateSuiteRequest) (*suite.Suite, error) {
 	suiteID, err := id.ParseSuiteID(ctx.Param("suiteId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid suite ID")
@@ -133,7 +135,7 @@ func (a *API) updateSuite(ctx forge.Context, req *CreateSuiteRequest) (*suite.Su
 	return s, ctx.JSON(http.StatusOK, s)
 }
 
-func (a *API) deleteSuite(ctx forge.Context, _ *struct{}) (any, error) {
+func (a *API) deleteSuite(ctx forge.Context, _ *DeleteSuiteRequest) (any, error) {
 	suiteID, err := id.ParseSuiteID(ctx.Param("suiteId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid suite ID")

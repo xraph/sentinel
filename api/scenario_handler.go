@@ -25,6 +25,7 @@ func (a *API) registerScenarioRoutes(router forge.Router) {
 		forge.WithSummary("List scenarios"),
 		forge.WithDescription("Returns all scenario-type test cases for a suite."),
 		forge.WithOperationID("listScenarios"),
+		forge.WithRequestSchema(ListScenariosRequest{}),
 		forge.WithResponseSchema(http.StatusOK, "Scenario list", []*testcase.Case{}),
 		forge.WithErrorResponses(),
 	)
@@ -35,7 +36,7 @@ func (a *API) generateScenarios(_ forge.Context, _ *GenerateScenariosRequest) (a
 	return nil, forge.BadRequest("scenario generation must be configured programmatically with scenario generators")
 }
 
-func (a *API) listScenarios(ctx forge.Context, _ *struct{}) ([]*testcase.Case, error) {
+func (a *API) listScenarios(ctx forge.Context, _ *ListScenariosRequest) ([]*testcase.Case, error) {
 	suiteID, err := id.ParseSuiteID(ctx.Param("suiteId"))
 	if err != nil {
 		return nil, forge.BadRequest("invalid suite ID")
