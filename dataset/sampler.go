@@ -16,6 +16,8 @@ func Sample(cases []*testcase.Case, n int) []*testcase.Case {
 	// Shuffle a copy.
 	shuffled := make([]*testcase.Case, len(cases))
 	copy(shuffled, cases)
+	// #nosec G404 -- sampling a dataset for evaluation. The shuffle needs to be
+	// uniform, not unpredictable; nothing here is a secret or a token.
 	rand.Shuffle(len(shuffled), func(i, j int) {
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 	})
