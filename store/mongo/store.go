@@ -322,6 +322,66 @@ func (s *Store) UpdateRun(ctx context.Context, run *evalrun.Run) error {
 	return nil
 }
 
+func (s *Store) CancelRun(ctx context.Context, runID id.EvalRunID, at time.Time) (bool, error) {
+	coll := s.mdb.Collection(colRuns)
+	res, err := coll.UpdateOne(ctx,
+		bson.M{"_id": runID.String(), "state": string(evalrun.StateRunning)},
+		bson.M{"$set": bson.M{"state": string(evalrun.StateCancelled), "completed_at": at.UTC(), "updated_at": time.Now().UTC()}},
+	)
+	if err != nil {
+		return false, fmt.Errorf("sentinel: cancel run: %w", err)
+	}
+	if res.ModifiedCount > 0 {
+		return true, nil
+	}
+	n, err := coll.CountDocuments(ctx, bson.M{"_id": runID.String()})
+	if err != nil {
+		return false, fmt.Errorf("sentinel: cancel run: %w", err)
+	}
+	if n == 0 {
+		return false, sentinel.ErrRunNotFound
+	}
+	return false, nil
+}
+
+func (s *Store) FinalizeRun(ctx context.Context, runID id.EvalRunID, f *evalrun.Finalization) (evalrun.RunState, error) {
+	st := f.Stats
+	if st == nil {
+		st = &evalrun.ResultStats{}
+	}
+	dims := st.DimensionScores
+	if dims == nil {
+		dims = map[string]float64{}
+	}
+	set := bson.M{
+		"passed": st.Passed, "failed": st.Failed, "pass_rate": st.PassRate, "avg_score": st.AvgScore,
+		"avg_latency_ms": st.AvgLatencyMs, "total_tokens": st.TotalTokens, "total_cost": st.TotalCost,
+		"dimension_scores": dims, "completed_at": f.CompletedAt.UTC(), "updated_at": time.Now().UTC(),
+	}
+	if f.Error != "" {
+		set["error"] = f.Error
+	}
+	coll := s.mdb.Collection(colRuns)
+	res, err := coll.UpdateOne(ctx, bson.M{"_id": runID.String()}, bson.M{"$set": set})
+	if err != nil {
+		return "", fmt.Errorf("sentinel: finalize run: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return "", sentinel.ErrRunNotFound
+	}
+	if _, err := coll.UpdateOne(ctx,
+		bson.M{"_id": runID.String(), "state": string(evalrun.StateRunning)},
+		bson.M{"$set": bson.M{"state": string(f.State)}},
+	); err != nil {
+		return "", fmt.Errorf("sentinel: finalize run state: %w", err)
+	}
+	run, err := s.GetRun(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	return run.State, nil
+}
+
 func (s *Store) ListRuns(ctx context.Context, filter *evalrun.ListFilter) ([]*evalrun.Run, error) {
 	var models []runModel
 	q := s.mdb.NewFind(&models).Sort(bson.D{{Key: "created_at", Value: -1}})

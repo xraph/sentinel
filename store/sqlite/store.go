@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -301,6 +302,74 @@ func (s *Store) UpdateRun(ctx context.Context, run *evalrun.Run) error {
 		return fmt.Errorf("sentinel: update run: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) CancelRun(ctx context.Context, runID id.EvalRunID, at time.Time) (bool, error) {
+	res, err := s.sdb.NewUpdate((*runModel)(nil)).
+		Set("state = ?", string(evalrun.StateCancelled)).
+		Set("completed_at = ?", at.UTC()).
+		Set("updated_at = ?", time.Now().UTC()).
+		Where("id = ?", runID.String()).
+		Where("state = ?", string(evalrun.StateRunning)).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("sentinel: cancel run: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("sentinel: cancel run: %w", err)
+	}
+	if n > 0 {
+		return true, nil
+	}
+	if _, err := s.GetRun(ctx, runID); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (s *Store) FinalizeRun(ctx context.Context, runID id.EvalRunID, f *evalrun.Finalization) (evalrun.RunState, error) {
+	st := f.Stats
+	if st == nil {
+		st = &evalrun.ResultStats{}
+	}
+	dims := st.DimensionScores
+	if dims == nil {
+		dims = map[string]float64{}
+	}
+	dimsJSON, err := json.Marshal(dims)
+	if err != nil {
+		return "", fmt.Errorf("sentinel: finalize run: %w", err)
+	}
+	q := s.sdb.NewUpdate((*runModel)(nil)).
+		Set("passed = ?", st.Passed).
+		Set("failed = ?", st.Failed).
+		Set("pass_rate = ?", st.PassRate).
+		Set("avg_score = ?", st.AvgScore).
+		Set("avg_latency_ms = ?", st.AvgLatencyMs).
+		Set("total_tokens = ?", st.TotalTokens).
+		Set("total_cost = ?", st.TotalCost).
+		Set("dimension_scores = ?", string(dimsJSON)).
+		Set("completed_at = ?", f.CompletedAt.UTC()).
+		Set("updated_at = ?", time.Now().UTC()).
+		Set("state = CASE WHEN state = ? THEN ? ELSE state END", string(evalrun.StateRunning), string(f.State))
+	if f.Error != "" {
+		q = q.Set("error = ?", f.Error)
+	}
+	res, err := q.Where("id = ?", runID.String()).Exec(ctx)
+	if err != nil {
+		return "", fmt.Errorf("sentinel: finalize run: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return "", fmt.Errorf("sentinel: finalize run: %w", err)
+	} else if n == 0 {
+		return "", sentinel.ErrRunNotFound
+	}
+	run, err := s.GetRun(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	return run.State, nil
 }
 
 func (s *Store) ListRuns(ctx context.Context, filter *evalrun.ListFilter) ([]*evalrun.Run, error) {

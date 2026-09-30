@@ -309,6 +309,43 @@ func (s *Store) UpdateRun(_ context.Context, run *evalrun.Run) error {
 	return nil
 }
 
+func (s *Store) CancelRun(_ context.Context, runID id.EvalRunID, at time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, ok := s.runs[runID.String()]
+	if !ok {
+		return false, sentinel.ErrRunNotFound
+	}
+	if run.State != evalrun.StateRunning {
+		return false, nil
+	}
+	t := at.UTC()
+	run.State = evalrun.StateCancelled
+	run.CompletedAt = &t
+	run.UpdatedAt = time.Now().UTC()
+	return true, nil
+}
+
+func (s *Store) FinalizeRun(_ context.Context, runID id.EvalRunID, f *evalrun.Finalization) (evalrun.RunState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, ok := s.runs[runID.String()]
+	if !ok {
+		return "", sentinel.ErrRunNotFound
+	}
+	run.ApplyStats(f.Stats)
+	t := f.CompletedAt.UTC()
+	run.CompletedAt = &t
+	if f.Error != "" {
+		run.Error = f.Error
+	}
+	if run.State == evalrun.StateRunning {
+		run.State = f.State
+	}
+	run.UpdatedAt = time.Now().UTC()
+	return run.State, nil
+}
+
 func (s *Store) ListRuns(_ context.Context, filter *evalrun.ListFilter) ([]*evalrun.Run, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
