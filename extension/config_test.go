@@ -1,8 +1,12 @@
 package extension
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/xraph/sentinel/scorer"
+	"github.com/xraph/sentinel/target"
 )
 
 func TestEngineReceivesConfiguredValues(t *testing.T) {
@@ -36,5 +40,26 @@ func TestYAMLRegressionThresholdWins(t *testing.T) {
 	merged = e.mergeConfigurations(Config{}, e.config)
 	if merged.RegressionThreshold != 0.2 {
 		t.Fatalf("programmatic should fill a gap: %v", merged.RegressionThreshold)
+	}
+}
+
+func TestExtensionRegistersTargetsAndScorers(t *testing.T) {
+	echo := target.FromFunc("echo", func(_ context.Context, in string) (string, error) { return in, nil })
+	e := New(
+		WithTarget("support-bot", "the production support agent", echo),
+		WithScorer(scorer.Descriptor{Name: "judge", UsesLLM: true}, func(map[string]any) (scorer.Scorer, error) {
+			return scorer.FromFunc("judge", func(context.Context, *scorer.Input) (*scorer.Output, error) { return &scorer.Output{Score: 1}, nil }), nil
+		}),
+	)
+	e.config = e.mergeWithDefaults(e.config)
+	eng, err := e.newEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt, ok := eng.Target("support-bot"); !ok || rt.Description != "the production support agent" {
+		t.Fatalf("target not registered: %+v", rt)
+	}
+	if !eng.Scorers().Has("judge") {
+		t.Fatal("scorer not registered")
 	}
 }

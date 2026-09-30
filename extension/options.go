@@ -4,7 +4,9 @@ package extension
 import (
 	"github.com/xraph/sentinel/engine"
 	"github.com/xraph/sentinel/plugin"
+	"github.com/xraph/sentinel/scorer"
 	"github.com/xraph/sentinel/store"
+	"github.com/xraph/sentinel/target"
 )
 
 // ExtOption configures the Sentinel Forge extension.
@@ -74,5 +76,21 @@ func WithGroveDatabase(name string) ExtOption {
 	return func(e *Extension) {
 		e.config.GroveDatabase = name
 		e.useGrove = true
+	}
+}
+
+// WithTarget registers a named target, so the dashboard can start a run
+// against it. Without one, runs can only be started from Go.
+func WithTarget(name, description string, t target.Target) ExtOption {
+	return func(e *Extension) {
+		e.engineOpts = append(e.engineOpts, engine.WithTarget(name, description, t))
+	}
+}
+
+// WithScorer registers a scorer the dashboard can offer for a run. Use it
+// for the LLM scorers, which need the application's LLMClient.
+func WithScorer(d scorer.Descriptor, f scorer.Factory) ExtOption {
+	return func(e *Extension) {
+		e.engineOpts = append(e.engineOpts, engine.WithScorer(d, f))
 	}
 }
