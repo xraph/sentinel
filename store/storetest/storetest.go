@@ -25,6 +25,7 @@ func Run(t *testing.T, newStore Factory) {
 	t.Run("SetCurrentPromptVersionIsScoped", func(t *testing.T) { testSetCurrentPromptVersionIsScoped(t, newStore(t)) })
 	t.Run("DuplicatePromptVersionIsRefused", func(t *testing.T) { testDuplicatePromptVersionIsRefused(t, newStore(t)) })
 	t.Run("DeleteSuiteCascades", func(t *testing.T) { testDeleteSuiteCascades(t, newStore(t)) })
+	t.Run("DeleteMissingSuite", func(t *testing.T) { testDeleteMissingSuite(t, newStore(t)) })
 	t.Run("CancelRun", func(t *testing.T) { testCancelRun(t, newStore(t)) })
 	t.Run("FinalizeRun", func(t *testing.T) { testFinalizeRun(t, newStore(t)) })
 	t.Run("FinalizeKeepsCancel", func(t *testing.T) { testFinalizeKeepsCancel(t, newStore(t)) })

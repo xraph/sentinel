@@ -120,13 +120,12 @@ func (s *Store) UpdateSuite(_ context.Context, su *suite.Suite) error {
 	return nil
 }
 
+// DeleteSuite deletes a suite and everything that belongs to it. A suite
+// that does not exist is not an error, as on the other backends.
 func (s *Store) DeleteSuite(_ context.Context, suiteID id.SuiteID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := suiteID.String()
-	if _, exists := s.suites[key]; !exists {
-		return sentinel.ErrSuiteNotFound
-	}
 	delete(s.suites, key)
 	runIDs := map[string]bool{}
 	for k, run := range s.runs {

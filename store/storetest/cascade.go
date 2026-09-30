@@ -82,3 +82,11 @@ func testDeleteSuiteCascades(t *testing.T, s store.Store) {
 		t.Errorf("other suite's prompt versions changed: %d (%v)", len(pvs), err)
 	}
 }
+
+// Deleting a suite that does not exist is not an error on any backend: the
+// caller wanted it gone and it is.
+func testDeleteMissingSuite(t *testing.T, s store.Store) {
+	if err := s.DeleteSuite(bg(), id.NewSuiteID()); err != nil {
+		t.Fatalf("delete missing suite: want nil, got %v", err)
+	}
+}
