@@ -29,4 +29,5 @@ func Run(t *testing.T, newStore Factory) {
 	t.Run("FinalizeRun", func(t *testing.T) { testFinalizeRun(t, newStore(t)) })
 	t.Run("FinalizeKeepsCancel", func(t *testing.T) { testFinalizeKeepsCancel(t, newStore(t)) })
 	t.Run("FinalizeRecordsFailure", func(t *testing.T) { testFinalizeRecordsFailure(t, newStore(t)) })
+	t.Run("ConcurrentResultWrites", func(t *testing.T) { testConcurrentResultWrites(t, newStore(t)) })
 }

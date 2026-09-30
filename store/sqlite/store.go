@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/xraph/grove"
@@ -26,9 +27,21 @@ import (
 var _ store.Store = (*Store)(nil)
 
 // Store is a SQLite implementation of the composite Sentinel store.
+//
+// SQLite allows one writer at a time, and grove's driver pools connections
+// without a busy timeout, so two writes on separate connections fail at once
+// with SQLITE_BUSY. Store therefore serialises its own writes: one Store value
+// never issues two concurrent writes, while reads stay concurrent. The mutex
+// covers one process only. When several processes share one sqlite file, open
+// it with a busy timeout on the DSN as well, for example
+// "file:sentinel.db?_pragma=busy_timeout(5000)", so a writer waits for the
+// other process instead of failing.
 type Store struct {
 	db  *grove.DB
 	sdb *sqlitedriver.SqliteDB
+
+	// mu is held around every method that writes.
+	mu sync.Mutex
 }
 
 // New creates a new SQLite store backed by grove ORM.
@@ -41,6 +54,8 @@ func New(db *grove.DB) *Store {
 
 // Migrate runs programmatic migrations via the grove orchestrator.
 func (s *Store) Migrate(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	executor, err := migrate.NewExecutorFor(s.sdb)
 	if err != nil {
 		return fmt.Errorf("sentinel/sqlite: create migration executor: %w", err)
@@ -67,6 +82,8 @@ func (s *Store) Close() error {
 // ──────────────────────────────────────────────────
 
 func (s *Store) CreateSuite(ctx context.Context, su *suite.Suite) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	su.CreatedAt = now
 	su.UpdatedAt = now
@@ -106,6 +123,8 @@ func (s *Store) GetSuiteByName(ctx context.Context, appID, name string) (*suite.
 }
 
 func (s *Store) UpdateSuite(ctx context.Context, su *suite.Suite) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	su.UpdatedAt = time.Now().UTC()
 	m := suiteToModel(su)
 	_, err := s.sdb.NewUpdate(m).WherePK().Exec(ctx)
@@ -120,6 +139,8 @@ func (s *Store) UpdateSuite(ctx context.Context, su *suite.Suite) error {
 // foreign_keys, which grove sets on one pooled connection, so the children are
 // deleted explicitly.
 func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	sid := suiteID.String()
 	tx, err := s.sdb.BeginTxQuery(ctx, nil)
 	if err != nil {
@@ -176,6 +197,8 @@ func (s *Store) ListSuites(ctx context.Context, filter *suite.ListFilter) ([]*su
 // ──────────────────────────────────────────────────
 
 func (s *Store) CreateCase(ctx context.Context, tc *testcase.Case) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	tc.CreatedAt = now
 	tc.UpdatedAt = now
@@ -188,6 +211,8 @@ func (s *Store) CreateCase(ctx context.Context, tc *testcase.Case) error {
 }
 
 func (s *Store) CreateCaseBatch(ctx context.Context, cases []*testcase.Case) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	models := make([]caseModel, len(cases))
 	for i, tc := range cases {
@@ -215,6 +240,8 @@ func (s *Store) GetCase(ctx context.Context, caseID id.CaseID) (*testcase.Case, 
 }
 
 func (s *Store) UpdateCase(ctx context.Context, tc *testcase.Case) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	tc.UpdatedAt = time.Now().UTC()
 	m := caseToModel(tc)
 	_, err := s.sdb.NewUpdate(m).WherePK().Exec(ctx)
@@ -225,6 +252,8 @@ func (s *Store) UpdateCase(ctx context.Context, tc *testcase.Case) error {
 }
 
 func (s *Store) DeleteCase(ctx context.Context, caseID id.CaseID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	_, err := s.sdb.NewDelete((*caseModel)(nil)).Where("id = ?", caseID.String()).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: delete case: %w", err)
@@ -271,6 +300,8 @@ func (s *Store) ImportCases(_ context.Context, _ id.SuiteID, _ string, _ []byte)
 // ──────────────────────────────────────────────────
 
 func (s *Store) CreateRun(ctx context.Context, run *evalrun.Run) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	run.CreatedAt = now
 	run.UpdatedAt = now
@@ -295,6 +326,8 @@ func (s *Store) GetRun(ctx context.Context, runID id.EvalRunID) (*evalrun.Run, e
 }
 
 func (s *Store) UpdateRun(ctx context.Context, run *evalrun.Run) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	run.UpdatedAt = time.Now().UTC()
 	m := runToModel(run)
 	_, err := s.sdb.NewUpdate(m).WherePK().Exec(ctx)
@@ -305,6 +338,8 @@ func (s *Store) UpdateRun(ctx context.Context, run *evalrun.Run) error {
 }
 
 func (s *Store) CancelRun(ctx context.Context, runID id.EvalRunID, at time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	res, err := s.sdb.NewUpdate((*runModel)(nil)).
 		Set("state = ?", string(evalrun.StateCancelled)).
 		Set("completed_at = ?", at.UTC()).
@@ -329,6 +364,8 @@ func (s *Store) CancelRun(ctx context.Context, runID id.EvalRunID, at time.Time)
 }
 
 func (s *Store) FinalizeRun(ctx context.Context, runID id.EvalRunID, f *evalrun.Finalization) (evalrun.RunState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	st := f.Stats
 	if st == nil {
 		st = &evalrun.ResultStats{}
@@ -433,6 +470,8 @@ func (s *Store) ListRunsBySuite(ctx context.Context, suiteID id.SuiteID) ([]*eva
 // ──────────────────────────────────────────────────
 
 func (s *Store) CreateResult(ctx context.Context, result *evalrun.Result) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	result.CreatedAt = now
 	result.UpdatedAt = now
@@ -445,6 +484,8 @@ func (s *Store) CreateResult(ctx context.Context, result *evalrun.Result) error 
 }
 
 func (s *Store) CreateResultBatch(ctx context.Context, results []*evalrun.Result) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	models := make([]resultModel, len(results))
 	for i, r := range results {
@@ -529,6 +570,8 @@ func (s *Store) GetResultStats(ctx context.Context, runID id.EvalRunID) (*evalru
 // ──────────────────────────────────────────────────
 
 func (s *Store) SaveBaseline(ctx context.Context, b *baseline.Baseline) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	b.CreatedAt = time.Now().UTC()
 	if b.IsCurrent {
 		_, err := s.sdb.NewUpdate((*baselineModel)(nil)).
@@ -595,6 +638,8 @@ func (s *Store) ListBaselines(ctx context.Context, suiteID id.SuiteID) ([]*basel
 }
 
 func (s *Store) DeleteBaseline(ctx context.Context, baselineID id.BaselineID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	_, err := s.sdb.NewDelete((*baselineModel)(nil)).Where("id = ?", baselineID.String()).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: delete baseline: %w", err)
@@ -607,6 +652,8 @@ func (s *Store) DeleteBaseline(ctx context.Context, baselineID id.BaselineID) er
 // ──────────────────────────────────────────────────
 
 func (s *Store) CreatePromptVersion(ctx context.Context, pv *promptversion.PromptVersion) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	pv.CreatedAt = time.Now().UTC()
 	m := promptVersionToModel(pv)
 	_, err := s.sdb.NewInsert(m).Exec(ctx)
@@ -660,6 +707,8 @@ func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID)
 }
 
 func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	tx, err := s.sdb.BeginTxQuery(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("sentinel: begin set current prompt version: %w", err)
