@@ -43,7 +43,7 @@ func suiteToModel(s *suite.Suite) *suiteModel {
 		Model:        s.Model,
 		Temperature:  s.Temperature,
 		PersonaRef:   s.PersonaRef,
-		Metadata:     s.Metadata,
+		Metadata:     nonNilMap(s.Metadata),
 		CreatedAt:    s.CreatedAt,
 		UpdatedAt:    s.UpdatedAt,
 	}
@@ -93,10 +93,10 @@ func caseToModel(tc *testcase.Case) *caseModel {
 		Input:        tc.Input,
 		Expected:     tc.Expected,
 		ScenarioType: string(tc.ScenarioType),
-		Scorers:      tc.Scorers,
-		Tags:         tc.Tags,
-		Context:      tc.Context,
-		Metadata:     tc.Metadata,
+		Scorers:      nonNilSlice(tc.Scorers),
+		Tags:         nonNilSlice(tc.Tags),
+		Context:      nonNilMap(tc.Context),
+		Metadata:     nonNilMap(tc.Metadata),
 		CreatedAt:    tc.CreatedAt,
 		UpdatedAt:    tc.UpdatedAt,
 	}
@@ -169,11 +169,11 @@ func runToModel(r *evalrun.Run) *runModel {
 		AppID:           r.AppID,
 		TargetTenantID:  r.TargetTenantID,
 		PersonaRef:      r.PersonaRef,
-		Config:          r.Config,
+		Config:          nonNilMap(r.Config),
 		State:           string(r.State),
 		Error:           r.Error,
 		CompletedAt:     r.CompletedAt,
-		DimensionScores: r.DimensionScores,
+		DimensionScores: nonNilMap(r.DimensionScores),
 		CreatedAt:       r.CreatedAt,
 		UpdatedAt:       r.UpdatedAt,
 	}
@@ -244,9 +244,9 @@ func resultToModel(r *evalrun.Result) *resultModel {
 		LatencyMs:       r.LatencyMs,
 		TokensUsed:      r.TokensUsed,
 		Cost:            r.Cost,
-		ScorerResults:   r.ScorerResults,
+		ScorerResults:   nonNilSlice(r.ScorerResults),
 		Error:           r.Error,
-		DimensionScores: r.DimensionScores,
+		DimensionScores: nonNilMap(r.DimensionScores),
 		RunTrace:        r.RunTrace,
 		CreatedAt:       r.CreatedAt,
 		UpdatedAt:       r.UpdatedAt,
@@ -300,10 +300,10 @@ func baselineToModel(b *baseline.Baseline) *baselineModel {
 		SuiteID:         b.SuiteID.String(),
 		RunID:           b.RunID.String(),
 		Name:            b.Name,
-		Results:         b.Results,
+		Results:         nonNilSlice(b.Results),
 		PassRate:        b.PassRate,
 		AvgScore:        b.AvgScore,
-		DimensionScores: b.DimensionScores,
+		DimensionScores: nonNilMap(b.DimensionScores),
 		IsCurrent:       b.IsCurrent,
 		CreatedAt:       b.CreatedAt,
 	}
@@ -383,4 +383,21 @@ func promptVersionFromModel(m *promptVersionModel) *promptversion.PromptVersion 
 
 func entityFromTimestamps(createdAt, updatedAt time.Time) sentinel.Entity {
 	return sentinel.Entity{CreatedAt: createdAt, UpdatedAt: updatedAt}
+}
+
+// nonNilMap and nonNilSlice turn a nil map or slice into an empty one. pgx
+// encodes nil as SQL NULL, and these jsonb columns are NOT NULL, so without
+// this every run the engine starts and every failed result is rejected.
+func nonNilMap[V any](m map[string]V) map[string]V {
+	if m == nil {
+		return map[string]V{}
+	}
+	return m
+}
+
+func nonNilSlice[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
