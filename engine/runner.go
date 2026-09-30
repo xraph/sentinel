@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"time"
@@ -189,6 +190,9 @@ func (e *Engine) evaluateCase(
 		RunID:    runID,
 		CaseID:   tc.ID,
 		CaseName: tc.Name,
+
+		ScorerResults:   []evalrun.ScorerResult{},
+		DimensionScores: map[string]float64{},
 	}
 
 	// Invoke the target.
@@ -207,10 +211,11 @@ func (e *Engine) evaluateCase(
 	result.Cost = output.Cost
 	result.RunTrace = output.Trace
 
-	// Build scorer input.
-	scorerCtx := tc.Context
-	if scorerCtx == nil {
-		scorerCtx = make(map[string]any)
+	// Copy the case's context: the stored case must not gain latency_ms and
+	// cost, and two runs of one suite must not write the same map.
+	scorerCtx := make(map[string]any, len(tc.Context)+2)
+	for k, v := range tc.Context {
+		scorerCtx[k] = v
 	}
 	scorerCtx["latency_ms"] = float64(result.LatencyMs)
 	scorerCtx["cost"] = result.Cost
@@ -223,60 +228,61 @@ func (e *Engine) evaluateCase(
 		Context:  scorerCtx,
 	}
 
-	// Run all scorers.
-	var totalScore float64
+	// The run's scorers, then the case's own, resolved by name. A case scorer
+	// nobody registered is a scorer error like any other, so the case is
+	// visibly unscored instead of silently scored by fewer scorers.
+	all := append([]scorer.Scorer(nil), scorers...)
+	var scorerErrs []string
 	var scorerResults []evalrun.ScorerResult
-	dimensionScores := make(map[string]float64)
-	dimensionCounts := make(map[string]int)
-
-	for _, s := range scorers {
-		so, scoreErr := s.Score(ctx, input)
-		if scoreErr != nil {
-			scorerResults = append(scorerResults, evalrun.ScorerResult{
-				ScorerName: s.Name(),
-				Score:      0,
-				Passed:     false,
-				Reason:     fmt.Sprintf("scorer error: %v", scoreErr),
-			})
+	for _, cfg := range tc.Scorers {
+		s, err := e.scorers.Get(cfg.Name, cfg.Config)
+		if err != nil {
+			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", cfg.Name, err))
+			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: cfg.Name, Reason: "scorer error: " + err.Error()})
 			continue
 		}
+		all = append(all, s)
+	}
 
-		sr := evalrun.ScorerResult{
-			ScorerName: s.Name(),
-			Score:      so.Score,
-			Passed:     so.Passed,
-			Reason:     so.Reason,
-			Dimension:  so.Dimension,
-			Details:    so.Details,
+	var total float64
+	var scored int
+	dimensionScores := make(map[string]float64)
+	dimensionCounts := make(map[string]int)
+	for _, s := range all {
+		so, err := s.Score(ctx, input)
+		if err != nil {
+			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", s.Name(), err))
+			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: s.Name(), Reason: "scorer error: " + err.Error()})
+			continue
 		}
-		scorerResults = append(scorerResults, sr)
-		totalScore += so.Score
-
+		scorerResults = append(scorerResults, evalrun.ScorerResult{
+			ScorerName: s.Name(), Score: so.Score, Passed: so.Passed, Reason: so.Reason, Dimension: so.Dimension, Details: so.Details,
+		})
+		total += so.Score
+		scored++
 		if so.Dimension != "" {
 			dimensionScores[so.Dimension] += so.Score
 			dimensionCounts[so.Dimension]++
 		}
 	}
-
-	// Average score across all scorers.
-	if len(scorerResults) > 0 {
-		result.Score = totalScore / float64(len(scorerResults))
+	if scored > 0 {
+		result.Score = total / float64(scored)
 	}
-
-	// Average dimension scores.
-	for dim, total := range dimensionScores {
-		if count := dimensionCounts[dim]; count > 0 {
-			dimensionScores[dim] = total / float64(count)
-		}
+	for dim, sum := range dimensionScores {
+		dimensionScores[dim] = sum / float64(dimensionCounts[dim])
 	}
-
 	result.ScorerResults = scorerResults
 	result.DimensionScores = dimensionScores
 
-	// Determine pass/fail.
-	if result.Score >= e.config.PassThreshold {
+	// A case any scorer could not judge is an error, never a pass: its score
+	// covers fewer scorers than the run asked for.
+	switch {
+	case len(scorerErrs) > 0:
+		result.Status = evalrun.StatusError
+		result.Error = strings.Join(scorerErrs, "; ")
+	case result.Score >= e.config.PassThreshold:
 		result.Status = evalrun.StatusPass
-	} else {
+	default:
 		result.Status = evalrun.StatusFail
 	}
 
