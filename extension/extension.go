@@ -9,9 +9,11 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/dashboard"
 	"github.com/xraph/forge/extensions/dashboard/contributor"
+	log "github.com/xraph/go-utils/log"
 	"github.com/xraph/grove"
 	"github.com/xraph/vessel"
 
+	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/api"
 	sentineldash "github.com/xraph/sentinel/dashboard"
 	"github.com/xraph/sentinel/engine"
@@ -118,11 +120,7 @@ func (e *Extension) init(fapp forge.App) error {
 		)
 	}
 
-	opts := make([]engine.Option, 0, len(e.engineOpts)+1)
-	opts = append(opts, e.engineOpts...)
-	opts = append(opts, engine.WithLogger(e.Logger()))
-
-	eng, err := engine.New(opts...)
+	eng, err := e.newEngine(e.Logger())
 	if err != nil {
 		return fmt.Errorf("sentinel: create engine: %w", err)
 	}
@@ -319,6 +317,15 @@ func (e *Extension) mergeConfigurations(yamlConfig, programmaticConfig Config) C
 		}
 	}
 
+	// RegressionThreshold: YAML takes precedence, then programmatic, then default.
+	if yamlConfig.RegressionThreshold == 0 {
+		if programmaticConfig.RegressionThreshold != 0 {
+			yamlConfig.RegressionThreshold = programmaticConfig.RegressionThreshold
+		} else {
+			yamlConfig.RegressionThreshold = defaults.RegressionThreshold
+		}
+	}
+
 	// Concurrency: YAML takes precedence, then programmatic, then default.
 	if yamlConfig.Concurrency == 0 {
 		if programmaticConfig.Concurrency != 0 {
@@ -369,6 +376,9 @@ func (e *Extension) mergeWithDefaults(programmatic Config) Config {
 	if programmatic.PassThreshold != 0 {
 		result.PassThreshold = programmatic.PassThreshold
 	}
+	if programmatic.RegressionThreshold != 0 {
+		result.RegressionThreshold = programmatic.RegressionThreshold
+	}
 	if programmatic.Concurrency != 0 {
 		result.Concurrency = programmatic.Concurrency
 	}
@@ -413,6 +423,33 @@ func (e *Extension) buildStoreFromGroveDB(db *grove.DB) (store.Store, error) {
 	default:
 		return nil, fmt.Errorf("sentinel: unsupported grove driver %q", driverName)
 	}
+}
+
+// engineConfig is the engine's view of the merged extension config. Before
+// this existed the engine was built without it, so every deployment scored
+// at the defaults whatever it had configured.
+func engineConfig(c Config) sentinel.Config {
+	return sentinel.Config{
+		DefaultModel:        c.DefaultModel,
+		Temperature:         c.Temperature,
+		PassThreshold:       c.PassThreshold,
+		Concurrency:         c.Concurrency,
+		ShutdownTimeout:     c.ShutdownTimeout,
+		RegressionThreshold: c.RegressionThreshold,
+	}
+}
+
+// newEngine builds the engine from the merged config, then the options the
+// application passed, so an explicit engine.WithConfig still wins. A nil
+// logger leaves the engine's no-op logger in place.
+func (e *Extension) newEngine(logger log.Logger) (*engine.Engine, error) {
+	opts := make([]engine.Option, 0, len(e.engineOpts)+2)
+	opts = append(opts, engine.WithConfig(engineConfig(e.config)))
+	opts = append(opts, e.engineOpts...)
+	if logger != nil {
+		opts = append(opts, engine.WithLogger(logger))
+	}
+	return engine.New(opts...)
 }
 
 // DashboardContributor implements dashboard.DashboardAware. It returns a

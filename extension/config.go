@@ -24,6 +24,10 @@ type Config struct {
 	// PassThreshold is the minimum score to consider a test case passed.
 	PassThreshold float64 `json:"pass_threshold" mapstructure:"pass_threshold" yaml:"pass_threshold"`
 
+	// RegressionThreshold is how far below the current baseline a metric
+	// may fall before a run counts as regressed. Default 0.05.
+	RegressionThreshold float64 `json:"regression_threshold" mapstructure:"regression_threshold" yaml:"regression_threshold"`
+
 	// Concurrency is the number of parallel evaluation workers.
 	Concurrency int `json:"concurrency" mapstructure:"concurrency" yaml:"concurrency"`
 
@@ -44,10 +48,11 @@ type Config struct {
 // DefaultConfig returns the default configuration for the Sentinel extension.
 func DefaultConfig() Config {
 	return Config{
-		DefaultModel:    "smart",
-		Temperature:     0,
-		PassThreshold:   0.7,
-		Concurrency:     4,
-		ShutdownTimeout: 30 * time.Second,
+		DefaultModel:        "smart",
+		Temperature:         0,
+		PassThreshold:       0.7,
+		RegressionThreshold: 0.05,
+		Concurrency:         4,
+		ShutdownTimeout:     30 * time.Second,
 	}
 }
