@@ -2,6 +2,7 @@ package scorer
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -57,5 +58,53 @@ func TestRegisterDescribed(t *testing.T) {
 	}
 	if _, err := r.Get("nope", nil); err == nil {
 		t.Fatal("unknown scorer should error")
+	}
+}
+
+// Without their config these four pass everything: an empty pattern
+// matches any output and absent bounds bound nothing. They must refuse.
+func TestScorersThatNeedConfigRefuseWithoutIt(t *testing.T) {
+	r := NewRegistry()
+	cases := []struct {
+		name    string
+		missing string
+		valid   map[string]any
+	}{
+		{"regex", "pattern", map[string]any{"pattern": "^ok"}},
+		{"length", "min or max", map[string]any{"max": 50.0}},
+		{"latency", "max_ms", map[string]any{"max_ms": 500.0}},
+		{"cost", "max_cost", map[string]any{"max_cost": 0.01}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for _, cfg := range []map[string]any{nil, {}} {
+				_, err := r.Get(c.name, cfg)
+				if err == nil {
+					t.Fatalf("%s built with config %v must refuse", c.name, cfg)
+				}
+				if !strings.Contains(err.Error(), c.name) || !strings.Contains(err.Error(), c.missing) {
+					t.Fatalf("the error must name the scorer and %q: %v", c.missing, err)
+				}
+			}
+			s, err := r.Get(c.name, c.valid)
+			if err != nil || s.Name() != c.name {
+				t.Fatalf("%s with %v: %v", c.name, c.valid, err)
+			}
+		})
+	}
+	if _, err := r.Get("length", map[string]any{"min": 3.0}); err != nil {
+		t.Fatalf("length with only min is configured: %v", err)
+	}
+	if _, err := r.Get("regex", map[string]any{"pattern": ""}); err == nil {
+		t.Fatal("an empty regex pattern matches everything and must refuse")
+	}
+}
+
+func TestRequiresConfigMarksExactlyTheFour(t *testing.T) {
+	want := map[string]bool{"regex": true, "length": true, "latency": true, "cost": true}
+	for _, d := range NewRegistry().Descriptors() {
+		if d.RequiresConfig != want[d.Name] {
+			t.Errorf("%s: RequiresConfig = %v, want %v", d.Name, d.RequiresConfig, want[d.Name])
+		}
 	}
 }

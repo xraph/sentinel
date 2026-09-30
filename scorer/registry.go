@@ -15,6 +15,9 @@ type Descriptor struct {
 	Description string
 	Dimension   string // the human-like dimension it reports, empty for none
 	UsesLLM     bool   // true when scoring makes a model call, which costs money
+	// RequiresConfig is true when the scorer cannot be built without
+	// config, so a run-level pick with no config would be refused.
+	RequiresConfig bool
 }
 
 // Registry holds named scorer factories and creates scorer instances from config.
@@ -109,6 +112,9 @@ func (r *Registry) registerBuiltins() {
 	}
 	r.factories["regex"] = func(config map[string]any) (Scorer, error) {
 		pattern, _ := config["pattern"].(string) //nolint:errcheck // type assertion returns zero-value
+		if pattern == "" {
+			return nil, missingConfig("regex", "pattern")
+		}
 		return NewRegexScorer(pattern)
 	}
 	r.factories["json_valid"] = func(_ map[string]any) (Scorer, error) {
@@ -120,27 +126,51 @@ func (r *Registry) registerBuiltins() {
 	}
 	r.factories["length"] = func(config map[string]any) (Scorer, error) {
 		s := &LengthScorer{}
-		if v, ok := config["min"].(float64); ok {
-			s.MinTokens = int(v)
+		minV, hasMin := number(config, "min")
+		maxV, hasMax := number(config, "max")
+		if !hasMin && !hasMax {
+			return nil, missingConfig("length", "min or max")
 		}
-		if v, ok := config["max"].(float64); ok {
-			s.MaxTokens = int(v)
-		}
+		s.MinTokens, s.MaxTokens = int(minV), int(maxV)
 		return s, nil
 	}
 	r.factories["latency"] = func(config map[string]any) (Scorer, error) {
-		s := &LatencyScorer{}
-		if v, ok := config["max_ms"].(float64); ok {
-			s.MaxMs = int(v)
+		v, ok := number(config, "max_ms")
+		if !ok {
+			return nil, missingConfig("latency", "max_ms")
 		}
-		return s, nil
+		return &LatencyScorer{MaxMs: int(v)}, nil
 	}
 	r.factories["cost"] = func(config map[string]any) (Scorer, error) {
-		s := &CostScorer{}
-		if v, ok := config["max_cost"].(float64); ok {
-			s.MaxCost = v
+		v, ok := number(config, "max_cost")
+		if !ok {
+			return nil, missingConfig("cost", "max_cost")
 		}
-		return s, nil
+		return &CostScorer{MaxCost: v}, nil
+	}
+}
+
+// requiresConfig names the built-ins that pass everything without config:
+// an empty pattern matches any output and absent bounds bound nothing, so
+// their factories refuse instead.
+var requiresConfig = map[string]bool{"regex": true, "length": true, "latency": true, "cost": true}
+
+func missingConfig(scorer, key string) error {
+	return fmt.Errorf("scorer %s: missing required config: %s", scorer, key)
+}
+
+// number reads a numeric config value. JSON decodes numbers as float64;
+// Go callers often pass ints.
+func number(config map[string]any, key string) (float64, bool) {
+	switch v := config[key].(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	default:
+		return 0, false
 	}
 }
 
@@ -158,6 +188,6 @@ func (r *Registry) describeBuiltins() {
 		"latency":      "Passes when the target answered within max_ms milliseconds.",
 		"cost":         "Passes when the target reported a cost at or below max_cost.",
 	} {
-		r.descs[name] = Descriptor{Name: name, Description: desc}
+		r.descs[name] = Descriptor{Name: name, Description: desc, RequiresConfig: requiresConfig[name]}
 	}
 }

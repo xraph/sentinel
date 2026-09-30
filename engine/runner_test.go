@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -132,6 +133,7 @@ func TestStartRunRefusesBeforeWritingAnything(t *testing.T) {
 		{"unknown target", engine.StartConfig{SuiteID: s.ID, Target: "nope", Scorers: []string{"good"}}, sentinel.ErrUnknownTarget},
 		{"unknown scorer", engine.StartConfig{SuiteID: s.ID, Target: "gated", Scorers: []string{"nope"}}, sentinel.ErrUnknownScorer},
 		{"no scorers", engine.StartConfig{SuiteID: s.ID, Target: "gated"}, sentinel.ErrNoScorers},
+		{"scorer that needs config", engine.StartConfig{SuiteID: s.ID, Target: "gated", Scorers: []string{"good", "regex"}}, sentinel.ErrInvalidInput},
 		{"no cases", engine.StartConfig{SuiteID: empty.ID, Target: "gated", Scorers: []string{"good"}}, sentinel.ErrEmptyInput},
 	}
 	for _, c := range cases {
@@ -139,6 +141,23 @@ func TestStartRunRefusesBeforeWritingAnything(t *testing.T) {
 		if _, err := e.StartRun(bg(), &cfg); !errors.Is(err, c.want) {
 			t.Errorf("%s: want %v, got %v", c.name, c.want, err)
 		}
+	}
+	if runs, _ := e.ListRuns(bg(), &evalrun.ListFilter{}); len(runs) != 0 {
+		t.Fatalf("a refused start must write no run, found %d", len(runs))
+	}
+}
+
+// regex is registered, so asking for it is not an unknown scorer; it just
+// cannot run at run level, where nobody gives it a pattern.
+func TestStartRunNamesAScorerThatNeedsConfig(t *testing.T) {
+	e := newEngine(t, engine.WithTarget("gated", "test", gated(make(chan struct{}), nil, nil, nil)))
+	s := seedSuite(t, e, "p", "a")
+	_, err := e.StartRun(bg(), &engine.StartConfig{SuiteID: s.ID, Target: "gated", Scorers: []string{"regex"}})
+	if !errors.Is(err, sentinel.ErrInvalidInput) || errors.Is(err, sentinel.ErrUnknownScorer) {
+		t.Fatalf("want ErrInvalidInput and not ErrUnknownScorer, got %v", err)
+	}
+	if !strings.Contains(err.Error(), `"regex"`) || !strings.Contains(err.Error(), "pattern") {
+		t.Fatalf("the error must name the scorer and what it lacks: %v", err)
 	}
 	if runs, _ := e.ListRuns(bg(), &evalrun.ListFilter{}); len(runs) != 0 {
 		t.Fatalf("a refused start must write no run, found %d", len(runs))
@@ -312,13 +331,14 @@ func configWith(concurrency int) sentinel.Config {
 	return c
 }
 
-// runEvalAsync runs RunEval on a goroutine and delivers its outcome.
+// evalOutcome is what RunEval returned.
 type evalOutcome struct {
 	res *engine.RunResult
 	err error
 }
 
-func runEvalAsync(e *engine.Engine, ctx context.Context, cfg *engine.RunConfig) <-chan evalOutcome {
+// runEvalAsync runs RunEval on a goroutine and delivers its outcome.
+func runEvalAsync(ctx context.Context, e *engine.Engine, cfg *engine.RunConfig) <-chan evalOutcome {
 	out := make(chan evalOutcome, 1)
 	go func() {
 		res, err := e.RunEval(ctx, cfg)
@@ -335,7 +355,7 @@ func TestRunEvalReportsACancelledRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(bg())
 	defer cancel()
 
-	done := runEvalAsync(e, ctx, &engine.RunConfig{SuiteID: s.ID, Target: gated(release, entered, nil, nil),
+	done := runEvalAsync(ctx, e, &engine.RunConfig{SuiteID: s.ID, Target: gated(release, entered, nil, nil),
 		Scorers: []scorer.Scorer{okScorer("good", 1, "")}})
 	<-entered             // a is in flight
 	release <- struct{}{} // a passes
@@ -377,7 +397,7 @@ func TestRunEvalReportsARunCancelledElsewhere(t *testing.T) {
 	e := newEngine(t, engine.WithConfig(configWith(1)))
 	s := seedSuite(t, e, "p", "a", "b", "c")
 
-	done := runEvalAsync(e, bg(), &engine.RunConfig{SuiteID: s.ID, Target: gated(release, entered, nil, nil),
+	done := runEvalAsync(bg(), e, &engine.RunConfig{SuiteID: s.ID, Target: gated(release, entered, nil, nil),
 		Scorers: []scorer.Scorer{okScorer("good", 1, "")}})
 	<-entered // a is in flight
 	runs, err := e.ListRuns(bg(), &evalrun.ListFilter{})

@@ -97,9 +97,14 @@ func (e *Engine) StartRun(ctx context.Context, cfg *StartConfig) (*evalrun.Run, 
 	}
 	scorers := make([]scorer.Scorer, 0, len(cfg.Scorers))
 	for _, name := range cfg.Scorers {
+		if !e.scorers.Has(name) {
+			return nil, fmt.Errorf("%w %q", sentinel.ErrUnknownScorer, name)
+		}
+		// Run-level scorers get no config, so one that needs it is refused
+		// here rather than passing every case.
 		s, err := e.scorers.Get(name, nil)
 		if err != nil {
-			return nil, fmt.Errorf("%w %q", sentinel.ErrUnknownScorer, name)
+			return nil, fmt.Errorf("%w: scorer %q cannot run without configuration: %v", sentinel.ErrInvalidInput, name, err) //nolint:errorlint // only ErrInvalidInput is part of the contract
 		}
 		scorers = append(scorers, s)
 	}
