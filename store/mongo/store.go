@@ -577,6 +577,13 @@ func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID)
 	return promptVersionFromModel(m), nil
 }
 
+// SetCurrentPromptVersion makes pvID the current version of suiteID. A version
+// that does not belong to the suite is refused with ErrPromptVersionNotFound.
+//
+// Mongo transactions need a replica set, so this is three separate writes and
+// is not atomic. Two concurrent promotions for one suite can interleave and
+// leave two versions current, and a failure between the reset and the set
+// leaves none current. The SQL backends do this in a transaction.
 func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
 	coll := s.mdb.Collection(colPromptVersions)
 	scoped := bson.M{"_id": pvID.String(), "suite_id": suiteID.String()}
@@ -593,8 +600,12 @@ func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID,
 	); err != nil {
 		return fmt.Errorf("sentinel: reset prompt versions: %w", err)
 	}
-	if _, err := coll.UpdateOne(ctx, scoped, bson.M{"$set": bson.M{"is_current": true}}); err != nil {
+	res, err := coll.UpdateOne(ctx, scoped, bson.M{"$set": bson.M{"is_current": true}})
+	if err != nil {
 		return fmt.Errorf("sentinel: set current prompt version: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return sentinel.ErrPromptVersionNotFound
 	}
 	return nil
 }
