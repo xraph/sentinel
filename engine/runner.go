@@ -183,6 +183,13 @@ func (e *Engine) planRun(ctx context.Context, suiteID id.SuiteID, model, persona
 	if model == "" {
 		model = e.config.DefaultModel
 	}
+	// Temperature resolves like model: the suite's when it sets one, else
+	// the configured default. A suite temperature of 0 means "not set", so
+	// a suite cannot pin 0 over a non-zero default.
+	temperature := s.Temperature
+	if temperature == 0 {
+		temperature = e.config.Temperature
+	}
 	if personaRef == "" {
 		personaRef = s.PersonaRef
 	}
@@ -204,7 +211,7 @@ func (e *Engine) planRun(ctx context.Context, suiteID id.SuiteID, model, persona
 		SuiteID:         suiteID,
 		Model:           model,
 		SystemPrompt:    prompt,
-		Temperature:     s.Temperature,
+		Temperature:     temperature,
 		TotalCases:      len(cases),
 		AppID:           s.AppID,
 		PersonaRef:      personaRef,

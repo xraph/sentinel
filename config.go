@@ -9,7 +9,9 @@ type Config struct {
 	// by the target adapter.
 	DefaultModel string
 
-	// Temperature is the default LLM temperature for evaluations.
+	// Temperature is the default LLM temperature for evaluations. A run
+	// uses its suite's temperature when that is non-zero and this value
+	// otherwise, so a suite temperature of 0 inherits it.
 	Temperature float64
 
 	// PassThreshold is the minimum score (0-1) for a case to pass.

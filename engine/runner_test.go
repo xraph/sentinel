@@ -400,3 +400,47 @@ func TestRunEvalReportsARunCancelledElsewhere(t *testing.T) {
 		t.Fatalf("run: %+v", got.res)
 	}
 }
+
+// A suite temperature of 0 inherits the configured default; a suite that
+// sets one keeps it. The run records the value the target was sent.
+func TestRunTemperatureFallsBackToTheConfiguredDefault(t *testing.T) {
+	cases := []struct {
+		name  string
+		suite float64
+		want  float64
+	}{
+		{"suite unset inherits config", 0, 0.3},
+		{"suite set keeps its own", 0.9, 0.9},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			release := make(chan struct{}, 1)
+			var seen target.CallOptions
+			var mu sync.Mutex
+			cfg := configWith(1)
+			cfg.Temperature = 0.3
+			e := newEngine(t, engine.WithTarget("gated", "test", gated(release, nil, &seen, &mu)), goodScorer(), engine.WithConfig(cfg))
+			s := seedSuite(t, e, "p", "a")
+			s.Temperature = c.suite
+			if err := e.UpdateSuite(bg(), s); err != nil {
+				t.Fatal(err)
+			}
+
+			release <- struct{}{}
+			run := startGated(t, e, s.ID)
+			if run.Temperature != c.want {
+				t.Fatalf("started run temperature: want %v, got %v", c.want, run.Temperature)
+			}
+			waitFor(t, "completion", func() bool { return stateOf(e, run.ID) == evalrun.StateCompleted })
+			got, _ := e.GetRun(bg(), run.ID)
+			if got.Temperature != c.want {
+				t.Fatalf("stored run temperature: want %v, got %v", c.want, got.Temperature)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if seen.Temperature != c.want {
+				t.Fatalf("target temperature: want %v, got %v", c.want, seen.Temperature)
+			}
+		})
+	}
+}
