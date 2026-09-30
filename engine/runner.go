@@ -243,6 +243,13 @@ func (e *Engine) executeRun(ctx context.Context, p *runPlan) (*RunResult, error)
 		}(tc)
 	}
 	wg.Wait()
+	// A ctx that ended after the last case was scheduled still stops the
+	// run: its in-flight cases were cut short, so it did not complete.
+	if ctx.Err() != nil {
+		if _, err := e.store.CancelRun(writeCtx, run.ID, time.Now().UTC()); err != nil {
+			e.logger.Warn("sentinel: record cancel", log.String("run_id", run.ID.String()), log.String("error", err.Error()))
+		}
+	}
 	return e.finishRun(writeCtx, p, unwritten.Load())
 }
 
@@ -269,15 +276,22 @@ func (e *Engine) stopRequested(ctx, writeCtx context.Context, runID id.EvalRunID
 // run. The store keeps a cancel that arrived meanwhile.
 func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64) (*RunResult, error) {
 	run := p.run
+	// A run whose counters cannot be read is failed, never completed with
+	// zeros that a regression check would take as real.
+	var failures []string
 	stats, err := e.store.GetResultStats(ctx, run.ID)
 	if err != nil {
 		e.logger.Warn("sentinel: read result stats", log.String("run_id", run.ID.String()), log.String("error", err.Error()))
 		stats = &evalrun.ResultStats{DimensionScores: map[string]float64{}}
+		failures = append(failures, "result stats could not be read: "+err.Error())
+	}
+	if unwritten > 0 {
+		failures = append(failures, fmt.Sprintf("%d of %d results could not be stored", unwritten, run.TotalCases))
 	}
 	f := &evalrun.Finalization{Stats: stats, State: evalrun.StateCompleted, CompletedAt: time.Now().UTC()}
-	if unwritten > 0 {
+	if len(failures) > 0 {
 		f.State = evalrun.StateFailed
-		f.Error = fmt.Sprintf("%d of %d results could not be stored", unwritten, run.TotalCases)
+		f.Error = strings.Join(failures, "; ")
 	}
 	state, err := e.store.FinalizeRun(ctx, run.ID, f)
 	if err != nil {

@@ -234,6 +234,66 @@ func TestStopCancelsActiveRuns(t *testing.T) {
 	}
 }
 
+// Review focus 5: a stop that lands after every case is scheduled must
+// still end the run cancelled.
+func TestStopCancelsARunWithEveryCaseInFlight(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan string, 10)
+	st := memory.New()
+	e, err := engine.New(engine.WithStore(st), engine.WithTarget("gated", "test", gated(release, entered, nil, nil)), goodScorer(),
+		engine.WithConfig(configWith(4)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := seedSuite(t, e, "p", "a", "b", "c")
+	run := startGated(t, e, s.ID)
+	for i := 0; i < 3; i++ {
+		<-entered
+	}
+
+	if err := e.Stop(bg()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	got, err := st.GetRun(bg(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != evalrun.StateCancelled {
+		t.Fatalf("a run whose cases were all in flight at shutdown must end cancelled, got %s", got.State)
+	}
+}
+
+// failingStats cannot compute a run's counters.
+type failingStats struct {
+	*memory.Store
+}
+
+func (f *failingStats) GetResultStats(context.Context, id.EvalRunID) (*evalrun.ResultStats, error) {
+	return nil, errors.New("connection reset")
+}
+
+func TestUnreadableStatsFailTheRun(t *testing.T) {
+	st := &failingStats{Store: memory.New()}
+	e, err := engine.New(engine.WithStore(st))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := seedSuite(t, e, "p", "a", "b")
+	res, err := e.RunEval(bg(), &engine.RunConfig{SuiteID: s.ID, Target: echo("echo"),
+		Scorers: []scorer.Scorer{okScorer("good", 1, "")}})
+	if err == nil {
+		t.Fatal("RunEval must report the failure")
+	}
+	want := "result stats could not be read: connection reset"
+	if res == nil || res.Run.State != evalrun.StateFailed || res.Run.Error != want {
+		t.Fatalf("run: %+v", res)
+	}
+	stored, gerr := st.GetRun(bg(), res.Run.ID)
+	if gerr != nil || stored.State != evalrun.StateFailed || stored.Error != want {
+		t.Fatalf("stored run: %+v %v", stored, gerr)
+	}
+}
+
 func TestRunEvalStaysSynchronous(t *testing.T) {
 	e, _ := newEngine(t)
 	s := seedSuite(t, e, "p", "a", "b")
