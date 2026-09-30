@@ -40,7 +40,17 @@ func (t *LLMTarget) Name() string { return "llm:" + t.Model }
 
 func (t *LLMTarget) Call(ctx context.Context, input string) (*Output, error) {
 	start := time.Now()
-	resp, err := t.Client.Complete(ctx, t.Model, t.SystemPrompt, input, t.Temperature)
+	model, prompt, temperature := t.Model, t.SystemPrompt, t.Temperature
+	if o, ok := CallOptionsFrom(ctx); ok {
+		if o.SystemPrompt != "" {
+			prompt = o.SystemPrompt
+		}
+		if o.Model != "" {
+			model = o.Model
+		}
+		temperature = o.Temperature
+	}
+	resp, err := t.Client.Complete(ctx, model, prompt, input, temperature)
 	elapsed := time.Since(start)
 	if err != nil {
 		return nil, err

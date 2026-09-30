@@ -23,3 +23,27 @@ type Output struct {
 	Cost    float64           // Estimated cost
 	Trace   *evalrun.RunTrace // Agent execution trace (nil for raw LLM targets)
 }
+
+// CallOptions carry what the run decided for this call: the prompt of the
+// suite's current prompt version (or the suite's own prompt), the model and
+// the temperature. A target that builds its own request should prefer these
+// to whatever it was constructed with, so the prompt a run records is the
+// prompt the model actually saw.
+type CallOptions struct {
+	SystemPrompt string
+	Model        string
+	Temperature  float64
+}
+
+type callOptionsKey struct{}
+
+// WithCallOptions attaches the run's choices to ctx.
+func WithCallOptions(ctx context.Context, o CallOptions) context.Context {
+	return context.WithValue(ctx, callOptionsKey{}, o)
+}
+
+// CallOptionsFrom returns the run's choices, if the engine attached any.
+func CallOptionsFrom(ctx context.Context) (CallOptions, bool) {
+	o, ok := ctx.Value(callOptionsKey{}).(CallOptions)
+	return o, ok
+}
