@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	log "github.com/xraph/go-utils/log"
 
@@ -12,8 +13,10 @@ import (
 	"github.com/xraph/sentinel/id"
 	"github.com/xraph/sentinel/plugin"
 	"github.com/xraph/sentinel/promptversion"
+	"github.com/xraph/sentinel/scorer"
 	"github.com/xraph/sentinel/store"
 	"github.com/xraph/sentinel/suite"
+	"github.com/xraph/sentinel/target"
 	"github.com/xraph/sentinel/testcase"
 )
 
@@ -24,7 +27,45 @@ type Engine struct {
 	store       store.Store
 	extensions  *plugin.Registry
 	pendingExts []plugin.Extension
+
+	targets        map[string]RegisteredTarget
+	scorers        *scorer.Registry
+	pendingScorers []pendingScorer
 }
+
+// RegisteredTarget is a target an application named, so a run can be
+// started by name from somewhere that cannot hold a Go value, such as the
+// dashboard.
+type RegisteredTarget struct {
+	Name        string
+	Description string
+	Target      target.Target
+}
+
+type pendingScorer struct {
+	desc    scorer.Descriptor
+	factory scorer.Factory
+}
+
+// Targets lists the registered targets, sorted by name.
+func (e *Engine) Targets() []RegisteredTarget {
+	out := make([]RegisteredTarget, 0, len(e.targets))
+	for _, t := range e.targets {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// Target returns a registered target by name.
+func (e *Engine) Target(name string) (RegisteredTarget, bool) {
+	t, ok := e.targets[name]
+	return t, ok
+}
+
+// Scorers returns the scorer registry: the built-ins plus whatever the
+// application registered with WithScorer.
+func (e *Engine) Scorers() *scorer.Registry { return e.scorers }
 
 // New creates a new Engine with the given options.
 func New(opts ...Option) (*Engine, error) {
@@ -37,6 +78,12 @@ func New(opts ...Option) (*Engine, error) {
 			return nil, fmt.Errorf("sentinel: apply option: %w", err)
 		}
 	}
+
+	e.scorers = scorer.NewRegistry()
+	for _, p := range e.pendingScorers {
+		e.scorers.RegisterDescribed(p.desc, p.factory)
+	}
+	e.pendingScorers = nil
 
 	// Wire up the extension registry.
 	e.extensions = plugin.NewRegistry(e.logger)

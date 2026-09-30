@@ -2,11 +2,16 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
+
 	log "github.com/xraph/go-utils/log"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/plugin"
+	"github.com/xraph/sentinel/scorer"
 	"github.com/xraph/sentinel/store"
+	"github.com/xraph/sentinel/target"
 )
 
 // Option configures the Engine.
@@ -40,6 +45,36 @@ func WithExtension(extension plugin.Extension) Option {
 func WithConfig(cfg sentinel.Config) Option {
 	return func(e *Engine) error {
 		e.config = cfg
+		return nil
+	}
+}
+
+// WithTarget registers a named target, so a run can be started by name.
+func WithTarget(name, description string, t target.Target) Option {
+	return func(e *Engine) error {
+		if name == "" || t == nil {
+			return errors.New("sentinel: WithTarget needs a name and a target")
+		}
+		if e.targets == nil {
+			e.targets = make(map[string]RegisteredTarget)
+		}
+		if _, dup := e.targets[name]; dup {
+			return fmt.Errorf("sentinel: target %q registered twice", name)
+		}
+		e.targets[name] = RegisteredTarget{Name: name, Description: description, Target: t}
+		return nil
+	}
+}
+
+// WithScorer registers a scorer factory with a descriptor. This is how an
+// application makes the LLM scorers available, since only it holds an
+// LLMClient.
+func WithScorer(d scorer.Descriptor, f scorer.Factory) Option {
+	return func(e *Engine) error {
+		if d.Name == "" || f == nil {
+			return errors.New("sentinel: WithScorer needs a name and a factory")
+		}
+		e.pendingScorers = append(e.pendingScorers, pendingScorer{desc: d, factory: f})
 		return nil
 	}
 }

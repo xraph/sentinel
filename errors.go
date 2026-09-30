@@ -26,4 +26,9 @@ var (
 	// Evaluation errors.
 	ErrNoTarget  = errors.New("sentinel: no target configured")
 	ErrNoScorers = errors.New("sentinel: no scorers configured")
+
+	ErrUnknownTarget     = errors.New("sentinel: unknown target")
+	ErrUnknownScorer     = errors.New("sentinel: unknown scorer")
+	ErrInvalidInput      = errors.New("sentinel: invalid input")
+	ErrUnsupportedFormat = errors.New("sentinel: unsupported format")
 )
