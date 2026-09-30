@@ -53,3 +53,28 @@ type ListFilter struct {
 	Limit   int
 	Offset  int
 }
+
+// Finalization is what a runner writes when it stops scheduling a run.
+type Finalization struct {
+	Stats       *ResultStats
+	State       RunState // applied only if the stored state is still running
+	Error       string   // written when non-empty
+	CompletedAt time.Time
+}
+
+// ApplyStats copies aggregate counters onto the run. TotalCases is the
+// planned case count and is left alone: a cancelled run has fewer results
+// than cases, and both numbers matter.
+func (r *Run) ApplyStats(st *ResultStats) {
+	if st == nil {
+		return
+	}
+	r.Passed = st.Passed
+	r.Failed = st.Failed
+	r.PassRate = st.PassRate
+	r.AvgScore = st.AvgScore
+	r.AvgLatencyMs = st.AvgLatencyMs
+	r.TotalTokens = st.TotalTokens
+	r.TotalCost = st.TotalCost
+	r.DimensionScores = st.DimensionScores
+}
