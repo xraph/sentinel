@@ -24,6 +24,10 @@ type RegressionResult struct {
 	// They set HasRegression, the conservative answer for CI, and are kept
 	// out of DimensionDeltas so nobody reads "not measured" as a large drop.
 	MissingDimensions []string `json:"missing_dimensions,omitempty"`
+
+	// worstMissing is the most negative delta contributed by an unmeasured dimension.
+	// It is not exported and has no JSON tag.
+	worstMissing float64
 }
 
 // RegressedCase identifies a single case that regressed from baseline.
@@ -61,6 +65,10 @@ func DetectRegression(stats *evalrun.ResultStats, results []*evalrun.Result, b *
 		if !measured {
 			rr.MissingDimensions = append(rr.MissingDimensions, dim)
 			rr.HasRegression = true
+			missingDelta := -baselineScore
+			if missingDelta < rr.worstMissing {
+				rr.worstMissing = missingDelta
+			}
 			continue
 		}
 		delta := current - baselineScore
@@ -101,8 +109,10 @@ func DetectRegression(stats *evalrun.ResultStats, results []*evalrun.Result, b *
 }
 
 // WorstDelta is the most negative delta found: pass rate, average score,
-// any dimension or any regressed case. It is what RegressionDetected hooks
-// receive.
+// any dimension or any regressed case. An unmeasured dimension counts as
+// losing its whole baseline score, the most it could have fallen, so the
+// value always agrees with HasRegression. It is what RegressionDetected
+// hooks receive.
 func (rr *RegressionResult) WorstDelta() float64 {
 	worst := rr.PassRateDelta
 	if rr.AvgScoreDelta < worst {
@@ -112,6 +122,9 @@ func (rr *RegressionResult) WorstDelta() float64 {
 		if d < worst {
 			worst = d
 		}
+	}
+	if rr.worstMissing < worst {
+		worst = rr.worstMissing
 	}
 	for _, c := range rr.RegressedCases {
 		if c.Delta < worst {

@@ -76,4 +76,15 @@ func TestDetectRegression(t *testing.T) {
 			t.Fatalf("a changed case set is reported, not counted as a regression: %+v", rr)
 		}
 	})
+
+	t.Run("missing dimension with baseline score 0.5 gives worst delta of -0.5", func(t *testing.T) {
+		stats := &evalrun.ResultStats{PassRate: 0.5, AvgScore: 0.5, DimensionScores: map[string]float64{"skill": 0.5}}
+		rr := DetectRegression(stats, []*evalrun.Result{result(c1, "one", 0.5), result(c2, "two", 0.5)}, base, 0.125)
+		if !rr.HasRegression {
+			t.Fatal("missing dimension must set HasRegression")
+		}
+		if rr.WorstDelta() != -0.5 {
+			t.Fatalf("worst delta for missing dimension with baseline 0.5: %v, expected -0.5", rr.WorstDelta())
+		}
+	})
 }
