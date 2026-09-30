@@ -12,6 +12,7 @@ import (
 	log "github.com/xraph/go-utils/log"
 
 	"github.com/xraph/sentinel"
+	"github.com/xraph/sentinel/baseline"
 	"github.com/xraph/sentinel/evalrun"
 	"github.com/xraph/sentinel/id"
 	"github.com/xraph/sentinel/scorer"
@@ -272,6 +273,28 @@ func (e *Engine) stopRequested(ctx, writeCtx context.Context, runID id.EvalRunID
 	return r.State == evalrun.StateCancelled
 }
 
+// checkRegression compares a completed run with its suite's current
+// baseline, using the regression threshold the run recorded, and fires
+// RegressionDetected when it regressed. No baseline means nothing to
+// compare against, which is not a pass and not a regression.
+func (e *Engine) checkRegression(ctx context.Context, run *evalrun.Run, stats *evalrun.ResultStats, results []*evalrun.Result) {
+	b, err := e.store.GetLatestBaseline(ctx, run.SuiteID)
+	if err != nil {
+		if !errors.Is(err, sentinel.ErrBaselineNotFound) {
+			e.logger.Warn("sentinel: load baseline", log.String("run_id", run.ID.String()), log.String("error", err.Error()))
+		}
+		return
+	}
+	threshold := e.config.RegressionThreshold
+	if v := evalrun.SettingsFrom(run.Config).RegressionThreshold; v != nil {
+		threshold = *v
+	}
+	rr := baseline.DetectRegression(stats, results, b, threshold)
+	if rr.HasRegression {
+		e.extensions.EmitRegressionDetected(ctx, run.SuiteID, b.ID, rr.WorstDelta())
+	}
+}
+
 // finishRun computes counters from the stored results and finalises the
 // run. The store keeps a cancel that arrived meanwhile.
 func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64) (*RunResult, error) {
@@ -315,6 +338,7 @@ func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64) (*R
 		if run.PersonaRef != "" {
 			e.extensions.EmitPersonaEvalCompleted(ctx, run.ID, run.PersonaRef, stats.DimensionScores)
 		}
+		e.checkRegression(ctx, run, stats, results)
 	case evalrun.StateFailed:
 		failure := errors.New(run.Error)
 		e.extensions.EmitEvalRunFailed(ctx, run.SuiteID, run.ID, failure)
