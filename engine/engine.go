@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -282,12 +283,58 @@ func (e *Engine) CountCases(ctx context.Context, suiteID id.SuiteID) (int64, err
 	return e.store.CountCases(ctx, suiteID)
 }
 
-// ImportCases imports test cases from a file format.
+// ImportCases parses cases in json, csv or jsonl and writes them to a
+// suite. The store's ImportCases was a stub in every backend and is no
+// longer called.
 func (e *Engine) ImportCases(ctx context.Context, suiteID id.SuiteID, format string, data []byte) (int64, error) {
 	if e.store == nil {
 		return 0, sentinel.ErrNoStore
 	}
-	return e.store.ImportCases(ctx, suiteID, format, data)
+	if _, err := e.store.GetSuite(ctx, suiteID); err != nil {
+		return 0, err
+	}
+	var (
+		cases []*testcase.Case
+		err   error
+	)
+	switch strings.ToLower(format) {
+	case "json":
+		cases, err = testcase.ImportJSON(suiteID, data)
+	case "csv":
+		cases, err = testcase.ImportCSV(suiteID, data)
+	case "jsonl":
+		cases, err = testcase.ImportJSONL(suiteID, data)
+	default:
+		return 0, fmt.Errorf("%w %q: use json, csv or jsonl", sentinel.ErrUnsupportedFormat, format)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("sentinel: parse %s: %w", format, err)
+	}
+	if len(cases) == 0 {
+		return 0, sentinel.ErrEmptyInput
+	}
+	for _, tc := range cases {
+		if tc.ID.String() == "" {
+			tc.ID = id.NewCaseID()
+		}
+		tc.SuiteID = suiteID
+		if tc.Tags == nil {
+			tc.Tags = []string{}
+		}
+		if tc.Scorers == nil {
+			tc.Scorers = []testcase.ScorerConfig{}
+		}
+		if tc.Context == nil {
+			tc.Context = map[string]any{}
+		}
+		if tc.Metadata == nil {
+			tc.Metadata = map[string]any{}
+		}
+	}
+	if err := e.store.CreateCaseBatch(ctx, cases); err != nil {
+		return 0, fmt.Errorf("sentinel: store imported cases: %w", err)
+	}
+	return int64(len(cases)), nil
 }
 
 // ──────────────────────────────────────────────────
