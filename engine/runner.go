@@ -59,7 +59,9 @@ type runPlan struct {
 
 // RunEval runs a suite synchronously with target and scorer values, for Go
 // and CI callers. Results are stored as each case finishes, exactly as for
-// StartRun, and cancelling ctx cancels the run.
+// StartRun, and cancelling ctx cancels the run. A run that ends cancelled,
+// by ctx or by CancelRun, returns its partial result together with an error
+// that wraps sentinel.ErrRunCancelled (and ctx's error when ctx ended).
 func (e *Engine) RunEval(ctx context.Context, cfg *RunConfig) (*RunResult, error) {
 	if cfg.Target == nil {
 		return nil, sentinel.ErrNoTarget
@@ -109,7 +111,14 @@ func (e *Engine) StartRun(ctx context.Context, cfg *StartConfig) (*evalrun.Run, 
 	e.runs.Add(1)
 	go func() {
 		defer e.runs.Done()
-		if _, err := e.executeRun(e.baseCtx, plan); err != nil {
+		_, err := e.executeRun(e.baseCtx, plan)
+		switch {
+		case err == nil:
+		case errors.Is(err, sentinel.ErrRunCancelled):
+			// CancelRun or shutdown stopped it: expected, not a failure.
+			e.logger.Info("sentinel: run cancelled",
+				log.String("run_id", plan.run.ID.String()), log.String("reason", err.Error()))
+		default:
 			e.logger.Warn("sentinel: run ended with an error",
 				log.String("run_id", plan.run.ID.String()), log.String("error", err.Error()))
 		}
@@ -251,7 +260,7 @@ func (e *Engine) executeRun(ctx context.Context, p *runPlan) (*RunResult, error)
 			e.logger.Warn("sentinel: record cancel", log.String("run_id", run.ID.String()), log.String("error", err.Error()))
 		}
 	}
-	return e.finishRun(writeCtx, p, unwritten.Load())
+	return e.finishRun(writeCtx, p, unwritten.Load(), ctx.Err())
 }
 
 // stopRequested reports whether the runner should stop scheduling. A done
@@ -296,8 +305,11 @@ func (e *Engine) checkRegression(ctx context.Context, run *evalrun.Run, stats *e
 }
 
 // finishRun computes counters from the stored results and finalises the
-// run. The store keeps a cancel that arrived meanwhile.
-func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64) (*RunResult, error) {
+// run. The store keeps a cancel that arrived meanwhile. A run that ends
+// cancelled returns its result with an error wrapping ErrRunCancelled, and
+// cause (the caller's ctx error) when ctx ended: its counters cover only the
+// cases that finished, so a caller must not read them as a verdict.
+func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64, cause error) (*RunResult, error) {
 	run := p.run
 	// A run whose counters cannot be read is failed, never completed with
 	// zeros that a regression check would take as real.
@@ -343,6 +355,11 @@ func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64) (*R
 		failure := errors.New(run.Error)
 		e.extensions.EmitEvalRunFailed(ctx, run.SuiteID, run.ID, failure)
 		return res, fmt.Errorf("sentinel: %w", failure)
+	case evalrun.StateCancelled:
+		if cause != nil {
+			return res, fmt.Errorf("%w: %w", sentinel.ErrRunCancelled, cause)
+		}
+		return res, sentinel.ErrRunCancelled
 	}
 	return res, nil
 }

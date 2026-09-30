@@ -21,6 +21,7 @@ var (
 
 	// State errors.
 	ErrInvalidState = errors.New("sentinel: invalid state transition")
+	ErrRunCancelled = errors.New("sentinel: run cancelled")
 	ErrEmptyInput   = errors.New("sentinel: empty input")
 
 	// Evaluation errors.

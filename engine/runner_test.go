@@ -311,3 +311,92 @@ func configWith(concurrency int) sentinel.Config {
 	c.ShutdownTimeout = 2 * time.Second
 	return c
 }
+
+// runEvalAsync runs RunEval on a goroutine and delivers its outcome.
+type evalOutcome struct {
+	res *engine.RunResult
+	err error
+}
+
+func runEvalAsync(e *engine.Engine, ctx context.Context, cfg *engine.RunConfig) <-chan evalOutcome {
+	out := make(chan evalOutcome, 1)
+	go func() {
+		res, err := e.RunEval(ctx, cfg)
+		out <- evalOutcome{res, err}
+	}()
+	return out
+}
+
+func TestRunEvalReportsACancelledRun(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan string, 10)
+	e := newEngine(t, engine.WithConfig(configWith(1)))
+	s := seedSuite(t, e, "p", "a", "b", "c", "d")
+	ctx, cancel := context.WithCancel(bg())
+	defer cancel()
+
+	done := runEvalAsync(e, ctx, &engine.RunConfig{SuiteID: s.ID, Target: gated(release, entered, nil, nil),
+		Scorers: []scorer.Scorer{okScorer("good", 1, "")}})
+	<-entered             // a is in flight
+	release <- struct{}{} // a passes
+	<-entered             // b is in flight
+	cancel()              // b is cut short; c and d never start
+
+	got := <-done
+	if !errors.Is(got.err, sentinel.ErrRunCancelled) {
+		t.Fatalf("a cancelled run must return ErrRunCancelled, got %v", got.err)
+	}
+	if !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("the error must carry the caller's ctx error, got %v", got.err)
+	}
+	if got.res == nil || got.res.Run.State != evalrun.StateCancelled {
+		t.Fatalf("a cancelled run still returns its result, cancelled: %+v", got.res)
+	}
+}
+
+func TestRunEvalReportsADeadline(t *testing.T) {
+	e := newEngine(t, engine.WithConfig(configWith(1)))
+	s := seedSuite(t, e, "p", "a", "b", "c")
+	ctx, cancel := context.WithTimeout(bg(), 50*time.Millisecond)
+	defer cancel()
+
+	// A target that never answers until ctx ends.
+	res, err := e.RunEval(ctx, &engine.RunConfig{SuiteID: s.ID, Target: gated(make(chan struct{}), nil, nil, nil),
+		Scorers: []scorer.Scorer{okScorer("good", 1, "")}})
+	if !errors.Is(err, sentinel.ErrRunCancelled) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a run past its deadline must return ErrRunCancelled and DeadlineExceeded, got %v", err)
+	}
+	if res == nil || res.Run.State != evalrun.StateCancelled {
+		t.Fatalf("run: %+v", res)
+	}
+}
+
+func TestRunEvalReportsARunCancelledElsewhere(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan string, 10)
+	e := newEngine(t, engine.WithConfig(configWith(1)))
+	s := seedSuite(t, e, "p", "a", "b", "c")
+
+	done := runEvalAsync(e, bg(), &engine.RunConfig{SuiteID: s.ID, Target: gated(release, entered, nil, nil),
+		Scorers: []scorer.Scorer{okScorer("good", 1, "")}})
+	<-entered // a is in flight
+	runs, err := e.ListRuns(bg(), &evalrun.ListFilter{})
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("list runs: %v (%d)", err, len(runs))
+	}
+	if err = e.CancelRun(bg(), runs[0].ID); err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	release <- struct{}{} // a finishes; the runner sees the cancel and stops
+
+	got := <-done
+	if !errors.Is(got.err, sentinel.ErrRunCancelled) {
+		t.Fatalf("a run cancelled from another caller must return ErrRunCancelled, got %v", got.err)
+	}
+	if errors.Is(got.err, context.Canceled) || errors.Is(got.err, context.DeadlineExceeded) {
+		t.Fatalf("the caller's ctx did not end, so no ctx error belongs in %v", got.err)
+	}
+	if got.res == nil || got.res.Run.State != evalrun.StateCancelled {
+		t.Fatalf("run: %+v", got.res)
+	}
+}
