@@ -55,3 +55,24 @@ type TypeResult struct {
 	Bypasses int     `json:"bypasses"`
 	Rate     float64 `json:"rate"`
 }
+
+// MaxPerType is how many cases a generator can produce: each has five
+// fixed templates.
+const MaxPerType = 5
+
+// GeneratorFor returns the built-in generator for an attack type.
+func GeneratorFor(t AttackType) (Generator, bool) {
+	switch t {
+	case AttackInjection:
+		return NewInjectionGenerator(), true
+	case AttackJailbreak:
+		return NewJailbreakGenerator(), true
+	case AttackLeakage:
+		return NewLeakageGenerator(), true
+	case AttackHallucination:
+		return NewHallucinationGenerator(), true
+	case AttackOfftopic:
+		return NewOfftopicGenerator(), true
+	}
+	return nil, false
+}
