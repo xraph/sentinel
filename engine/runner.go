@@ -2,10 +2,11 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
-
+	"sync/atomic"
 	"time"
 
 	log "github.com/xraph/go-utils/log"
@@ -14,6 +15,7 @@ import (
 	"github.com/xraph/sentinel/evalrun"
 	"github.com/xraph/sentinel/id"
 	"github.com/xraph/sentinel/scorer"
+	"github.com/xraph/sentinel/suite"
 	"github.com/xraph/sentinel/target"
 	"github.com/xraph/sentinel/testcase"
 )
@@ -36,8 +38,27 @@ type RunResult struct {
 	Stats   *evalrun.ResultStats
 }
 
-// RunEval executes an evaluation run: load suite, load cases, invoke the
-// target for each case, score results, persist everything, and emit hooks.
+// StartConfig starts a run by the names an application registered with
+// WithTarget and WithScorer.
+type StartConfig struct {
+	SuiteID id.SuiteID
+	Target  string
+	Scorers []string
+	Model   string
+}
+
+// runPlan is a validated run, created in the store and ready to evaluate.
+type runPlan struct {
+	run         *evalrun.Run
+	cases       []*testcase.Case
+	target      target.Target
+	scorers     []scorer.Scorer
+	concurrency int
+}
+
+// RunEval runs a suite synchronously with target and scorer values, for Go
+// and CI callers. Results are stored as each case finishes, exactly as for
+// StartRun, and cancelling ctx cancels the run.
 func (e *Engine) RunEval(ctx context.Context, cfg *RunConfig) (*RunResult, error) {
 	if cfg.Target == nil {
 		return nil, sentinel.ErrNoTarget
@@ -45,132 +66,247 @@ func (e *Engine) RunEval(ctx context.Context, cfg *RunConfig) (*RunResult, error
 	if len(cfg.Scorers) == 0 {
 		return nil, sentinel.ErrNoScorers
 	}
+	names := make([]string, len(cfg.Scorers))
+	for i, s := range cfg.Scorers {
+		names[i] = s.Name()
+	}
+	plan, err := e.planRun(ctx, cfg.SuiteID, cfg.Model, cfg.PersonaRef, cfg.Concurrency, cfg.Target, cfg.Target.Name(), cfg.Scorers, names)
+	if err != nil {
+		return nil, err
+	}
+	return e.executeRun(ctx, plan)
+}
+
+// StartRun validates a run, creates it and returns at once. Evaluation
+// continues on the engine's own context, so the request that started it
+// can return; poll the run and its results to watch it, and CancelRun to
+// stop it. Every refusal happens before anything is written.
+func (e *Engine) StartRun(ctx context.Context, cfg *StartConfig) (*evalrun.Run, error) {
 	if e.store == nil {
 		return nil, sentinel.ErrNoStore
 	}
+	rt, ok := e.targets[cfg.Target]
+	if !ok {
+		return nil, fmt.Errorf("%w %q", sentinel.ErrUnknownTarget, cfg.Target)
+	}
+	if len(cfg.Scorers) == 0 {
+		return nil, sentinel.ErrNoScorers
+	}
+	scorers := make([]scorer.Scorer, 0, len(cfg.Scorers))
+	for _, name := range cfg.Scorers {
+		s, err := e.scorers.Get(name, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%w %q", sentinel.ErrUnknownScorer, name)
+		}
+		scorers = append(scorers, s)
+	}
+	plan, err := e.planRun(ctx, cfg.SuiteID, cfg.Model, "", 0, rt.Target, rt.Name, scorers, cfg.Scorers)
+	if err != nil {
+		return nil, err
+	}
+	started := *plan.run
+	e.runs.Add(1)
+	go func() {
+		defer e.runs.Done()
+		if _, err := e.executeRun(e.baseCtx, plan); err != nil {
+			e.logger.Warn("sentinel: run ended with an error",
+				log.String("run_id", plan.run.ID.String()), log.String("error", err.Error()))
+		}
+	}()
+	return &started, nil
+}
 
-	// Load suite.
-	s, err := e.store.GetSuite(ctx, cfg.SuiteID)
+// CancelRun asks a running run to stop. The runner stops scheduling cases
+// at its next check; cases already in flight finish and are stored. It works
+// from any replica because the signal lives in the store.
+func (e *Engine) CancelRun(ctx context.Context, runID id.EvalRunID) error {
+	if e.store == nil {
+		return sentinel.ErrNoStore
+	}
+	ok, err := e.store.CancelRun(ctx, runID, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: run %s is not running", sentinel.ErrInvalidState, runID)
+	}
+	return nil
+}
+
+// effectivePrompt is the prompt a run of this suite sends: the current
+// prompt version's if the suite has one, otherwise the suite's own.
+func (e *Engine) effectivePrompt(ctx context.Context, s *suite.Suite) (string, string, error) {
+	pv, err := e.store.GetCurrentPromptVersion(ctx, s.ID)
+	switch {
+	case err == nil:
+		return pv.SystemPrompt, pv.ID.String(), nil
+	case errors.Is(err, sentinel.ErrPromptVersionNotFound):
+		return s.SystemPrompt, "", nil
+	default:
+		return "", "", fmt.Errorf("sentinel: load current prompt version: %w", err)
+	}
+}
+
+func (e *Engine) planRun(ctx context.Context, suiteID id.SuiteID, model, personaRef string, concurrency int,
+	tgt target.Target, targetName string, scorers []scorer.Scorer, scorerNames []string) (*runPlan, error) {
+	if e.store == nil {
+		return nil, sentinel.ErrNoStore
+	}
+	s, err := e.store.GetSuite(ctx, suiteID)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: load suite: %w", err)
 	}
-
-	// Load cases.
-	cases, err := e.store.ListCases(ctx, cfg.SuiteID)
+	cases, err := e.store.ListCases(ctx, suiteID)
 	if err != nil {
 		return nil, fmt.Errorf("sentinel: load cases: %w", err)
 	}
 	if len(cases) == 0 {
 		return nil, sentinel.ErrEmptyInput
 	}
-
-	// Determine model.
-	model := cfg.Model
+	prompt, pvID, err := e.effectivePrompt(ctx, s)
+	if err != nil {
+		return nil, err
+	}
 	if model == "" {
 		model = s.Model
 	}
 	if model == "" {
 		model = e.config.DefaultModel
 	}
-
-	// Determine persona.
-	personaRef := cfg.PersonaRef
 	if personaRef == "" {
 		personaRef = s.PersonaRef
 	}
-
-	// Determine concurrency.
-	concurrency := cfg.Concurrency
 	if concurrency <= 0 {
 		concurrency = e.config.Concurrency
 	}
-
-	// Create the run record.
-	run := &evalrun.Run{
-		Entity:       sentinel.NewEntity(),
-		ID:           id.NewEvalRunID(),
-		SuiteID:      cfg.SuiteID,
-		Model:        model,
-		SystemPrompt: s.SystemPrompt,
-		Temperature:  s.Temperature,
-		TotalCases:   len(cases),
-		AppID:        s.AppID,
-		PersonaRef:   personaRef,
-		State:        evalrun.StateRunning,
+	if concurrency <= 0 {
+		concurrency = 1
 	}
 
+	passThreshold, regressionThreshold := e.config.PassThreshold, e.config.RegressionThreshold
+	settings := evalrun.Settings{
+		PassThreshold: &passThreshold, RegressionThreshold: &regressionThreshold, Concurrency: &concurrency,
+		Target: targetName, Scorers: scorerNames, Model: model, PromptVersionID: pvID,
+	}
+	run := &evalrun.Run{
+		Entity:          sentinel.NewEntity(),
+		ID:              id.NewEvalRunID(),
+		SuiteID:         suiteID,
+		Model:           model,
+		SystemPrompt:    prompt,
+		Temperature:     s.Temperature,
+		TotalCases:      len(cases),
+		AppID:           s.AppID,
+		PersonaRef:      personaRef,
+		Config:          settings.Config(),
+		State:           evalrun.StateRunning,
+		DimensionScores: map[string]float64{},
+	}
 	if err := e.store.CreateRun(ctx, run); err != nil {
 		return nil, fmt.Errorf("sentinel: create run: %w", err)
 	}
-
-	// Emit run started hook.
-	e.extensions.EmitEvalRunStarted(ctx, cfg.SuiteID, run.ID, model)
+	e.extensions.EmitEvalRunStarted(ctx, suiteID, run.ID, model)
 	if personaRef != "" {
 		e.extensions.EmitPersonaEvalStarted(ctx, run.ID, personaRef)
 	}
+	return &runPlan{run: run, cases: cases, target: tgt, scorers: scorers, concurrency: concurrency}, nil
+}
 
-	// Evaluate cases concurrently.
-	results := make([]*evalrun.Result, len(cases))
-	sem := make(chan struct{}, concurrency)
-	var mu sync.Mutex
+// executeRun evaluates the plan's cases, storing each result as it
+// finishes, and stops scheduling when the run is cancelled or ctx ends.
+func (e *Engine) executeRun(ctx context.Context, p *runPlan) (*RunResult, error) {
+	run := p.run
+	// Writes must land even after ctx is cancelled: a run stopped by
+	// shutdown still records what it did.
+	writeCtx := context.WithoutCancel(ctx)
+	callCtx := target.WithCallOptions(ctx, target.CallOptions{SystemPrompt: run.SystemPrompt, Model: run.Model, Temperature: run.Temperature})
+
+	sem := make(chan struct{}, p.concurrency)
 	var wg sync.WaitGroup
-
-	for i, tc := range cases {
+	var unwritten atomic.Int64
+	for _, tc := range p.cases {
+		sem <- struct{}{}
+		if e.stopRequested(ctx, writeCtx, run.ID) {
+			<-sem
+			break
+		}
 		wg.Add(1)
-		go func(idx int, tc *testcase.Case) {
+		go func(tc *testcase.Case) {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
-
-			result := e.evaluateCase(ctx, run.ID, tc, cfg.Target, cfg.Scorers)
-			mu.Lock()
-			results[idx] = result
-			mu.Unlock()
-		}(i, tc)
+			result := e.evaluateCase(callCtx, run.ID, tc, p.target, p.scorers)
+			if err := e.store.CreateResult(writeCtx, result); err != nil {
+				unwritten.Add(1)
+				e.logger.Warn("sentinel: store result",
+					log.String("run_id", run.ID.String()), log.String("case_id", tc.ID.String()), log.String("error", err.Error()))
+			}
+		}(tc)
 	}
 	wg.Wait()
+	return e.finishRun(writeCtx, p, unwritten.Load())
+}
 
-	// Persist results.
-	if err := e.store.CreateResultBatch(ctx, results); err != nil {
-		e.failRun(ctx, run, cfg.SuiteID, fmt.Errorf("store results: %w", err))
-		return nil, fmt.Errorf("sentinel: store results: %w", err)
+// stopRequested reports whether the runner should stop scheduling. A done
+// ctx means this process is stopping the run, so it records the cancel
+// itself; otherwise it reads the run, because the cancel may have come from
+// another replica.
+func (e *Engine) stopRequested(ctx, writeCtx context.Context, runID id.EvalRunID) bool {
+	if ctx.Err() != nil {
+		if _, err := e.store.CancelRun(writeCtx, runID, time.Now().UTC()); err != nil {
+			e.logger.Warn("sentinel: record cancel", log.String("run_id", runID.String()), log.String("error", err.Error()))
+		}
+		return true
 	}
-
-	// Aggregate stats.
-	stats := aggregateStats(results)
-
-	// Update run with final stats.
-	now := time.Now().UTC()
-	run.Passed = stats.Passed
-	run.Failed = stats.Failed
-	run.PassRate = stats.PassRate
-	run.AvgScore = stats.AvgScore
-	run.AvgLatencyMs = stats.AvgLatencyMs
-	run.TotalTokens = stats.TotalTokens
-	run.TotalCost = stats.TotalCost
-	run.DimensionScores = stats.DimensionScores
-	run.State = evalrun.StateCompleted
-	run.CompletedAt = &now
-
-	if err := e.store.UpdateRun(ctx, run); err != nil {
-		e.logger.Warn("failed to update run record",
-			log.String("run_id", run.ID.String()),
-			log.String("error", err.Error()),
-		)
+	r, err := e.store.GetRun(writeCtx, runID)
+	if err != nil {
+		e.logger.Warn("sentinel: check run state", log.String("run_id", runID.String()), log.String("error", err.Error()))
+		return false
 	}
+	return r.State == evalrun.StateCancelled
+}
 
-	// Emit completion hooks.
-	elapsed := time.Since(run.CreatedAt)
-	e.extensions.EmitEvalRunCompleted(ctx, cfg.SuiteID, run.ID, stats.PassRate, elapsed)
-	if personaRef != "" {
-		e.extensions.EmitPersonaEvalCompleted(ctx, run.ID, personaRef, stats.DimensionScores)
+// finishRun computes counters from the stored results and finalises the
+// run. The store keeps a cancel that arrived meanwhile.
+func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64) (*RunResult, error) {
+	run := p.run
+	stats, err := e.store.GetResultStats(ctx, run.ID)
+	if err != nil {
+		e.logger.Warn("sentinel: read result stats", log.String("run_id", run.ID.String()), log.String("error", err.Error()))
+		stats = &evalrun.ResultStats{DimensionScores: map[string]float64{}}
 	}
+	f := &evalrun.Finalization{Stats: stats, State: evalrun.StateCompleted, CompletedAt: time.Now().UTC()}
+	if unwritten > 0 {
+		f.State = evalrun.StateFailed
+		f.Error = fmt.Sprintf("%d of %d results could not be stored", unwritten, run.TotalCases)
+	}
+	state, err := e.store.FinalizeRun(ctx, run.ID, f)
+	if err != nil {
+		return nil, fmt.Errorf("sentinel: finalize run: %w", err)
+	}
+	run.ApplyStats(stats)
+	run.State = state
+	run.CompletedAt = &f.CompletedAt
+	if f.Error != "" {
+		run.Error = f.Error
+	}
+	results, err := e.store.ListResults(ctx, run.ID)
+	if err != nil {
+		e.logger.Warn("sentinel: list results", log.String("run_id", run.ID.String()), log.String("error", err.Error()))
+	}
+	res := &RunResult{Run: run, Results: results, Stats: stats}
 
-	return &RunResult{
-		Run:     run,
-		Results: results,
-		Stats:   stats,
-	}, nil
+	switch state {
+	case evalrun.StateCompleted:
+		e.extensions.EmitEvalRunCompleted(ctx, run.SuiteID, run.ID, stats.PassRate, time.Since(run.CreatedAt))
+		if run.PersonaRef != "" {
+			e.extensions.EmitPersonaEvalCompleted(ctx, run.ID, run.PersonaRef, stats.DimensionScores)
+		}
+	case evalrun.StateFailed:
+		failure := errors.New(run.Error)
+		e.extensions.EmitEvalRunFailed(ctx, run.SuiteID, run.ID, failure)
+		return res, fmt.Errorf("sentinel: %w", failure)
+	}
+	return res, nil
 }
 
 // evaluateCase invokes the target and runs all scorers for a single test case.
@@ -290,76 +426,4 @@ func (e *Engine) evaluateCase(
 	e.extensions.EmitCaseCompleted(ctx, runID, tc.ID, result.Score, elapsed)
 
 	return result
-}
-
-// failRun marks a run as failed and emits the failure hook.
-func (e *Engine) failRun(ctx context.Context, run *evalrun.Run, suiteID id.SuiteID, runErr error) {
-	now := time.Now().UTC()
-	run.State = evalrun.StateFailed
-	run.Error = runErr.Error()
-	run.CompletedAt = &now
-
-	if err := e.store.UpdateRun(ctx, run); err != nil {
-		e.logger.Warn("failed to update failed run",
-			log.String("run_id", run.ID.String()),
-			log.String("error", err.Error()),
-		)
-	}
-
-	e.extensions.EmitEvalRunFailed(ctx, suiteID, run.ID, runErr)
-}
-
-// aggregateStats computes summary statistics from a slice of results.
-func aggregateStats(results []*evalrun.Result) *evalrun.ResultStats {
-	stats := &evalrun.ResultStats{
-		TotalCases:      len(results),
-		DimensionScores: make(map[string]float64),
-	}
-
-	if len(results) == 0 {
-		return stats
-	}
-
-	var totalScore float64
-	var totalLatency int
-	var totalTokens int
-	var totalCost float64
-	dimensionSums := make(map[string]float64)
-	dimensionCounts := make(map[string]int)
-
-	for _, r := range results {
-		switch r.Status {
-		case evalrun.StatusPass:
-			stats.Passed++
-		case evalrun.StatusFail:
-			stats.Failed++
-		case evalrun.StatusError:
-			stats.Errored++
-		}
-
-		totalScore += r.Score
-		totalLatency += r.LatencyMs
-		totalTokens += r.TokensUsed
-		totalCost += r.Cost
-
-		for dim, score := range r.DimensionScores {
-			dimensionSums[dim] += score
-			dimensionCounts[dim]++
-		}
-	}
-
-	n := float64(len(results))
-	stats.PassRate = float64(stats.Passed) / n
-	stats.AvgScore = totalScore / n
-	stats.AvgLatencyMs = totalLatency / len(results)
-	stats.TotalTokens = totalTokens
-	stats.TotalCost = totalCost
-
-	for dim, sum := range dimensionSums {
-		if count := dimensionCounts[dim]; count > 0 {
-			stats.DimensionScores[dim] = sum / float64(count)
-		}
-	}
-
-	return stats
 }

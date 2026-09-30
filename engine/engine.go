@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
+	"time"
 
 	log "github.com/xraph/go-utils/log"
 
@@ -31,6 +33,10 @@ type Engine struct {
 	targets        map[string]RegisteredTarget
 	scorers        *scorer.Registry
 	pendingScorers []pendingScorer
+
+	baseCtx    context.Context    // runs started with StartRun evaluate on this
+	cancelBase context.CancelFunc // Stop cancels it
+	runs       sync.WaitGroup     // StartRun goroutines still evaluating
 }
 
 // RegisteredTarget is a target an application named, so a run can be
@@ -73,6 +79,7 @@ func New(opts ...Option) (*Engine, error) {
 		config: sentinel.DefaultConfig(),
 		logger: log.NewNoopLogger(),
 	}
+	e.baseCtx, e.cancelBase = context.WithCancel(context.Background())
 	for _, opt := range opts {
 		if err := opt(e); err != nil {
 			return nil, fmt.Errorf("sentinel: apply option: %w", err)
@@ -108,8 +115,23 @@ func (e *Engine) Start(_ context.Context) error {
 	return nil
 }
 
-// Stop gracefully shuts down the engine.
+// Stop cancels runs this process is evaluating, waits up to ShutdownTimeout
+// for them to record their cancellation, then shuts extensions and the store
+// down. A run cancelled here ends cancelled, with the results it stored.
 func (e *Engine) Stop(ctx context.Context) error {
+	e.cancelBase()
+	done := make(chan struct{})
+	go func() { e.runs.Wait(); close(done) }()
+	timeout := e.config.ShutdownTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		e.logger.Warn("sentinel: runs still finishing at shutdown timeout")
+	case <-ctx.Done():
+	}
 	if e.extensions != nil {
 		e.extensions.EmitShutdown(ctx)
 	}
