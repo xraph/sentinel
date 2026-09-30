@@ -320,19 +320,58 @@ func (e *Engine) DeleteBaseline(ctx context.Context, baselineID id.BaselineID) e
 // Prompt version operations
 // ──────────────────────────────────────────────────
 
-// CreatePromptVersion creates a new prompt version.
+// CreatePromptVersion creates the next version of a suite's prompt. The
+// engine assigns Version as the suite's highest plus one, and retries once
+// when a concurrent create took the same number. IsCurrent on the input
+// makes the new version current, through SetCurrentPromptVersion, so a
+// suite never has two current versions.
 func (e *Engine) CreatePromptVersion(ctx context.Context, pv *promptversion.PromptVersion) error {
 	if e.store == nil {
 		return sentinel.ErrNoStore
 	}
+	if _, err := e.store.GetSuite(ctx, pv.SuiteID); err != nil {
+		return err
+	}
 	if pv.ID.String() == "" {
 		pv.ID = id.NewPromptVersionID()
 	}
-	if err := e.store.CreatePromptVersion(ctx, pv); err != nil {
-		return err
+	makeCurrent := pv.IsCurrent
+	pv.IsCurrent = false
+
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		if pv.Version, err = e.nextPromptVersion(ctx, pv.SuiteID); err != nil {
+			return err
+		}
+		if err = e.store.CreatePromptVersion(ctx, pv); err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("sentinel: create prompt version: %w", err)
+	}
+	if makeCurrent {
+		if err := e.store.SetCurrentPromptVersion(ctx, pv.SuiteID, pv.ID); err != nil {
+			return err
+		}
+		pv.IsCurrent = true
 	}
 	e.extensions.EmitPromptVersionCreated(ctx, pv.SuiteID, pv.ID, pv.Version)
 	return nil
+}
+
+func (e *Engine) nextPromptVersion(ctx context.Context, suiteID id.SuiteID) (int, error) {
+	list, err := e.store.ListPromptVersions(ctx, suiteID)
+	if err != nil {
+		return 0, fmt.Errorf("sentinel: list prompt versions: %w", err)
+	}
+	highest := 0
+	for _, pv := range list {
+		if pv.Version > highest {
+			highest = pv.Version
+		}
+	}
+	return highest + 1, nil
 }
 
 // GetPromptVersion retrieves a prompt version by ID.
@@ -359,10 +398,19 @@ func (e *Engine) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID
 	return e.store.GetCurrentPromptVersion(ctx, suiteID)
 }
 
-// SetCurrentPromptVersion sets the current prompt version for a suite.
+// SetCurrentPromptVersion makes a version current for its suite. A version
+// from another suite is refused with ErrPromptVersionNotFound before
+// anything changes.
 func (e *Engine) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
 	if e.store == nil {
 		return sentinel.ErrNoStore
+	}
+	pv, err := e.store.GetPromptVersion(ctx, pvID)
+	if err != nil {
+		return err
+	}
+	if pv.SuiteID.String() != suiteID.String() {
+		return sentinel.ErrPromptVersionNotFound
 	}
 	return e.store.SetCurrentPromptVersion(ctx, suiteID, pvID)
 }

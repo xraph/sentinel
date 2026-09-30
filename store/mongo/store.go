@@ -578,20 +578,22 @@ func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID)
 }
 
 func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
-	// Reset all prompt versions for this suite to not current.
 	coll := s.mdb.Collection(colPromptVersions)
-	_, err := coll.UpdateMany(ctx,
+	scoped := bson.M{"_id": pvID.String(), "suite_id": suiteID.String()}
+	n, err := coll.CountDocuments(ctx, scoped)
+	if err != nil {
+		return fmt.Errorf("sentinel: find prompt version: %w", err)
+	}
+	if n == 0 {
+		return sentinel.ErrPromptVersionNotFound
+	}
+	if _, err := coll.UpdateMany(ctx,
 		bson.M{"suite_id": suiteID.String()},
 		bson.M{"$set": bson.M{"is_current": false}},
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("sentinel: reset prompt versions: %w", err)
 	}
-	_, err = coll.UpdateOne(ctx,
-		bson.M{"_id": pvID.String()},
-		bson.M{"$set": bson.M{"is_current": true}},
-	)
-	if err != nil {
+	if _, err := coll.UpdateOne(ctx, scoped, bson.M{"$set": bson.M{"is_current": true}}); err != nil {
 		return fmt.Errorf("sentinel: set current prompt version: %w", err)
 	}
 	return nil

@@ -503,6 +503,11 @@ func (s *Store) DeleteBaseline(_ context.Context, baselineID id.BaselineID) erro
 func (s *Store) CreatePromptVersion(_ context.Context, pv *promptversion.PromptVersion) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, existing := range s.promptVersions {
+		if existing.SuiteID.String() == pv.SuiteID.String() && existing.Version == pv.Version {
+			return sentinel.ErrPromptVersionExists
+		}
+	}
 	pv.CreatedAt = time.Now().UTC()
 	s.promptVersions[pv.ID.String()] = clonePV(pv)
 	return nil
@@ -549,20 +554,15 @@ func (s *Store) GetCurrentPromptVersion(_ context.Context, suiteID id.SuiteID) (
 func (s *Store) SetCurrentPromptVersion(_ context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	target, ok := s.promptVersions[pvID.String()]
+	if !ok || target.SuiteID.String() != suiteID.String() {
+		return sentinel.ErrPromptVersionNotFound
+	}
 	sid := suiteID.String()
-	pvKey := pvID.String()
-
-	found := false
 	for _, pv := range s.promptVersions {
 		if pv.SuiteID.String() == sid {
-			pv.IsCurrent = pv.ID.String() == pvKey
-			if pv.IsCurrent {
-				found = true
-			}
+			pv.IsCurrent = pv.ID.String() == pvID.String()
 		}
-	}
-	if !found {
-		return sentinel.ErrPromptVersionNotFound
 	}
 	return nil
 }

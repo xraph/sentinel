@@ -16,7 +16,8 @@ var (
 	ErrPromptVersionNotFound = errors.New("sentinel: prompt version not found")
 
 	// Conflict errors.
-	ErrSuiteAlreadyExists = errors.New("sentinel: suite already exists")
+	ErrSuiteAlreadyExists  = errors.New("sentinel: suite already exists")
+	ErrPromptVersionExists = errors.New("sentinel: prompt version already exists")
 
 	// State errors.
 	ErrInvalidState = errors.New("sentinel: invalid state transition")

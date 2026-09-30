@@ -569,19 +569,30 @@ func (s *Store) GetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID)
 }
 
 func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID, pvID id.PromptVersionID) error {
-	_, err := s.sdb.NewUpdate((*promptVersionModel)(nil)).
+	tx, err := s.sdb.BeginTxQuery(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("sentinel: begin set current prompt version: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.NewUpdate((*promptVersionModel)(nil)).
 		Set("is_current = ?", false).
 		Where("suite_id = ?", suiteID.String()).
-		Exec(ctx)
-	if err != nil {
+		Exec(ctx); err != nil {
 		return fmt.Errorf("sentinel: reset prompt versions: %w", err)
 	}
-	_, err = s.sdb.NewUpdate((*promptVersionModel)(nil)).
+	res, err := tx.NewUpdate((*promptVersionModel)(nil)).
 		Set("is_current = ?", true).
 		Where("id = ?", pvID.String()).
+		Where("suite_id = ?", suiteID.String()).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("sentinel: set current prompt version: %w", err)
 	}
-	return nil
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("sentinel: set current prompt version: %w", err)
+	} else if n == 0 {
+		return sentinel.ErrPromptVersionNotFound // the deferred rollback restores the reset
+	}
+	return tx.Commit()
 }
