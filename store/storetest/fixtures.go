@@ -14,16 +14,19 @@ import (
 
 func bg() context.Context { return context.Background() }
 
+// fixtureAppID is the app every fixture belongs to.
+const fixtureAppID = "app_a"
+
 // The fixtures populate every map and slice with an empty value, so a test
 // that is not about nil handling never trips over it.
 
-func mustSuite(t *testing.T, s store.Store, appID string) *suite.Suite {
+func mustSuite(t *testing.T, s store.Store) *suite.Suite {
 	t.Helper()
 	su := &suite.Suite{
 		Entity:   sentinel.NewEntity(),
 		ID:       id.NewSuiteID(),
 		Name:     "suite-" + id.NewSuiteID().String(),
-		AppID:    appID,
+		AppID:    fixtureAppID,
 		Model:    "test-model",
 		Metadata: map[string]any{},
 	}
@@ -53,7 +56,7 @@ func mustCase(t *testing.T, s store.Store, suiteID id.SuiteID) *testcase.Case {
 	return tc
 }
 
-func mustRun(t *testing.T, s store.Store, suiteID id.SuiteID, appID string) *evalrun.Run {
+func mustRun(t *testing.T, s store.Store, suiteID id.SuiteID) *evalrun.Run {
 	t.Helper()
 	r := &evalrun.Run{
 		Entity:          sentinel.NewEntity(),
@@ -61,7 +64,7 @@ func mustRun(t *testing.T, s store.Store, suiteID id.SuiteID, appID string) *eva
 		SuiteID:         suiteID,
 		Model:           "test-model",
 		TotalCases:      3,
-		AppID:           appID,
+		AppID:           fixtureAppID,
 		Config:          map[string]any{},
 		State:           evalrun.StateRunning,
 		DimensionScores: map[string]float64{},

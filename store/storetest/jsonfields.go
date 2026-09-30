@@ -43,7 +43,7 @@ func testJSONFieldsRoundTrip(t *testing.T, s store.Store) {
 	}
 
 	// Populated: what the dashboard's writes and the new run settings put there.
-	su := mustSuite(t, s, "app_a")
+	su := mustSuite(t, s)
 	tc := &testcase.Case{
 		Entity: sentinel.NewEntity(), ID: id.NewCaseID(), SuiteID: su.ID, Name: "full", Input: "in",
 		ScenarioType: testcase.ScenarioTraitProbe,
@@ -75,7 +75,7 @@ func testJSONFieldsRoundTrip(t *testing.T, s store.Store) {
 		Config:          map[string]any{"target": "llm:x", "scorers": []any{"exact", "contains"}, "pass_threshold": 0.7},
 		DimensionScores: map[string]float64{"skill": 0.25},
 	}
-	if err := s.CreateRun(bg(), run); err != nil {
+	if err = s.CreateRun(bg(), run); err != nil {
 		t.Fatalf("create populated run: %v", err)
 	}
 	gotRun, err := s.GetRun(bg(), run.ID)
@@ -96,7 +96,7 @@ func testJSONFieldsRoundTrip(t *testing.T, s store.Store) {
 		DimensionScores: map[string]float64{"skill": 0.5},
 		RunTrace:        &evalrun.RunTrace{Steps: []evalrun.StepTrace{{Index: 0, Type: "plan", Output: "p"}}},
 	}
-	if err := s.CreateResult(bg(), res); err != nil {
+	if err = s.CreateResult(bg(), res); err != nil {
 		t.Fatalf("create populated result: %v", err)
 	}
 	results, err := s.ListResults(bg(), run.ID)
@@ -117,7 +117,7 @@ func testJSONFieldsRoundTrip(t *testing.T, s store.Store) {
 		DimensionScores: map[string]float64{"skill": 0.5},
 		IsCurrent:       true,
 	}
-	if err := s.SaveBaseline(bg(), b); err != nil {
+	if err = s.SaveBaseline(bg(), b); err != nil {
 		t.Fatalf("save populated baseline: %v", err)
 	}
 	gotB, err := s.GetBaseline(bg(), b.ID)

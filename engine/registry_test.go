@@ -14,7 +14,7 @@ func echo(name string) target.Target {
 }
 
 func TestTargetsAreNamed(t *testing.T) {
-	e, _ := newEngine(t, engine.WithTarget("b", "second", echo("b")), engine.WithTarget("a", "first", echo("a")))
+	e := newEngine(t, engine.WithTarget("b", "second", echo("b")), engine.WithTarget("a", "first", echo("a")))
 	got := e.Targets()
 	if len(got) != 2 || got[0].Name != "a" || got[0].Description != "first" || got[1].Name != "b" {
 		t.Fatalf("targets: %+v", got)
@@ -37,7 +37,7 @@ func TestDuplicateTargetIsRefused(t *testing.T) {
 }
 
 func TestScorersIncludeApplicationScorers(t *testing.T) {
-	e, _ := newEngine(t, engine.WithScorer(scorer.Descriptor{Name: "judge", Description: "LLM judge", UsesLLM: true},
+	e := newEngine(t, engine.WithScorer(scorer.Descriptor{Name: "judge", Description: "LLM judge", UsesLLM: true},
 		func(map[string]any) (scorer.Scorer, error) { return okScorer("judge", 1, ""), nil }))
 	if !e.Scorers().Has("judge") || !e.Scorers().Has("exact") {
 		t.Fatal("the registry should hold built-ins and application scorers")

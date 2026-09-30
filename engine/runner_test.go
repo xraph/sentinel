@@ -63,7 +63,7 @@ func stateOf(e *engine.Engine, runID id.EvalRunID) evalrun.RunState {
 
 func TestStartRunReturnsAtOnceAndPersistsPerCase(t *testing.T) {
 	release := make(chan struct{})
-	e, _ := newEngine(t, engine.WithTarget("gated", "test", gated(release, nil, nil, nil)), goodScorer(),
+	e := newEngine(t, engine.WithTarget("gated", "test", gated(release, nil, nil, nil)), goodScorer(),
 		engine.WithConfig(configWith(1)))
 	s := seedSuite(t, e, "p", "a", "b", "c")
 
@@ -90,7 +90,7 @@ func TestStartRunReturnsAtOnceAndPersistsPerCase(t *testing.T) {
 func TestCancelStopsSchedulingAndKeepsPartialCounts(t *testing.T) {
 	release := make(chan struct{})
 	entered := make(chan string, 10)
-	e, _ := newEngine(t, engine.WithTarget("gated", "test", gated(release, entered, nil, nil)), goodScorer(),
+	e := newEngine(t, engine.WithTarget("gated", "test", gated(release, entered, nil, nil)), goodScorer(),
 		engine.WithConfig(configWith(1)))
 	s := seedSuite(t, e, "p", "a", "b", "c", "d")
 	run := startGated(t, e, s.ID)
@@ -120,7 +120,7 @@ func TestCancelStopsSchedulingAndKeepsPartialCounts(t *testing.T) {
 }
 
 func TestStartRunRefusesBeforeWritingAnything(t *testing.T) {
-	e, _ := newEngine(t, engine.WithTarget("gated", "test", gated(make(chan struct{}), nil, nil, nil)), goodScorer())
+	e := newEngine(t, engine.WithTarget("gated", "test", gated(make(chan struct{}), nil, nil, nil)), goodScorer())
 	s := seedSuite(t, e, "p", "a")
 	empty := seedSuite(t, e, "p")
 
@@ -149,7 +149,7 @@ func TestRunRecordsSettingsAndSendsTheCurrentPrompt(t *testing.T) {
 	release := make(chan struct{}, 1)
 	var seen target.CallOptions
 	var mu sync.Mutex
-	e, _ := newEngine(t, engine.WithTarget("gated", "test", gated(release, nil, &seen, &mu)), goodScorer())
+	e := newEngine(t, engine.WithTarget("gated", "test", gated(release, nil, &seen, &mu)), goodScorer())
 	s := seedSuite(t, e, "suite prompt", "a")
 	pv := &promptversion.PromptVersion{SuiteID: s.ID, SystemPrompt: "version prompt", IsCurrent: true}
 	if err := e.CreatePromptVersion(bg(), pv); err != nil {
@@ -222,7 +222,7 @@ func TestStopCancelsActiveRuns(t *testing.T) {
 	s := seedSuite(t, e, "p", "a", "b", "c")
 	run := startGated(t, e, s.ID)
 
-	if err := e.Stop(bg()); err != nil {
+	if err = e.Stop(bg()); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	got, err := st.GetRun(bg(), run.ID)
@@ -251,7 +251,7 @@ func TestStopCancelsARunWithEveryCaseInFlight(t *testing.T) {
 		<-entered
 	}
 
-	if err := e.Stop(bg()); err != nil {
+	if err = e.Stop(bg()); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	got, err := st.GetRun(bg(), run.ID)
@@ -295,7 +295,7 @@ func TestUnreadableStatsFailTheRun(t *testing.T) {
 }
 
 func TestRunEvalStaysSynchronous(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "p", "a", "b")
 	res, err := e.RunEval(bg(), &engine.RunConfig{SuiteID: s.ID,
 		Target:  target.FromFunc("echo", func(_ context.Context, in string) (string, error) { return in, nil }),

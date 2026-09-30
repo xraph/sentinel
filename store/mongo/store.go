@@ -369,7 +369,7 @@ func (s *Store) FinalizeRun(ctx context.Context, runID id.EvalRunID, f *evalrun.
 	if res.MatchedCount == 0 {
 		return "", sentinel.ErrRunNotFound
 	}
-	if _, err := coll.UpdateOne(ctx,
+	if _, err = coll.UpdateOne(ctx,
 		bson.M{"_id": runID.String(), "state": string(evalrun.StateRunning)},
 		bson.M{"$set": bson.M{"state": string(f.State)}},
 	); err != nil {
@@ -674,7 +674,7 @@ func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID,
 	if n == 0 {
 		return sentinel.ErrPromptVersionNotFound
 	}
-	if _, err := coll.UpdateMany(ctx,
+	if _, err = coll.UpdateMany(ctx,
 		bson.M{"suite_id": suiteID.String()},
 		bson.M{"$set": bson.M{"is_current": false}},
 	); err != nil {

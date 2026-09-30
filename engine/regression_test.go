@@ -29,7 +29,7 @@ func (r *regressionRecorder) OnRegressionDetected(_ context.Context, _ id.SuiteI
 
 func TestRegressionHookFiresAgainstTheCurrentBaseline(t *testing.T) {
 	rec := &regressionRecorder{}
-	e, _ := newEngine(t, engine.WithExtension(rec))
+	e := newEngine(t, engine.WithExtension(rec))
 	s := seedSuite(t, e, "p", "a", "b")
 	echo := target.FromFunc("echo", func(_ context.Context, in string) (string, error) { return in, nil })
 
@@ -62,7 +62,7 @@ func TestRegressionHookFiresAgainstTheCurrentBaseline(t *testing.T) {
 
 func TestNoBaselineNoHook(t *testing.T) {
 	rec := &regressionRecorder{}
-	e, _ := newEngine(t, engine.WithExtension(rec))
+	e := newEngine(t, engine.WithExtension(rec))
 	s := seedSuite(t, e, "p", "a")
 	echo := target.FromFunc("echo", func(_ context.Context, in string) (string, error) { return in, nil })
 	if _, err := e.RunEval(bg(), &engine.RunConfig{SuiteID: s.ID, Target: echo, Scorers: []scorer.Scorer{okScorer("s", 0, "")}}); err != nil {

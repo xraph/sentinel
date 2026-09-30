@@ -21,8 +21,8 @@ func mustPV(t *testing.T, s store.Store, suiteID id.SuiteID, version int) *promp
 }
 
 func testSetCurrentPromptVersionIsScoped(t *testing.T, s store.Store) {
-	a := mustSuite(t, s, "app_a")
-	b := mustSuite(t, s, "app_a")
+	a := mustSuite(t, s)
+	b := mustSuite(t, s)
 	a1, a2 := mustPV(t, s, a.ID, 1), mustPV(t, s, a.ID, 2)
 	b1 := mustPV(t, s, b.ID, 1)
 
@@ -33,7 +33,7 @@ func testSetCurrentPromptVersionIsScoped(t *testing.T, s store.Store) {
 	if err != nil || cur.ID.String() != a2.ID.String() {
 		t.Fatalf("current of a should be a2: %v %v", cur, err)
 	}
-	if got, _ := s.GetPromptVersion(bg(), a1.ID); got.IsCurrent {
+	if got, getErr := s.GetPromptVersion(bg(), a1.ID); getErr != nil || got.IsCurrent {
 		t.Fatal("a1 must no longer be current")
 	}
 
@@ -43,16 +43,16 @@ func testSetCurrentPromptVersionIsScoped(t *testing.T, s store.Store) {
 	if !errors.Is(err, sentinel.ErrPromptVersionNotFound) {
 		t.Fatalf("foreign version: want ErrPromptVersionNotFound, got %v", err)
 	}
-	if cur, _ := s.GetCurrentPromptVersion(bg(), a.ID); cur == nil || cur.ID.String() != a2.ID.String() {
+	if cur, getErr := s.GetCurrentPromptVersion(bg(), a.ID); getErr != nil || cur == nil || cur.ID.String() != a2.ID.String() {
 		t.Fatal("a refusal must leave a2 current")
 	}
-	if got, _ := s.GetPromptVersion(bg(), b1.ID); got.IsCurrent {
+	if got, getErr := s.GetPromptVersion(bg(), b1.ID); getErr != nil || got.IsCurrent {
 		t.Fatal("a refusal must not make b1 current")
 	}
 }
 
 func testDuplicatePromptVersionIsRefused(t *testing.T, s store.Store) {
-	a := mustSuite(t, s, "app_a")
+	a := mustSuite(t, s)
 	mustPV(t, s, a.ID, 1)
 	dup := &promptversion.PromptVersion{ID: id.NewPromptVersionID(), SuiteID: a.ID, Version: 1, SystemPrompt: "again", CreatedAt: time.Now().UTC()}
 	if err := s.CreatePromptVersion(bg(), dup); err == nil {

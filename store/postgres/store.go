@@ -127,7 +127,7 @@ func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
 	if err != nil {
 		return fmt.Errorf("sentinel: begin delete suite: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback() }() //nolint:errcheck // rollback after a commit returns ErrTxDone
 
 	if _, err := tx.NewDelete((*resultModel)(nil)).
 		Where("run_id IN (SELECT id FROM sentinel_runs WHERE suite_id = ?)", sid).
@@ -354,9 +354,11 @@ func (s *Store) FinalizeRun(ctx context.Context, runID id.EvalRunID, f *evalrun.
 	if err != nil {
 		return "", fmt.Errorf("sentinel: finalize run: %w", err)
 	}
-	if n, err := res.RowsAffected(); err != nil {
+	n, err := res.RowsAffected()
+	if err != nil {
 		return "", fmt.Errorf("sentinel: finalize run: %w", err)
-	} else if n == 0 {
+	}
+	if n == 0 {
 		return "", sentinel.ErrRunNotFound
 	}
 	run, err := s.GetRun(ctx, runID)
@@ -640,9 +642,9 @@ func (s *Store) SetCurrentPromptVersion(ctx context.Context, suiteID id.SuiteID,
 	if err != nil {
 		return fmt.Errorf("sentinel: begin set current prompt version: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback() }() //nolint:errcheck // rollback after a commit returns ErrTxDone
 
-	if _, err := tx.NewUpdate((*promptVersionModel)(nil)).
+	if _, err = tx.NewUpdate((*promptVersionModel)(nil)).
 		Set("is_current = ?", false).
 		Where("suite_id = ?", suiteID.String()).
 		Exec(ctx); err != nil {

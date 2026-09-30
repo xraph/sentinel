@@ -21,9 +21,9 @@ type suiteRows struct {
 
 func seedSuiteRows(t *testing.T, s store.Store) suiteRows {
 	t.Helper()
-	su := mustSuite(t, s, "app_a")
+	su := mustSuite(t, s)
 	tc := mustCase(t, s, su.ID)
-	run := mustRun(t, s, su.ID, "app_a")
+	run := mustRun(t, s, su.ID)
 	res := mustResult(t, s, run.ID, tc.ID, evalrun.StatusPass, 1)
 	if err := s.SaveBaseline(bg(), &baseline.Baseline{ID: id.NewBaselineID(), SuiteID: su.ID, RunID: run.ID, Name: "b",
 		Results: []baseline.Result{}, DimensionScores: map[string]float64{}, CreatedAt: time.Now().UTC()}); err != nil {
@@ -41,37 +41,44 @@ func testDeleteSuiteCascades(t *testing.T, s store.Store) {
 		t.Fatalf("delete suite: %v", err)
 	}
 
-	if cases, _ := s.ListCases(bg(), gone.suiteID); len(cases) != 0 {
-		t.Errorf("cases survived: %d", len(cases))
+	cases, err := s.ListCases(bg(), gone.suiteID)
+	if err != nil || len(cases) != 0 {
+		t.Errorf("cases survived: %d (%v)", len(cases), err)
 	}
-	if _, err := s.GetRun(bg(), gone.runID); !errors.Is(err, sentinel.ErrRunNotFound) {
+	if _, err = s.GetRun(bg(), gone.runID); !errors.Is(err, sentinel.ErrRunNotFound) {
 		t.Errorf("run survived: %v", err)
 	}
-	if res, _ := s.ListResults(bg(), gone.runID); len(res) != 0 {
-		t.Errorf("results survived: %d", len(res))
+	res, err := s.ListResults(bg(), gone.runID)
+	if err != nil || len(res) != 0 {
+		t.Errorf("results survived: %d (%v)", len(res), err)
 	}
-	if bl, _ := s.ListBaselines(bg(), gone.suiteID); len(bl) != 0 {
-		t.Errorf("baselines survived: %d", len(bl))
+	bl, err := s.ListBaselines(bg(), gone.suiteID)
+	if err != nil || len(bl) != 0 {
+		t.Errorf("baselines survived: %d (%v)", len(bl), err)
 	}
-	if pvs, _ := s.ListPromptVersions(bg(), gone.suiteID); len(pvs) != 0 {
-		t.Errorf("prompt versions survived: %d", len(pvs))
+	pvs, err := s.ListPromptVersions(bg(), gone.suiteID)
+	if err != nil || len(pvs) != 0 {
+		t.Errorf("prompt versions survived: %d (%v)", len(pvs), err)
 	}
 
 	// The other suite is untouched, checked by identity.
-	cases, _ := s.ListCases(bg(), kept.suiteID)
-	if len(cases) != 1 || cases[0].ID.String() != kept.caseID.String() {
-		t.Errorf("other suite's case changed: %+v", cases)
+	cases, err = s.ListCases(bg(), kept.suiteID)
+	if err != nil || len(cases) != 1 || cases[0].ID.String() != kept.caseID.String() {
+		t.Errorf("other suite's case changed: %+v (%v)", cases, err)
 	}
-	if run, err := s.GetRun(bg(), kept.runID); err != nil || run.ID.String() != kept.runID.String() {
-		t.Errorf("other suite's run changed: %v", err)
+	if run, runErr := s.GetRun(bg(), kept.runID); runErr != nil || run.ID.String() != kept.runID.String() {
+		t.Errorf("other suite's run changed: %v", runErr)
 	}
-	if res, _ := s.ListResults(bg(), kept.runID); len(res) != 1 || res[0].ID.String() != kept.resultID.String() {
-		t.Errorf("other suite's result changed: %+v", res)
+	res, err = s.ListResults(bg(), kept.runID)
+	if err != nil || len(res) != 1 || res[0].ID.String() != kept.resultID.String() {
+		t.Errorf("other suite's result changed: %+v (%v)", res, err)
 	}
-	if bl, _ := s.ListBaselines(bg(), kept.suiteID); len(bl) != 1 {
-		t.Errorf("other suite's baseline changed: %d", len(bl))
+	bl, err = s.ListBaselines(bg(), kept.suiteID)
+	if err != nil || len(bl) != 1 {
+		t.Errorf("other suite's baseline changed: %d (%v)", len(bl), err)
 	}
-	if pvs, _ := s.ListPromptVersions(bg(), kept.suiteID); len(pvs) != 1 {
-		t.Errorf("other suite's prompt versions changed: %d", len(pvs))
+	pvs, err = s.ListPromptVersions(bg(), kept.suiteID)
+	if err != nil || len(pvs) != 1 {
+		t.Errorf("other suite's prompt versions changed: %d (%v)", len(pvs), err)
 	}
 }

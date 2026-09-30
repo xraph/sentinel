@@ -9,7 +9,7 @@ import (
 )
 
 func TestImportCases(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	cases := []struct {
 		format, data string
 		want         int64
@@ -32,7 +32,7 @@ func TestImportCases(t *testing.T) {
 }
 
 func TestImportRefusals(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "p")
 	if _, err := e.ImportCases(bg(), s.ID, "yaml", []byte("x")); !errors.Is(err, sentinel.ErrUnsupportedFormat) {
 		t.Errorf("yaml: %v", err)

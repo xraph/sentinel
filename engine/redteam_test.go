@@ -10,7 +10,7 @@ import (
 )
 
 func TestGenerateRedTeam(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "you are a billing assistant")
 	cases, err := e.GenerateRedTeam(bg(), s.ID, []redteam.AttackType{redteam.AttackInjection, redteam.AttackLeakage}, 3)
 	if err != nil || len(cases) != 6 {
@@ -28,7 +28,7 @@ func TestGenerateRedTeam(t *testing.T) {
 }
 
 func TestRedTeamCountIsCapped(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "p")
 	cases, err := e.GenerateRedTeam(bg(), s.ID, []redteam.AttackType{redteam.AttackJailbreak}, 9)
 	if err != nil || len(cases) != redteam.MaxPerType {
@@ -37,7 +37,7 @@ func TestRedTeamCountIsCapped(t *testing.T) {
 }
 
 func TestLeakageUsesTheCurrentPrompt(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "old prompt")
 	if err := e.CreatePromptVersion(bg(), &promptversion.PromptVersion{SuiteID: s.ID, SystemPrompt: "new prompt", IsCurrent: true}); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestLeakageUsesTheCurrentPrompt(t *testing.T) {
 
 // Review focus 1.
 func TestLeakageNeedsAPrompt(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "")
 	_, err := e.GenerateRedTeam(bg(), s.ID, []redteam.AttackType{redteam.AttackInjection, redteam.AttackLeakage}, 2)
 	if !errors.Is(err, sentinel.ErrInvalidInput) {
@@ -65,11 +65,14 @@ func TestLeakageNeedsAPrompt(t *testing.T) {
 }
 
 func TestRedTeamRefusals(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "p")
 	for name, call := range map[string]func() error{
-		"no types":     func() error { _, err := e.GenerateRedTeam(bg(), s.ID, nil, 1); return err },
-		"zero count":   func() error { _, err := e.GenerateRedTeam(bg(), s.ID, []redteam.AttackType{redteam.AttackJailbreak}, 0); return err },
+		"no types": func() error { _, err := e.GenerateRedTeam(bg(), s.ID, nil, 1); return err },
+		"zero count": func() error {
+			_, err := e.GenerateRedTeam(bg(), s.ID, []redteam.AttackType{redteam.AttackJailbreak}, 0)
+			return err
+		},
 		"unknown type": func() error { _, err := e.GenerateRedTeam(bg(), s.ID, []redteam.AttackType{"bias"}, 1); return err },
 	} {
 		if err := call(); !errors.Is(err, sentinel.ErrInvalidInput) {

@@ -28,7 +28,7 @@ func runOnce(t *testing.T, e *engine.Engine, suiteID id.SuiteID, scorers ...scor
 }
 
 func TestScorerErrorMakesTheCaseError(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "p", "a")
 	res := runOnce(t, e, s.ID, okScorer("good", 1, "skill"), failingScorer("judge"))
 
@@ -51,7 +51,7 @@ func TestScorerErrorMakesTheCaseError(t *testing.T) {
 }
 
 func TestCaseScorersAreApplied(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "p")
 	tc := &testcase.Case{Entity: sentinel.NewEntity(), SuiteID: s.ID, Name: "c", Input: "world", ScenarioType: testcase.ScenarioStandard,
 		Scorers: []testcase.ScorerConfig{{Name: "contains", Config: map[string]any{"substring": "hello"}}},
@@ -69,7 +69,7 @@ func TestCaseScorersAreApplied(t *testing.T) {
 }
 
 func TestUnknownCaseScorerIsVisiblyUnscored(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "p")
 	tc := &testcase.Case{Entity: sentinel.NewEntity(), SuiteID: s.ID, Name: "c", Input: "x", ScenarioType: testcase.ScenarioStandard,
 		Scorers: []testcase.ScorerConfig{{Name: "nope"}}, Tags: []string{}, Context: map[string]any{}, Metadata: map[string]any{}}
@@ -83,7 +83,7 @@ func TestUnknownCaseScorerIsVisiblyUnscored(t *testing.T) {
 }
 
 func TestCaseContextIsNotMutated(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "p", "a")
 	runOnce(t, e, s.ID, okScorer("good", 1, ""))
 	cases, _ := e.ListCases(bg(), s.ID)

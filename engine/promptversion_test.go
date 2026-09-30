@@ -11,7 +11,7 @@ import (
 )
 
 func TestPromptVersionsNumberThemselves(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "base")
 	for i := 0; i < 3; i++ {
 		if err := e.CreatePromptVersion(bg(), &promptversion.PromptVersion{SuiteID: s.ID, SystemPrompt: "p"}); err != nil {
@@ -27,7 +27,7 @@ func TestPromptVersionsNumberThemselves(t *testing.T) {
 }
 
 func TestCreateAsCurrentLeavesOneCurrent(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "base")
 	first := &promptversion.PromptVersion{SuiteID: s.ID, SystemPrompt: "one", IsCurrent: true}
 	second := &promptversion.PromptVersion{SuiteID: s.ID, SystemPrompt: "two", IsCurrent: true}
@@ -50,7 +50,7 @@ func TestCreateAsCurrentLeavesOneCurrent(t *testing.T) {
 
 // Review focus 3: two creates at once must both succeed with distinct numbers.
 func TestConcurrentCreatesGetDistinctVersions(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	s := seedSuite(t, e, "base")
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
@@ -76,7 +76,7 @@ func TestConcurrentCreatesGetDistinctVersions(t *testing.T) {
 }
 
 func TestSetCurrentRefusesAnotherSuitesVersion(t *testing.T) {
-	e, _ := newEngine(t)
+	e := newEngine(t)
 	a, b := seedSuite(t, e, "a"), seedSuite(t, e, "b")
 	pvB := &promptversion.PromptVersion{SuiteID: b.ID, SystemPrompt: "b"}
 	if err := e.CreatePromptVersion(bg(), pvB); err != nil {

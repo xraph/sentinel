@@ -5,7 +5,10 @@ import (
 	"testing"
 )
 
-type recordingClient struct{ model, prompt string; temp float64 }
+type recordingClient struct {
+	model, prompt string
+	temp          float64
+}
 
 func (c *recordingClient) Complete(_ context.Context, model, systemPrompt, _ string, temperature float64) (*LLMResponse, error) {
 	c.model, c.prompt, c.temp = model, systemPrompt, temperature

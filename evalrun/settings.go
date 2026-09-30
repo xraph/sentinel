@@ -70,10 +70,10 @@ func SettingsFrom(config map[string]any) Settings {
 		n := int(v)
 		s.Concurrency = &n
 	}
-	s.Target, _ = config[SettingTarget].(string)
+	s.Target, _ = config[SettingTarget].(string) //nolint:errcheck // type assertion returns zero-value
 	s.Scorers = toStrings(config[SettingScorers])
-	s.Model, _ = config[SettingModel].(string)
-	s.PromptVersionID, _ = config[SettingPromptVersionID].(string)
+	s.Model, _ = config[SettingModel].(string)                     //nolint:errcheck // type assertion returns zero-value
+	s.PromptVersionID, _ = config[SettingPromptVersionID].(string) //nolint:errcheck // type assertion returns zero-value
 	return s
 }
 

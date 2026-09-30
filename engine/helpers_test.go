@@ -17,7 +17,7 @@ import (
 
 func bg() context.Context { return context.Background() }
 
-func newEngine(t *testing.T, opts ...engine.Option) (*engine.Engine, *memory.Store) {
+func newEngine(t *testing.T, opts ...engine.Option) *engine.Engine {
 	t.Helper()
 	st := memory.New()
 	e, err := engine.New(append([]engine.Option{engine.WithStore(st)}, opts...)...)
@@ -25,7 +25,7 @@ func newEngine(t *testing.T, opts ...engine.Option) (*engine.Engine, *memory.Sto
 		t.Fatalf("engine.New: %v", err)
 	}
 	t.Cleanup(func() { _ = e.Stop(context.Background()) })
-	return e, st
+	return e
 }
 
 // seedSuite creates a suite with the given system prompt and one case per

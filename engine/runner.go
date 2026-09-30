@@ -136,7 +136,7 @@ func (e *Engine) CancelRun(ctx context.Context, runID id.EvalRunID) error {
 
 // effectivePrompt is the prompt a run of this suite sends: the current
 // prompt version's if the suite has one, otherwise the suite's own.
-func (e *Engine) effectivePrompt(ctx context.Context, s *suite.Suite) (string, string, error) {
+func (e *Engine) effectivePrompt(ctx context.Context, s *suite.Suite) (prompt, versionID string, err error) {
 	pv, err := e.store.GetCurrentPromptVersion(ctx, s.ID)
 	switch {
 	case err == nil:
