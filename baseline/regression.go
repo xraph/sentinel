@@ -6,6 +6,18 @@ import (
 	"github.com/xraph/sentinel/evalrun"
 )
 
+// regressionEpsilon absorbs float64 rounding in a delta. Scores and pass
+// rates are fractions such as 19/20, whose difference from 1.0 comes out as
+// -0.050000000000000044, so a drop exactly equal to the threshold would
+// otherwise regress in one suite and not in another. No real drop is this
+// small.
+const regressionEpsilon = 1e-9
+
+// fellBelow reports whether delta is a drop larger than threshold.
+func fellBelow(delta, threshold float64) bool {
+	return delta < -threshold-regressionEpsilon
+}
+
 // RegressionResult holds the outcome of a regression detection check.
 type RegressionResult struct {
 	HasRegression   bool               `json:"has_regression"`
@@ -56,7 +68,7 @@ func DetectRegression(stats *evalrun.ResultStats, results []*evalrun.Result, b *
 		AvgScoreDelta:   stats.AvgScore - b.AvgScore,
 		DimensionDeltas: make(map[string]float64),
 	}
-	if rr.PassRateDelta < -threshold || rr.AvgScoreDelta < -threshold {
+	if fellBelow(rr.PassRateDelta, threshold) || fellBelow(rr.AvgScoreDelta, threshold) {
 		rr.HasRegression = true
 	}
 
@@ -73,7 +85,7 @@ func DetectRegression(stats *evalrun.ResultStats, results []*evalrun.Result, b *
 		}
 		delta := current - baselineScore
 		rr.DimensionDeltas[dim] = delta
-		if delta < -threshold {
+		if fellBelow(delta, threshold) {
 			rr.HasRegression = true
 		}
 	}
@@ -93,7 +105,7 @@ func DetectRegression(stats *evalrun.ResultStats, results []*evalrun.Result, b *
 			continue
 		}
 		delta := r.Score - br.Score
-		if delta < -threshold {
+		if fellBelow(delta, threshold) {
 			rr.HasRegression = true
 			rr.RegressedCases = append(rr.RegressedCases, RegressedCase{
 				CaseID: key, CaseName: r.CaseName, OldScore: br.Score, NewScore: r.Score, Delta: delta,

@@ -88,3 +88,49 @@ func TestDetectRegression(t *testing.T) {
 		}
 	})
 }
+
+// One newly failing case in a 20-case suite drops the pass rate by exactly
+// the default threshold, but 19.0/20 - 1.0 is -0.050000000000000044 in
+// float64. A drop equal to the threshold must not flip on that rounding.
+func TestDropEqualToThresholdIgnoresFloatRounding(t *testing.T) {
+	c1 := id.NewCaseID()
+	base := &Baseline{
+		PassRate: 1.0, AvgScore: 1.0,
+		DimensionScores: map[string]float64{"skill": 1.0},
+		Results:         []Result{{CaseID: c1, CaseName: "one", Score: 1.0}},
+	}
+	drop := 19.0 / 20
+	if drop-1.0 >= -0.05 {
+		t.Fatalf("precondition: 19/20 - 1 should round below -0.05, got %v", drop-1.0)
+	}
+
+	cases := []struct {
+		name    string
+		stats   *evalrun.ResultStats
+		results []*evalrun.Result
+	}{
+		{"pass rate", &evalrun.ResultStats{PassRate: drop, AvgScore: 1.0, DimensionScores: map[string]float64{"skill": 1.0}},
+			[]*evalrun.Result{result(c1, "one", 1.0)}},
+		{"average score", &evalrun.ResultStats{PassRate: 1.0, AvgScore: drop, DimensionScores: map[string]float64{"skill": 1.0}},
+			[]*evalrun.Result{result(c1, "one", 1.0)}},
+		{"dimension", &evalrun.ResultStats{PassRate: 1.0, AvgScore: 1.0, DimensionScores: map[string]float64{"skill": drop}},
+			[]*evalrun.Result{result(c1, "one", 1.0)}},
+		{"case", &evalrun.ResultStats{PassRate: 1.0, AvgScore: 1.0, DimensionScores: map[string]float64{"skill": 1.0}},
+			[]*evalrun.Result{result(c1, "one", drop)}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rr := DetectRegression(c.stats, c.results, base, 0.05)
+			if rr.HasRegression {
+				t.Fatalf("a drop equal to the threshold is not a regression: %+v", rr)
+			}
+		})
+	}
+
+	t.Run("a drop just past the threshold still regresses", func(t *testing.T) {
+		stats := &evalrun.ResultStats{PassRate: 0.94, AvgScore: 1.0, DimensionScores: map[string]float64{"skill": 1.0}}
+		if rr := DetectRegression(stats, []*evalrun.Result{result(c1, "one", 1.0)}, base, 0.05); !rr.HasRegression {
+			t.Fatalf("a 0.06 drop against 0.05 must regress: %+v", rr)
+		}
+	})
+}
