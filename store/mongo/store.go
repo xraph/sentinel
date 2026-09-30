@@ -128,11 +128,31 @@ func (s *Store) UpdateSuite(ctx context.Context, su *suite.Suite) error {
 	return nil
 }
 
+// DeleteSuite deletes a suite and everything that belongs to it. Mongo
+// transactions need a replica set, so these are separate deletes and not
+// atomic. The suite goes last, so a failure part-way leaves it in place and a
+// retry finishes the job.
 func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
-	_, err := s.mdb.NewDelete((*suiteModel)(nil)).
-		Filter(bson.M{"_id": suiteID.String()}).
-		Exec(ctx)
-	if err != nil {
+	sid := suiteID.String()
+	var runs []runModel
+	if err := s.mdb.NewFind(&runs).Filter(bson.M{"suite_id": sid}).Scan(ctx); err != nil {
+		return fmt.Errorf("sentinel: find suite runs: %w", err)
+	}
+	runIDs := make([]string, len(runs))
+	for i := range runs {
+		runIDs[i] = runs[i].ID
+	}
+	if len(runIDs) > 0 {
+		if _, err := s.mdb.Collection(colResults).DeleteMany(ctx, bson.M{"run_id": bson.M{"$in": runIDs}}); err != nil {
+			return fmt.Errorf("sentinel: delete suite results: %w", err)
+		}
+	}
+	for _, col := range []string{colBaselines, colPromptVersions, colCases, colRuns} {
+		if _, err := s.mdb.Collection(col).DeleteMany(ctx, bson.M{"suite_id": sid}); err != nil {
+			return fmt.Errorf("sentinel: delete suite children: %w", err)
+		}
+	}
+	if _, err := s.mdb.Collection(colSuites).DeleteOne(ctx, bson.M{"_id": sid}); err != nil {
 		return fmt.Errorf("sentinel: delete suite: %w", err)
 	}
 	return nil

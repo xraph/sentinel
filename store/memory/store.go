@@ -128,6 +128,33 @@ func (s *Store) DeleteSuite(_ context.Context, suiteID id.SuiteID) error {
 		return sentinel.ErrSuiteNotFound
 	}
 	delete(s.suites, key)
+	runIDs := map[string]bool{}
+	for k, run := range s.runs {
+		if run.SuiteID.String() == key {
+			runIDs[k] = true
+			delete(s.runs, k)
+		}
+	}
+	for k, r := range s.results {
+		if runIDs[r.RunID.String()] {
+			delete(s.results, k)
+		}
+	}
+	for k, tc := range s.cases {
+		if tc.SuiteID.String() == key {
+			delete(s.cases, k)
+		}
+	}
+	for k, b := range s.baselines {
+		if b.SuiteID.String() == key {
+			delete(s.baselines, k)
+		}
+	}
+	for k, pv := range s.promptVersions {
+		if pv.SuiteID.String() == key {
+			delete(s.promptVersions, k)
+		}
+	}
 	return nil
 }
 

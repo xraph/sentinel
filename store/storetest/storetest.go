@@ -24,4 +24,5 @@ func Run(t *testing.T, newStore Factory) {
 	t.Run("ReturnedValuesAreIndependent", func(t *testing.T) { testReturnedValuesAreIndependent(t, newStore(t)) })
 	t.Run("SetCurrentPromptVersionIsScoped", func(t *testing.T) { testSetCurrentPromptVersionIsScoped(t, newStore(t)) })
 	t.Run("DuplicatePromptVersionIsRefused", func(t *testing.T) { testDuplicatePromptVersionIsRefused(t, newStore(t)) })
+	t.Run("DeleteSuiteCascades", func(t *testing.T) { testDeleteSuiteCascades(t, newStore(t)) })
 }

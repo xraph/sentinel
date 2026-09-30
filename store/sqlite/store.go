@@ -114,12 +114,32 @@ func (s *Store) UpdateSuite(ctx context.Context, su *suite.Suite) error {
 	return nil
 }
 
+// DeleteSuite deletes a suite and everything that belongs to it.
+// SQLite's ON DELETE CASCADE fires only on connections that ran PRAGMA
+// foreign_keys, which grove sets on one pooled connection, so the children are
+// deleted explicitly.
 func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
-	_, err := s.sdb.NewDelete((*suiteModel)(nil)).Where("id = ?", suiteID.String()).Exec(ctx)
+	sid := suiteID.String()
+	tx, err := s.sdb.BeginTxQuery(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("sentinel: begin delete suite: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.NewDelete((*resultModel)(nil)).
+		Where("run_id IN (SELECT id FROM sentinel_runs WHERE suite_id = ?)", sid).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("sentinel: delete suite results: %w", err)
+	}
+	for _, m := range []any{(*baselineModel)(nil), (*promptVersionModel)(nil), (*caseModel)(nil), (*runModel)(nil)} {
+		if _, err := tx.NewDelete(m).Where("suite_id = ?", sid).Exec(ctx); err != nil {
+			return fmt.Errorf("sentinel: delete suite children: %w", err)
+		}
+	}
+	if _, err := tx.NewDelete((*suiteModel)(nil)).Where("id = ?", sid).Exec(ctx); err != nil {
 		return fmt.Errorf("sentinel: delete suite: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) ListSuites(ctx context.Context, filter *suite.ListFilter) ([]*suite.Suite, error) {

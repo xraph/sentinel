@@ -117,12 +117,31 @@ func (s *Store) UpdateSuite(ctx context.Context, su *suite.Suite) error {
 	return nil
 }
 
+// DeleteSuite deletes a suite and everything that belongs to it.
+// Postgres cascades on its own; the explicit deletes keep every backend
+// behaving the same by construction.
 func (s *Store) DeleteSuite(ctx context.Context, suiteID id.SuiteID) error {
-	_, err := s.pgdb.NewDelete((*suiteModel)(nil)).Where("id = ?", suiteID.String()).Exec(ctx)
+	sid := suiteID.String()
+	tx, err := s.pgdb.BeginTxQuery(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("sentinel: begin delete suite: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.NewDelete((*resultModel)(nil)).
+		Where("run_id IN (SELECT id FROM sentinel_runs WHERE suite_id = ?)", sid).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("sentinel: delete suite results: %w", err)
+	}
+	for _, m := range []any{(*baselineModel)(nil), (*promptVersionModel)(nil), (*caseModel)(nil), (*runModel)(nil)} {
+		if _, err := tx.NewDelete(m).Where("suite_id = ?", sid).Exec(ctx); err != nil {
+			return fmt.Errorf("sentinel: delete suite children: %w", err)
+		}
+	}
+	if _, err := tx.NewDelete((*suiteModel)(nil)).Where("id = ?", sid).Exec(ctx); err != nil {
 		return fmt.Errorf("sentinel: delete suite: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) ListSuites(ctx context.Context, filter *suite.ListFilter) ([]*suite.Suite, error) {
