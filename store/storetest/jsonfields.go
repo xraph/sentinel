@@ -69,10 +69,18 @@ func testJSONFieldsRoundTrip(t *testing.T, s store.Store) {
 		t.Errorf("case context or metadata did not round-trip: %v %v", gotCase.Context, gotCase.Metadata)
 	}
 
+	// The settings a run records when it starts, exactly as the engine
+	// writes them. Every backend decodes numbers and arrays into its own
+	// types; SettingsFrom must still read every field back.
+	passThreshold, regressionThreshold, concurrency := 0.7, 0.05, 4
+	settings := evalrun.Settings{
+		PassThreshold: &passThreshold, RegressionThreshold: &regressionThreshold, Concurrency: &concurrency,
+		Target: "llm:x", Scorers: []string{"exact", "contains"}, Model: "m", PromptVersionID: id.NewPromptVersionID().String(),
+	}
 	run := &evalrun.Run{
 		Entity: sentinel.NewEntity(), ID: id.NewEvalRunID(), SuiteID: su.ID, Model: "m", AppID: "app_a",
 		State:           evalrun.StateRunning,
-		Config:          map[string]any{"target": "llm:x", "scorers": []any{"exact", "contains"}, "pass_threshold": 0.7},
+		Config:          settings.Config(),
 		DimensionScores: map[string]float64{"skill": 0.25},
 	}
 	if err = s.CreateRun(bg(), run); err != nil {
@@ -82,8 +90,21 @@ func testJSONFieldsRoundTrip(t *testing.T, s store.Store) {
 	if err != nil {
 		t.Fatalf("get run: %v", err)
 	}
-	if gotRun.Config["target"] != "llm:x" {
-		t.Errorf("run config target did not round-trip: %v", gotRun.Config)
+	gotSettings := evalrun.SettingsFrom(gotRun.Config)
+	if gotSettings.PassThreshold == nil || !near(*gotSettings.PassThreshold, 0.7) {
+		t.Errorf("pass threshold did not round-trip: %v (config %v)", gotSettings.PassThreshold, gotRun.Config)
+	}
+	if gotSettings.RegressionThreshold == nil || !near(*gotSettings.RegressionThreshold, 0.05) {
+		t.Errorf("regression threshold did not round-trip: %v (config %v)", gotSettings.RegressionThreshold, gotRun.Config)
+	}
+	if gotSettings.Concurrency == nil || *gotSettings.Concurrency != 4 {
+		t.Errorf("concurrency did not round-trip: %v (config %v)", gotSettings.Concurrency, gotRun.Config)
+	}
+	if gotSettings.Target != "llm:x" || gotSettings.Model != "m" || gotSettings.PromptVersionID != settings.PromptVersionID {
+		t.Errorf("target, model or prompt version did not round-trip: %+v", gotSettings)
+	}
+	if len(gotSettings.Scorers) != 2 || gotSettings.Scorers[0] != "exact" || gotSettings.Scorers[1] != "contains" {
+		t.Errorf("scorers did not round-trip: %v (config %v)", gotSettings.Scorers, gotRun.Config)
 	}
 	if !near(gotRun.DimensionScores["skill"], 0.25) {
 		t.Errorf("run dimension scores did not round-trip: %v", gotRun.DimensionScores)
