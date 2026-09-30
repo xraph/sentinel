@@ -21,4 +21,5 @@ type Factory func(t *testing.T) store.Store
 // Run executes every conformance check against the backend newStore builds.
 func Run(t *testing.T, newStore Factory) {
 	t.Run("JSONFieldsRoundTrip", func(t *testing.T) { testJSONFieldsRoundTrip(t, newStore(t)) })
+	t.Run("ReturnedValuesAreIndependent", func(t *testing.T) { testReturnedValuesAreIndependent(t, newStore(t)) })
 }

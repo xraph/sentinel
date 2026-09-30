@@ -32,6 +32,17 @@ type Store struct {
 	promptVersions map[string]*promptversion.PromptVersion
 }
 
+// The memory store copies values across its boundary, the way every other
+// backend does by construction. Copies are shallow: maps and slices inside
+// are shared, which is fine because nothing in Sentinel mutates them in
+// place after writing.
+func cloneSuite(v *suite.Suite) *suite.Suite                              { c := *v; return &c }
+func cloneCase(v *testcase.Case) *testcase.Case                           { c := *v; return &c }
+func cloneRun(v *evalrun.Run) *evalrun.Run                                { c := *v; return &c }
+func cloneResult(v *evalrun.Result) *evalrun.Result                       { c := *v; return &c }
+func cloneBaseline(v *baseline.Baseline) *baseline.Baseline               { c := *v; return &c }
+func clonePV(v *promptversion.PromptVersion) *promptversion.PromptVersion { c := *v; return &c }
+
 // New creates a new in-memory store.
 func New() *Store {
 	return &Store{
@@ -72,7 +83,7 @@ func (s *Store) CreateSuite(_ context.Context, su *suite.Suite) error {
 	now := time.Now().UTC()
 	su.CreatedAt = now
 	su.UpdatedAt = now
-	s.suites[key] = su
+	s.suites[key] = cloneSuite(su)
 	return nil
 }
 
@@ -83,7 +94,7 @@ func (s *Store) GetSuite(_ context.Context, suiteID id.SuiteID) (*suite.Suite, e
 	if !ok {
 		return nil, sentinel.ErrSuiteNotFound
 	}
-	return su, nil
+	return cloneSuite(su), nil
 }
 
 func (s *Store) GetSuiteByName(_ context.Context, appID, name string) (*suite.Suite, error) {
@@ -91,7 +102,7 @@ func (s *Store) GetSuiteByName(_ context.Context, appID, name string) (*suite.Su
 	defer s.mu.RUnlock()
 	for _, su := range s.suites {
 		if su.AppID == appID && su.Name == name {
-			return su, nil
+			return cloneSuite(su), nil
 		}
 	}
 	return nil, sentinel.ErrSuiteNotFound
@@ -105,7 +116,7 @@ func (s *Store) UpdateSuite(_ context.Context, su *suite.Suite) error {
 		return sentinel.ErrSuiteNotFound
 	}
 	su.UpdatedAt = time.Now().UTC()
-	s.suites[key] = su
+	s.suites[key] = cloneSuite(su)
 	return nil
 }
 
@@ -129,7 +140,7 @@ func (s *Store) ListSuites(_ context.Context, filter *suite.ListFilter) ([]*suit
 		if filter != nil && filter.AppID != "" && su.AppID != filter.AppID {
 			continue
 		}
-		result = append(result, su)
+		result = append(result, cloneSuite(su))
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.Before(result[j].CreatedAt)
@@ -153,7 +164,7 @@ func (s *Store) CreateCase(_ context.Context, tc *testcase.Case) error {
 	now := time.Now().UTC()
 	tc.CreatedAt = now
 	tc.UpdatedAt = now
-	s.cases[tc.ID.String()] = tc
+	s.cases[tc.ID.String()] = cloneCase(tc)
 	return nil
 }
 
@@ -164,7 +175,7 @@ func (s *Store) CreateCaseBatch(_ context.Context, cases []*testcase.Case) error
 	for _, tc := range cases {
 		tc.CreatedAt = now
 		tc.UpdatedAt = now
-		s.cases[tc.ID.String()] = tc
+		s.cases[tc.ID.String()] = cloneCase(tc)
 	}
 	return nil
 }
@@ -176,7 +187,7 @@ func (s *Store) GetCase(_ context.Context, caseID id.CaseID) (*testcase.Case, er
 	if !ok {
 		return nil, sentinel.ErrCaseNotFound
 	}
-	return tc, nil
+	return cloneCase(tc), nil
 }
 
 func (s *Store) UpdateCase(_ context.Context, tc *testcase.Case) error {
@@ -187,7 +198,7 @@ func (s *Store) UpdateCase(_ context.Context, tc *testcase.Case) error {
 		return sentinel.ErrCaseNotFound
 	}
 	tc.UpdatedAt = time.Now().UTC()
-	s.cases[key] = tc
+	s.cases[key] = cloneCase(tc)
 	return nil
 }
 
@@ -209,7 +220,7 @@ func (s *Store) ListCases(_ context.Context, suiteID id.SuiteID) ([]*testcase.Ca
 	var result []*testcase.Case
 	for _, tc := range s.cases {
 		if tc.SuiteID.String() == sid {
-			result = append(result, tc)
+			result = append(result, cloneCase(tc))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -245,7 +256,7 @@ func (s *Store) CreateRun(_ context.Context, run *evalrun.Run) error {
 	now := time.Now().UTC()
 	run.CreatedAt = now
 	run.UpdatedAt = now
-	s.runs[run.ID.String()] = run
+	s.runs[run.ID.String()] = cloneRun(run)
 	return nil
 }
 
@@ -256,7 +267,7 @@ func (s *Store) GetRun(_ context.Context, runID id.EvalRunID) (*evalrun.Run, err
 	if !ok {
 		return nil, sentinel.ErrRunNotFound
 	}
-	return run, nil
+	return cloneRun(run), nil
 }
 
 func (s *Store) UpdateRun(_ context.Context, run *evalrun.Run) error {
@@ -267,7 +278,7 @@ func (s *Store) UpdateRun(_ context.Context, run *evalrun.Run) error {
 		return sentinel.ErrRunNotFound
 	}
 	run.UpdatedAt = time.Now().UTC()
-	s.runs[key] = run
+	s.runs[key] = cloneRun(run)
 	return nil
 }
 
@@ -287,7 +298,7 @@ func (s *Store) ListRuns(_ context.Context, filter *evalrun.ListFilter) ([]*eval
 				continue
 			}
 		}
-		result = append(result, run)
+		result = append(result, cloneRun(run))
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.After(result[j].CreatedAt)
@@ -308,7 +319,7 @@ func (s *Store) ListRunsBySuite(_ context.Context, suiteID id.SuiteID) ([]*evalr
 	var result []*evalrun.Run
 	for _, run := range s.runs {
 		if run.SuiteID.String() == sid {
-			result = append(result, run)
+			result = append(result, cloneRun(run))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -327,7 +338,7 @@ func (s *Store) CreateResult(_ context.Context, result *evalrun.Result) error {
 	now := time.Now().UTC()
 	result.CreatedAt = now
 	result.UpdatedAt = now
-	s.results[result.ID.String()] = result
+	s.results[result.ID.String()] = cloneResult(result)
 	return nil
 }
 
@@ -338,7 +349,7 @@ func (s *Store) CreateResultBatch(_ context.Context, results []*evalrun.Result) 
 	for _, r := range results {
 		r.CreatedAt = now
 		r.UpdatedAt = now
-		s.results[r.ID.String()] = r
+		s.results[r.ID.String()] = cloneResult(r)
 	}
 	return nil
 }
@@ -350,7 +361,7 @@ func (s *Store) ListResults(_ context.Context, runID id.EvalRunID) ([]*evalrun.R
 	var result []*evalrun.Result
 	for _, r := range s.results {
 		if r.RunID.String() == rid {
-			result = append(result, r)
+			result = append(result, cloneResult(r))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -432,7 +443,7 @@ func (s *Store) SaveBaseline(_ context.Context, b *baseline.Baseline) error {
 		}
 	}
 	b.CreatedAt = time.Now().UTC()
-	s.baselines[b.ID.String()] = b
+	s.baselines[b.ID.String()] = cloneBaseline(b)
 	return nil
 }
 
@@ -443,7 +454,7 @@ func (s *Store) GetBaseline(_ context.Context, baselineID id.BaselineID) (*basel
 	if !ok {
 		return nil, sentinel.ErrBaselineNotFound
 	}
-	return b, nil
+	return cloneBaseline(b), nil
 }
 
 func (s *Store) GetLatestBaseline(_ context.Context, suiteID id.SuiteID) (*baseline.Baseline, error) {
@@ -452,7 +463,7 @@ func (s *Store) GetLatestBaseline(_ context.Context, suiteID id.SuiteID) (*basel
 	sid := suiteID.String()
 	for _, b := range s.baselines {
 		if b.SuiteID.String() == sid && b.IsCurrent {
-			return b, nil
+			return cloneBaseline(b), nil
 		}
 	}
 	return nil, sentinel.ErrBaselineNotFound
@@ -465,7 +476,7 @@ func (s *Store) ListBaselines(_ context.Context, suiteID id.SuiteID) ([]*baselin
 	var result []*baseline.Baseline
 	for _, b := range s.baselines {
 		if b.SuiteID.String() == sid {
-			result = append(result, b)
+			result = append(result, cloneBaseline(b))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -493,7 +504,7 @@ func (s *Store) CreatePromptVersion(_ context.Context, pv *promptversion.PromptV
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pv.CreatedAt = time.Now().UTC()
-	s.promptVersions[pv.ID.String()] = pv
+	s.promptVersions[pv.ID.String()] = clonePV(pv)
 	return nil
 }
 
@@ -504,7 +515,7 @@ func (s *Store) GetPromptVersion(_ context.Context, pvID id.PromptVersionID) (*p
 	if !ok {
 		return nil, sentinel.ErrPromptVersionNotFound
 	}
-	return pv, nil
+	return clonePV(pv), nil
 }
 
 func (s *Store) ListPromptVersions(_ context.Context, suiteID id.SuiteID) ([]*promptversion.PromptVersion, error) {
@@ -514,7 +525,7 @@ func (s *Store) ListPromptVersions(_ context.Context, suiteID id.SuiteID) ([]*pr
 	var result []*promptversion.PromptVersion
 	for _, pv := range s.promptVersions {
 		if pv.SuiteID.String() == sid {
-			result = append(result, pv)
+			result = append(result, clonePV(pv))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -529,7 +540,7 @@ func (s *Store) GetCurrentPromptVersion(_ context.Context, suiteID id.SuiteID) (
 	sid := suiteID.String()
 	for _, pv := range s.promptVersions {
 		if pv.SuiteID.String() == sid && pv.IsCurrent {
-			return pv, nil
+			return clonePV(pv), nil
 		}
 	}
 	return nil, sentinel.ErrPromptVersionNotFound
