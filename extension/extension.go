@@ -7,15 +7,12 @@ import (
 	"net/http"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/extensions/dashboard"
-	"github.com/xraph/forge/extensions/dashboard/contributor"
 	log "github.com/xraph/go-utils/log"
 	"github.com/xraph/grove"
 	"github.com/xraph/vessel"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/api"
-	sentineldash "github.com/xraph/sentinel/dashboard"
 	"github.com/xraph/sentinel/engine"
 	"github.com/xraph/sentinel/store"
 	mongostore "github.com/xraph/sentinel/store/mongo"
@@ -32,11 +29,8 @@ const ExtensionDescription = "Composable AI evaluation and testing framework wit
 // ExtensionVersion is the semantic version.
 const ExtensionVersion = "0.1.0"
 
-// Ensure Extension implements forge.Extension and dashboard.DashboardAware at compile time.
-var (
-	_ forge.Extension          = (*Extension)(nil)
-	_ dashboard.DashboardAware = (*Extension)(nil)
-)
+// Ensure Extension implements forge.Extension at compile time.
+var _ forge.Extension = (*Extension)(nil)
 
 // Extension adapts Sentinel as a Forge extension.
 type Extension struct {
@@ -450,12 +444,4 @@ func (e *Extension) newEngine(logger log.Logger) (*engine.Engine, error) {
 		opts = append(opts, engine.WithLogger(logger))
 	}
 	return engine.New(opts...)
-}
-
-// DashboardContributor implements dashboard.DashboardAware. It returns a
-// LocalContributor that renders sentinel pages, widgets, and settings in the
-// Forge dashboard using templ + ForgeUI.
-func (e *Extension) DashboardContributor() contributor.LocalContributor {
-	manifest := sentineldash.NewManifest()
-	return sentineldash.New(manifest, e.eng)
 }
