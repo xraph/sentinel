@@ -42,6 +42,7 @@ intents:
   - { name: runs.cancel,      kind: command, version: 1, capability: write, invalidates: [runs.list, runs.detail, runs.results, runs.regression] }
   - { name: redteam.generate, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail] }
   - { name: redteam.report,   kind: query,   version: 1, capability: read }
+  - { name: overview.stats,   kind: query,   version: 1, capability: read }
 
 queries:
   configGet:
@@ -95,3 +96,6 @@ queries:
   redteamReport:
     intent: redteam.report
     cache: { staleTime: 60s }
+  overviewStats:
+    intent: overview.stats
+    cache: { staleTime: 15s }
