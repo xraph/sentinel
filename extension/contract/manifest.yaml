@@ -15,8 +15,8 @@ intents:
   - { name: suites.list,   kind: query,   version: 1, capability: read }
   - { name: suites.detail, kind: query,   version: 1, capability: read }
   - { name: suites.create, kind: command, version: 1, capability: write, invalidates: [suites.list] }
-  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, runs.list] }
-  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail, runs.list, runs.results, results.detail] }
+  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, runs.list, runs.detail, baselines.list, baselines.detail] }
+  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail, runs.list, runs.results, results.detail, runs.detail, runs.regression, baselines.list, baselines.detail] }
   - { name: cases.list,   kind: query,   version: 1, capability: read }
   - { name: cases.detail, kind: query,   version: 1, capability: read }
   - { name: cases.create, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail] }
@@ -30,6 +30,12 @@ intents:
   - { name: runs.list,      kind: query, version: 1, capability: read }
   - { name: runs.results,   kind: query, version: 1, capability: read }
   - { name: results.detail, kind: query, version: 1, capability: read }
+  - { name: runs.detail,      kind: query,   version: 1, capability: read }
+  - { name: runs.regression,  kind: query,   version: 1, capability: read }
+  - { name: baselines.list,   kind: query,   version: 1, capability: read }
+  - { name: baselines.detail, kind: query,   version: 1, capability: read }
+  - { name: baselines.save,   kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression] }
+  - { name: baselines.delete, kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression] }
 
 queries:
   configGet:
@@ -61,4 +67,16 @@ queries:
     cache: { staleTime: 10s }
   resultsDetail:
     intent: results.detail
+    cache: { staleTime: 60s }
+  runsDetail:
+    intent: runs.detail
+    cache: { staleTime: 5s }
+  runsRegression:
+    intent: runs.regression
+    cache: { staleTime: 30s }
+  baselinesList:
+    intent: baselines.list
+    cache: { staleTime: 30s }
+  baselinesDetail:
+    intent: baselines.detail
     cache: { staleTime: 60s }

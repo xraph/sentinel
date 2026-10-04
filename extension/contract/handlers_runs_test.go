@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/engine"
 	"github.com/xraph/sentinel/evalrun"
 	"github.com/xraph/sentinel/id"
@@ -131,4 +132,16 @@ func TestRunReadsRefuseOtherApps(t *testing.T) {
 	_, other := runsResultsHandler(d)(ctx, runsResultsInput{RunID: run.ID.String()}, operator)
 	_, missing := runsResultsHandler(d)(ctx, runsResultsInput{RunID: id.NewEvalRunID().String()}, operator)
 	wantSameNotFound(t, missing, other)
+}
+
+// seedRunningRun writes a run row in the running state directly, without
+// evaluating anything.
+func seedRunningRun(t *testing.T, d Deps, s *suite.Suite) *evalrun.Run {
+	t.Helper()
+	r := &evalrun.Run{Entity: sentinel.NewEntity(), ID: id.NewEvalRunID(), SuiteID: s.ID, Model: "m", AppID: s.AppID,
+		TotalCases: 1, State: evalrun.StateRunning, Config: map[string]any{}, DimensionScores: map[string]float64{}}
+	if err := d.Engine.Store().CreateRun(context.Background(), r); err != nil {
+		t.Fatalf("seed running run: %v", err)
+	}
+	return r
 }

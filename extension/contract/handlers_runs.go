@@ -119,7 +119,6 @@ type ResultView struct {
 	RunTrace      *TraceView         `json:"runTrace,omitempty"`
 }
 
-//nolint:unused // runs.detail binds it in Task 9
 type runRef struct {
 	RunID string `json:"runId"`
 }
