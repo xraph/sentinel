@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -148,5 +149,62 @@ func TestRunsDetailEmbedsTheRegression(t *testing.T) {
 	got, err := runsDetailHandler(d)(context.Background(), runRef{RunID: run.ID.String()}, operator)
 	if err != nil || got.Run.ID != run.ID.String() || got.Regression.State != "noBaseline" || got.Run.LastProgressAt == nil {
 		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestRegressionThresholdSourceIsConfigWithoutARecordedThreshold(t *testing.T) {
+	d := newTestDeps(t)
+	s := seedSuite(t, d, testApp, "s", "p")
+	seedCase(t, d, s.ID, "a", "x")
+	ctx := context.Background()
+	if _, err := baselinesSaveHandler(d)(ctx, baselinesSaveInput{RunID: seedCompletedRun(t, d, s, 1).ID.String(), Name: "b"}, operator); err != nil {
+		t.Fatal(err)
+	}
+	run := seedCompletedRun(t, d, s, 1)
+	run.Config = map[string]any{}
+	if err := d.Engine.Store().UpdateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	got, err := runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: run.ID.String()}, operator)
+	if err != nil || got.State != "compared" || got.ThresholdSource != "config" {
+		t.Fatalf("a run with no recorded threshold falls back to config: %+v %v", got, err)
+	}
+	if got.Threshold == nil || *got.Threshold != d.Engine.Config().RegressionThreshold {
+		t.Fatalf("threshold should be the engine config's: %+v", got.Threshold)
+	}
+}
+
+func TestRegressionViewsAlwaysSendTheirCollections(t *testing.T) {
+	d := newTestDeps(t)
+	s := seedSuite(t, d, testApp, "s", "p")
+	seedCase(t, d, s.ID, "a", "x")
+	ctx := context.Background()
+	good := seedCompletedRun(t, d, s, 1)
+	none, err := runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: good.ID.String()}, operator)
+	if err != nil || none.State != "noBaseline" {
+		t.Fatalf("%+v %v", none, err)
+	}
+	if _, err := baselinesSaveHandler(d)(ctx, baselinesSaveInput{RunID: good.ID.String(), Name: "b"}, operator); err != nil {
+		t.Fatal(err)
+	}
+	compared, err := runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: seedCompletedRun(t, d, s, 1).ID.String()}, operator)
+	if err != nil || compared.State != "compared" || compared.HasRegression {
+		t.Fatalf("nothing regressed: %+v %v", compared, err)
+	}
+	for name, v := range map[string]RegressionView{"noBaseline": none, "compared": compared} {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		for key, open := range map[string]byte{"dimensionDeltas": '{', "regressedCases": '[', "missingCases": '[', "newCases": '[', "missingDimensions": '['} {
+			val, ok := m[key]
+			if !ok || len(val) == 0 || val[0] != open {
+				t.Errorf("%s: %s must be present and a %c collection, got %s (present=%v)", name, key, open, val, ok)
+			}
+		}
 	}
 }

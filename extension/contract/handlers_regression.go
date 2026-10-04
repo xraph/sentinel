@@ -32,11 +32,11 @@ type RegressionView struct {
 	WorstDelta        *float64            `json:"worstDelta,omitempty"`
 	PassRateDelta     float64             `json:"passRateDelta"`
 	AvgScoreDelta     float64             `json:"avgScoreDelta"`
-	DimensionDeltas   map[string]float64  `json:"dimensionDeltas,omitempty"`
-	RegressedCases    []RegressedCaseView `json:"regressedCases,omitempty"`
-	MissingCases      []CaseNameView      `json:"missingCases,omitempty"`
-	NewCases          []CaseNameView      `json:"newCases,omitempty"`
-	MissingDimensions []string            `json:"missingDimensions,omitempty"`
+	DimensionDeltas   map[string]float64  `json:"dimensionDeltas"`
+	RegressedCases    []RegressedCaseView `json:"regressedCases"`
+	MissingCases      []CaseNameView      `json:"missingCases"`
+	NewCases          []CaseNameView      `json:"newCases"`
+	MissingDimensions []string            `json:"missingDimensions"`
 }
 
 // RegressedCaseView is a case that fell beyond the threshold.
@@ -151,18 +151,31 @@ func (d Deps) baselineInApp(ctx context.Context, app, rawID string) (*baseline.B
 	return b, s, nil
 }
 
+// regressionState starts a view with the five client-iterated collections
+// empty rather than nil, so every answer sends {} and [] and never null.
+func regressionState(state, reason string) RegressionView {
+	return RegressionView{
+		State: state, Reason: reason, DimensionDeltas: map[string]float64{}, RegressedCases: []RegressedCaseView{},
+		MissingCases: []CaseNameView{}, NewCases: []CaseNameView{}, MissingDimensions: []string{},
+	}
+}
+
 // regressionFor compares a run with a baseline: the one named, or the
 // suite's current one. The threshold comes from the override, else the
 // run's recorded regression_threshold, else config, and the answer names
 // which.
 func (d Deps) regressionFor(ctx context.Context, app string, r *evalrun.Run, baselineID string, override *float64) (RegressionView, error) {
 	switch r.State {
+	case evalrun.StateCompleted:
 	case evalrun.StateRunning:
-		return RegressionView{State: "running"}, nil
+		return regressionState("running", ""), nil
 	case evalrun.StateFailed:
-		return RegressionView{State: "notComparable", Reason: "runFailed"}, nil
+		return regressionState("notComparable", "runFailed"), nil
 	case evalrun.StateCancelled:
-		return RegressionView{State: "notComparable", Reason: "runCancelled"}, nil
+		return regressionState("notComparable", "runCancelled"), nil
+	default:
+		// Fail closed: a state this code does not know is never compared.
+		return regressionState("notComparable", "unknownState"), nil
 	}
 	var b *baseline.Baseline
 	if baselineID != "" {
@@ -171,13 +184,13 @@ func (d Deps) regressionFor(ctx context.Context, app string, r *evalrun.Run, bas
 			return RegressionView{}, err
 		}
 		if got.SuiteID.String() != r.SuiteID.String() {
-			return RegressionView{State: "notComparable", Reason: "otherSuite"}, nil
+			return regressionState("notComparable", "otherSuite"), nil
 		}
 		b = got
 	} else {
 		got, err := d.Engine.GetLatestBaseline(ctx, r.SuiteID)
 		if errors.Is(err, sentinel.ErrBaselineNotFound) {
-			return RegressionView{State: "noBaseline"}, nil
+			return regressionState("noBaseline", ""), nil
 		}
 		if err != nil {
 			return RegressionView{}, err
@@ -201,11 +214,15 @@ func (d Deps) regressionFor(ctx context.Context, app string, r *evalrun.Run, bas
 	}
 	rr := baseline.DetectRegression(stats, results, b, threshold)
 	worst := rr.WorstDelta()
-	v := RegressionView{
-		State: "compared", Baseline: &BaselineRef{ID: b.ID.String(), Name: b.Name, PassRate: b.PassRate},
-		Threshold: &threshold, ThresholdSource: source, HasRegression: rr.HasRegression, WorstDelta: &worst,
-		PassRateDelta: rr.PassRateDelta, AvgScoreDelta: rr.AvgScoreDelta, DimensionDeltas: rr.DimensionDeltas,
-		MissingDimensions: rr.MissingDimensions,
+	v := regressionState("compared", "")
+	v.Baseline = &BaselineRef{ID: b.ID.String(), Name: b.Name, PassRate: b.PassRate}
+	v.Threshold, v.ThresholdSource, v.HasRegression, v.WorstDelta = &threshold, source, rr.HasRegression, &worst
+	v.PassRateDelta, v.AvgScoreDelta = rr.PassRateDelta, rr.AvgScoreDelta
+	if rr.DimensionDeltas != nil {
+		v.DimensionDeltas = rr.DimensionDeltas
+	}
+	if rr.MissingDimensions != nil {
+		v.MissingDimensions = rr.MissingDimensions
 	}
 	for _, c := range rr.RegressedCases {
 		v.RegressedCases = append(v.RegressedCases, RegressedCaseView{CaseID: c.CaseID, CaseName: c.CaseName, OldScore: c.OldScore, NewScore: c.NewScore, Delta: c.Delta})
