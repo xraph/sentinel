@@ -62,6 +62,12 @@ func Register(d *dispatcher.Dispatcher, reg dashcontract.Registry, wreg dashcont
 		func() error { return command(d, "suites.create", suitesCreateHandler(deps)) },
 		func() error { return command(d, "suites.update", suitesUpdateHandler(deps)) },
 		func() error { return command(d, "suites.delete", suitesDeleteHandler(deps)) },
+		func() error { return query(d, "cases.list", casesListHandler(deps)) },
+		func() error { return query(d, "cases.detail", casesDetailHandler(deps)) },
+		func() error { return command(d, "cases.create", casesCreateHandler(deps)) },
+		func() error { return command(d, "cases.update", casesUpdateHandler(deps)) },
+		func() error { return command(d, "cases.delete", casesDeleteHandler(deps)) },
+		func() error { return command(d, "cases.import", casesImportHandler(deps)) },
 	} {
 		if err := bind(); err != nil {
 			return fmt.Errorf("sentinel/contract: %w", err)
