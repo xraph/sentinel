@@ -171,7 +171,10 @@ func (s *Store) ListSuites(_ context.Context, filter *suite.ListFilter) ([]*suit
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.Before(result[j].CreatedAt)
 	})
-	if filter != nil && filter.Offset > 0 && filter.Offset < len(result) {
+	if filter != nil && filter.Offset > 0 {
+		if filter.Offset >= len(result) {
+			return []*suite.Suite{}, nil
+		}
 		result = result[filter.Offset:]
 	}
 	if filter != nil && filter.Limit > 0 && filter.Limit < len(result) {
@@ -366,7 +369,10 @@ func (s *Store) ListRuns(_ context.Context, filter *evalrun.ListFilter) ([]*eval
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.After(result[j].CreatedAt)
 	})
-	if filter != nil && filter.Offset > 0 && filter.Offset < len(result) {
+	if filter != nil && filter.Offset > 0 {
+		if filter.Offset >= len(result) {
+			return []*evalrun.Run{}, nil
+		}
 		result = result[filter.Offset:]
 	}
 	if filter != nil && filter.Limit > 0 && filter.Limit < len(result) {

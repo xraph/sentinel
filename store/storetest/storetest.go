@@ -31,4 +31,5 @@ func Run(t *testing.T, newStore Factory) {
 	t.Run("FinalizeKeepsCancel", func(t *testing.T) { testFinalizeKeepsCancel(t, newStore(t)) })
 	t.Run("FinalizeRecordsFailure", func(t *testing.T) { testFinalizeRecordsFailure(t, newStore(t)) })
 	t.Run("ConcurrentResultWrites", func(t *testing.T) { testConcurrentResultWrites(t, newStore(t)) })
+	t.Run("OffsetPastEndIsEmpty", func(t *testing.T) { testOffsetPastEndIsEmpty(t, newStore(t)) })
 }

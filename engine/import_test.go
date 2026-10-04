@@ -40,8 +40,8 @@ func TestImportRefusals(t *testing.T) {
 	if _, err := e.ImportCases(bg(), s.ID, "json", []byte("[]")); !errors.Is(err, sentinel.ErrEmptyInput) {
 		t.Errorf("empty: %v", err)
 	}
-	if _, err := e.ImportCases(bg(), s.ID, "json", []byte("{nope")); err == nil {
-		t.Error("malformed json must fail")
+	if _, err := e.ImportCases(bg(), s.ID, "json", []byte("{nope")); !errors.Is(err, sentinel.ErrInvalidInput) {
+		t.Errorf("malformed json must be ErrInvalidInput, so the dashboard answers BAD_REQUEST: %v", err)
 	}
 	if _, err := e.ImportCases(bg(), id.NewSuiteID(), "json", []byte(`[{"name":"a","input":"x"}]`)); !errors.Is(err, sentinel.ErrSuiteNotFound) {
 		t.Errorf("missing suite: %v", err)

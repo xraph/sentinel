@@ -308,7 +308,7 @@ func (e *Engine) ImportCases(ctx context.Context, suiteID id.SuiteID, format str
 		return 0, fmt.Errorf("%w %q: use json, csv or jsonl", sentinel.ErrUnsupportedFormat, format)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("sentinel: parse %s: %w", format, err)
+		return 0, fmt.Errorf("%w: parse %s: %w", sentinel.ErrInvalidInput, format, err)
 	}
 	if len(cases) == 0 {
 		return 0, sentinel.ErrEmptyInput

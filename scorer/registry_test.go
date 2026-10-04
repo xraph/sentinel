@@ -2,6 +2,7 @@ package scorer
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -105,6 +106,20 @@ func TestRequiresConfigMarksExactlyTheFour(t *testing.T) {
 	for _, d := range NewRegistry().Descriptors() {
 		if d.RequiresConfig != want[d.Name] {
 			t.Errorf("%s: RequiresConfig = %v, want %v", d.Name, d.RequiresConfig, want[d.Name])
+		}
+	}
+}
+
+// Mongo decodes small integers as int32, so a latency config written from
+// Go as max_ms: 500 comes back as int32(500). It is still a valid config.
+func TestNumberConfigAcceptsEveryBackendsNumbers(t *testing.T) {
+	r := NewRegistry()
+	for name, v := range map[string]any{
+		"float64": float64(500), "float32": float32(500), "int": 500,
+		"int32": int32(500), "int64": int64(500), "json.Number": json.Number("500"),
+	} {
+		if _, err := r.Get("latency", map[string]any{"max_ms": v}); err != nil {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }

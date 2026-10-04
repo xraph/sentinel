@@ -1,6 +1,7 @@
 package scorer
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -159,16 +160,24 @@ func missingConfig(scorer, key string) error {
 	return fmt.Errorf("scorer %s: missing required config: %s", scorer, key)
 }
 
-// number reads a numeric config value. JSON decodes numbers as float64;
-// Go callers often pass ints.
+// number reads a numeric config value whatever decoded it: JSON gives
+// float64, Go callers pass int or int64, and mongo returns small integers
+// as int32.
 func number(config map[string]any, key string) (float64, bool) {
 	switch v := config[key].(type) {
 	case float64:
 		return v, true
+	case float32:
+		return float64(v), true
 	case int:
+		return float64(v), true
+	case int32:
 		return float64(v), true
 	case int64:
 		return float64(v), true
+	case json.Number:
+		f, err := v.Float64()
+		return f, err == nil
 	default:
 		return 0, false
 	}
