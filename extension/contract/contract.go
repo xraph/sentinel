@@ -83,6 +83,10 @@ func Register(d *dispatcher.Dispatcher, reg dashcontract.Registry, wreg dashcont
 		func() error { return query(d, "baselines.detail", baselinesDetailHandler(deps)) },
 		func() error { return command(d, "baselines.save", baselinesSaveHandler(deps)) },
 		func() error { return command(d, "baselines.delete", baselinesDeleteHandler(deps)) },
+		func() error { return command(d, "runs.start", runsStartHandler(deps)) },
+		func() error { return command(d, "runs.cancel", runsCancelHandler(deps)) },
+		func() error { return command(d, "redteam.generate", redteamGenerateHandler(deps)) },
+		func() error { return query(d, "redteam.report", redteamReportHandler(deps)) },
 	} {
 		if err := bind(); err != nil {
 			return fmt.Errorf("sentinel/contract: %w", err)

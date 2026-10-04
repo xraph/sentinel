@@ -16,7 +16,7 @@ intents:
   - { name: suites.detail, kind: query,   version: 1, capability: read }
   - { name: suites.create, kind: command, version: 1, capability: write, invalidates: [suites.list] }
   - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, runs.list, runs.detail, baselines.list, baselines.detail, runs.trend] }
-  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail, runs.list, runs.results, results.detail, runs.detail, runs.regression, runs.trend, runs.compare, baselines.list, baselines.detail] }
+  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail, runs.list, runs.results, results.detail, runs.detail, runs.regression, runs.trend, runs.compare, redteam.report, baselines.list, baselines.detail] }
   - { name: cases.list,   kind: query,   version: 1, capability: read }
   - { name: cases.detail, kind: query,   version: 1, capability: read }
   - { name: cases.create, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail] }
@@ -38,6 +38,10 @@ intents:
   - { name: baselines.detail, kind: query,   version: 1, capability: read }
   - { name: baselines.save,   kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression, runs.trend] }
   - { name: baselines.delete, kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression, runs.trend] }
+  - { name: runs.start,       kind: command, version: 1, capability: write, invalidates: [runs.list, suites.detail, prompts.list, prompts.detail] }
+  - { name: runs.cancel,      kind: command, version: 1, capability: write, invalidates: [runs.list, runs.detail, runs.results, runs.regression] }
+  - { name: redteam.generate, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail] }
+  - { name: redteam.report,   kind: query,   version: 1, capability: read }
 
 queries:
   configGet:
@@ -87,4 +91,7 @@ queries:
     cache: { staleTime: 30s }
   baselinesDetail:
     intent: baselines.detail
+    cache: { staleTime: 60s }
+  redteamReport:
+    intent: redteam.report
     cache: { staleTime: 60s }
