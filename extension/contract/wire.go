@@ -30,3 +30,11 @@ func stringsOrEmpty(s []string) []string {
 	}
 	return s
 }
+
+// mapOrEmpty keeps a nil map from reaching the client as null.
+func mapOrEmpty(m map[string]any) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
+}

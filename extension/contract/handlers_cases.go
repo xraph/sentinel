@@ -18,8 +18,8 @@ import (
 // more often than a suite.
 const maxImportBytes = 1 << 20
 
-// CaseView is a test case. A leakage red-team case's scorer substring is
-// the system prompt it looks for, so it is redacted to its length.
+// CaseView is a test case. A red-team case's not_contains substring is the
+// system prompt it looks for, so it is redacted to its length.
 type CaseView struct {
 	ID           string             `json:"id"`
 	SuiteID      string             `json:"suiteId"`
@@ -29,8 +29,8 @@ type CaseView struct {
 	ScenarioType string             `json:"scenarioType"`
 	Tags         []string           `json:"tags"`
 	Scorers      []ScorerConfigView `json:"scorers"`
-	Context      map[string]any     `json:"context,omitempty"`
-	Metadata     map[string]any     `json:"metadata,omitempty"`
+	Context      map[string]any     `json:"context"`
+	Metadata     map[string]any     `json:"metadata"`
 	RedTeam      *RedTeamRef        `json:"redTeam,omitempty"`
 	CreatedAt    string             `json:"createdAt"`
 	UpdatedAt    string             `json:"updatedAt"`
@@ -39,7 +39,7 @@ type CaseView struct {
 // ScorerConfigView is a case's scorer config as the client may see it.
 type ScorerConfigView struct {
 	Name     string         `json:"name"`
-	Config   map[string]any `json:"config,omitempty"`
+	Config   map[string]any `json:"config"`
 	Redacted *Redaction     `json:"redacted,omitempty"`
 }
 
@@ -125,22 +125,32 @@ func attackTypeOf(tc *testcase.Case) string {
 	return "unknown"
 }
 
+// promptHidden reports whether the case's scorers may embed the system
+// prompt under test. It reads the stored Context, which no contract write
+// can change, never the tags a client can edit.
+func promptHidden(tc *testcase.Case) bool {
+	at, ok := tc.Context["attack_type"].(string)
+	return ok && at != ""
+}
+
+// scorerViews copies each scorer's config for the client. Under a red-team
+// case every not_contains substring (leakage and injection cases both put
+// the system prompt there) is replaced by its length. The stored config is
+// never modified.
 func scorerViews(tc *testcase.Case) []ScorerConfigView {
-	leakage := attackTypeOf(tc) == "leakage"
+	hide := promptHidden(tc)
 	out := make([]ScorerConfigView, 0, len(tc.Scorers))
 	for _, sc := range tc.Scorers {
-		v := ScorerConfigView{Name: sc.Name, Config: sc.Config}
-		if leakage {
-			if secret, ok := sc.Config["substring"].(string); ok {
-				clean := make(map[string]any, len(sc.Config))
-				for k, val := range sc.Config {
-					if k != "substring" {
-						clean[k] = val
-					}
+		v := ScorerConfigView{Name: sc.Name, Config: mapOrEmpty(sc.Config)}
+		if secret, ok := sc.Config["substring"].(string); ok && hide && sc.Name == "not_contains" {
+			clean := make(map[string]any, len(sc.Config))
+			for k, val := range sc.Config {
+				if k != "substring" {
+					clean[k] = val
 				}
-				v.Config = clean
-				v.Redacted = &Redaction{Key: "substring", Length: utf8.RuneCountInString(secret)}
 			}
+			v.Config = clean
+			v.Redacted = &Redaction{Key: "substring", Length: utf8.RuneCountInString(secret)}
 		}
 		out = append(out, v)
 	}
@@ -151,7 +161,7 @@ func caseView(tc *testcase.Case) CaseView {
 	v := CaseView{
 		ID: tc.ID.String(), SuiteID: tc.SuiteID.String(), Name: tc.Name, Input: tc.Input, Expected: tc.Expected,
 		ScenarioType: string(tc.ScenarioType), Tags: stringsOrEmpty(tc.Tags), Scorers: scorerViews(tc),
-		Context: tc.Context, Metadata: tc.Metadata, CreatedAt: ts(tc.CreatedAt), UpdatedAt: ts(tc.UpdatedAt),
+		Context: mapOrEmpty(tc.Context), Metadata: mapOrEmpty(tc.Metadata), CreatedAt: ts(tc.CreatedAt), UpdatedAt: ts(tc.UpdatedAt),
 	}
 	if at := attackTypeOf(tc); at != "" {
 		v.RedTeam = &RedTeamRef{AttackType: at}
@@ -292,6 +302,8 @@ func casesUpdateHandler(d Deps) func(context.Context, casesUpdateInput, dashcont
 		if err != nil {
 			return CaseView{}, d.fail("cases.update", err)
 		}
+		// Decided from the case as loaded, before any request field is applied.
+		hide := promptHidden(tc)
 		if in.Name != nil {
 			if strings.TrimSpace(*in.Name) == "" {
 				return CaseView{}, badRequest("a case needs a name")
@@ -319,13 +331,13 @@ func casesUpdateHandler(d Deps) func(context.Context, casesUpdateInput, dashcont
 		}
 		if in.Scorers != nil {
 			submitted := *in.Scorers
-			// The client only ever saw a leakage substring redacted. A
+			// The client only ever saw a red-team substring redacted. A
 			// submitted not_contains config without one keeps the stored
 			// substring rather than wiping the check.
-			if attackTypeOf(tc) == "leakage" {
+			if hide {
 				stored := ""
 				for _, sc := range tc.Scorers {
-					if s, ok := sc.Config["substring"].(string); ok {
+					if s, ok := sc.Config["substring"].(string); ok && sc.Name == "not_contains" {
 						stored = s
 					}
 				}
