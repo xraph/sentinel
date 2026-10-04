@@ -1,0 +1,19 @@
+schemaVersion: 1
+contributor:
+  name: sentinel
+  envelope:
+    supports: [v1]
+    preferred: v1
+  capabilities: [sentinel.read, sentinel.write]
+
+# No intent takes an app id. Every handler resolves the app from the
+# principal's app_id claim or the extension's dashboard_app_id, and refuses
+# when it can resolve neither: an empty app id matches every app in every
+# store (store/storetest/tenancy.go records it).
+intents:
+  - { name: config.get, kind: query, version: 1, capability: read }
+
+queries:
+  configGet:
+    intent: config.get
+    cache: { staleTime: 60s }

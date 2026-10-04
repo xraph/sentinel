@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/xraph/forge"
+	dashcontract "github.com/xraph/forge/extensions/dashboard/contract"
+	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	log "github.com/xraph/go-utils/log"
 	"github.com/xraph/grove"
 	"github.com/xraph/vessel"
@@ -14,6 +16,7 @@ import (
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/api"
 	"github.com/xraph/sentinel/engine"
+	sentinelcontract "github.com/xraph/sentinel/extension/contract"
 	"github.com/xraph/sentinel/store"
 	mongostore "github.com/xraph/sentinel/store/mongo"
 	pgstore "github.com/xraph/sentinel/store/postgres"
@@ -156,6 +159,30 @@ func (e *Extension) Start(ctx context.Context) error {
 	}
 
 	e.MarkStarted()
+	return nil
+}
+
+// RegisterContractContributor implements dashboard.ContractContributorAware:
+// it registers the sentinel contract contributor the React shell reads.
+// The templ DashboardContributor stays until the React pages replace it.
+func (e *Extension) RegisterContractContributor(
+	disp *dispatcher.Dispatcher,
+	reg dashcontract.Registry,
+	wreg dashcontract.WardenRegistry,
+) error {
+	if e.eng == nil {
+		if logger := e.Logger(); logger != nil {
+			logger.Warn("sentinel: not initialised; skipping contract contributor registration")
+		}
+		return nil
+	}
+	deps := sentinelcontract.Deps{Engine: e.eng, DashboardAppID: e.config.DashboardAppID}
+	if logger := e.Logger(); logger != nil {
+		deps.Logger = logger
+	}
+	if err := sentinelcontract.Register(disp, reg, wreg, deps); err != nil {
+		return fmt.Errorf("sentinel: register contract contributor: %w", err)
+	}
 	return nil
 }
 
