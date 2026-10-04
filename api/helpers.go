@@ -16,7 +16,8 @@ func mapStoreError(err error) error {
 	if errors.Is(err, sentinel.ErrSuiteAlreadyExists) {
 		return forge.BadRequest(err.Error())
 	}
-	if errors.Is(err, sentinel.ErrEmptyInput) || errors.Is(err, sentinel.ErrNoTarget) || errors.Is(err, sentinel.ErrNoScorers) {
+	if errors.Is(err, sentinel.ErrEmptyInput) || errors.Is(err, sentinel.ErrNoTarget) || errors.Is(err, sentinel.ErrNoScorers) ||
+		errors.Is(err, sentinel.ErrInvalidInput) || errors.Is(err, sentinel.ErrUnsupportedFormat) {
 		return forge.BadRequest(err.Error())
 	}
 	if errors.Is(err, sentinel.ErrInvalidState) {
