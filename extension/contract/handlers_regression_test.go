@@ -184,7 +184,7 @@ func TestRegressionViewsAlwaysSendTheirCollections(t *testing.T) {
 	if err != nil || none.State != "noBaseline" {
 		t.Fatalf("%+v %v", none, err)
 	}
-	if _, err := baselinesSaveHandler(d)(ctx, baselinesSaveInput{RunID: good.ID.String(), Name: "b"}, operator); err != nil {
+	if _, err = baselinesSaveHandler(d)(ctx, baselinesSaveInput{RunID: good.ID.String(), Name: "b"}, operator); err != nil {
 		t.Fatal(err)
 	}
 	compared, err := runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: seedCompletedRun(t, d, s, 1).ID.String()}, operator)
