@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/xraph/sentinel"
@@ -61,6 +62,23 @@ func TestLeakageNeedsAPrompt(t *testing.T) {
 	}
 	if stored, _ := e.ListCases(bg(), s.ID); len(stored) != 0 {
 		t.Fatalf("a refusal must write nothing, not even the injection cases: %d", len(stored))
+	}
+}
+
+// Injection cases look for the prompt in the output like leakage cases do,
+// and an empty substring matches every output.
+func TestInjectionNeedsAPrompt(t *testing.T) {
+	e := newEngine(t)
+	s := seedSuite(t, e, "  ")
+	_, err := e.GenerateRedTeam(bg(), s.ID, []redteam.AttackType{redteam.AttackJailbreak, redteam.AttackInjection}, 2)
+	if !errors.Is(err, sentinel.ErrInvalidInput) {
+		t.Fatalf("want ErrInvalidInput, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "injection") {
+		t.Fatalf("the message must name the attack type: %v", err)
+	}
+	if stored, _ := e.ListCases(bg(), s.ID); len(stored) != 0 {
+		t.Fatalf("a refusal must write nothing, not even the jailbreak cases: %d", len(stored))
 	}
 }
 

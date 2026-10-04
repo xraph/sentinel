@@ -176,7 +176,7 @@ func (e *Engine) planRun(ctx context.Context, suiteID id.SuiteID, model, persona
 		return nil, fmt.Errorf("sentinel: load cases: %w", err)
 	}
 	if len(cases) == 0 {
-		return nil, sentinel.ErrEmptyInput
+		return nil, fmt.Errorf("%w: the suite has no cases", sentinel.ErrEmptyInput)
 	}
 	prompt, pvID, err := e.effectivePrompt(ctx, s)
 	if err != nil {
@@ -330,7 +330,10 @@ func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64, cau
 	if err != nil {
 		e.logger.Warn("sentinel: read result stats", log.String("run_id", run.ID.String()), log.String("error", err.Error()))
 		stats = &evalrun.ResultStats{DimensionScores: map[string]float64{}}
-		failures = append(failures, "result stats could not be read: "+err.Error())
+		// The run row is shown to dashboard users and the store's error can
+		// carry a connection string, so the row gets a generic message. The
+		// cause is in the log line above.
+		failures = append(failures, "result stats could not be read")
 	}
 	if unwritten > 0 {
 		failures = append(failures, fmt.Sprintf("%d of %d results could not be stored", unwritten, run.TotalCases))

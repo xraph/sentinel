@@ -15,10 +15,10 @@ import (
 // redteam.MaxPerType per type. It validates every type before generating
 // anything, so a refusal writes nothing.
 //
-// Leakage cases carry the suite's effective prompt as the substring their
-// not_contains scorer looks for. With no prompt that scorer falls back to
-// the case's Expected text and checks the wrong thing, so leakage is refused
-// for a suite without one.
+// Leakage and injection cases carry the suite's effective prompt as the
+// substring their not_contains scorer looks for. With no prompt that scorer
+// falls back to the case's Expected text and checks the wrong thing, so both
+// are refused for a suite without one.
 func (e *Engine) GenerateRedTeam(ctx context.Context, suiteID id.SuiteID, types []redteam.AttackType, count int) ([]*testcase.Case, error) {
 	if e.store == nil {
 		return nil, sentinel.ErrNoStore
@@ -47,8 +47,8 @@ func (e *Engine) GenerateRedTeam(ctx context.Context, suiteID id.SuiteID, types 
 		if !ok {
 			return nil, fmt.Errorf("%w: unknown attack type %q", sentinel.ErrInvalidInput, t)
 		}
-		if t == redteam.AttackLeakage && strings.TrimSpace(prompt) == "" {
-			return nil, fmt.Errorf("%w: leakage attacks need a system prompt to look for, and this suite has none", sentinel.ErrInvalidInput)
+		if (t == redteam.AttackLeakage || t == redteam.AttackInjection) && strings.TrimSpace(prompt) == "" {
+			return nil, fmt.Errorf("%w: %s attacks need a system prompt to look for, and this suite has none", sentinel.ErrInvalidInput, t)
 		}
 		generators = append(generators, g)
 	}

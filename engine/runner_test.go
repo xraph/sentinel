@@ -142,6 +142,11 @@ func TestStartRunRefusesBeforeWritingAnything(t *testing.T) {
 			t.Errorf("%s: want %v, got %v", c.name, c.want, err)
 		}
 	}
+	// The dashboard shows this text to the caller, so it must say why.
+	_, err := e.StartRun(bg(), &engine.StartConfig{SuiteID: empty.ID, Target: "gated", Scorers: []string{"good"}})
+	if err == nil || !strings.Contains(err.Error(), "the suite has no cases") {
+		t.Errorf("a no-cases refusal must say why: %v", err)
+	}
 	if runs, _ := e.ListRuns(bg(), &evalrun.ListFilter{}); len(runs) != 0 {
 		t.Fatalf("a refused start must write no run, found %d", len(runs))
 	}
@@ -303,13 +308,18 @@ func TestUnreadableStatsFailTheRun(t *testing.T) {
 	if err == nil {
 		t.Fatal("RunEval must report the failure")
 	}
-	want := "result stats could not be read: connection reset"
+	// The run row is shown to dashboard users, so it carries a generic
+	// message; the cause goes to the engine logger only.
+	want := "result stats could not be read"
 	if res == nil || res.Run.State != evalrun.StateFailed || res.Run.Error != want {
 		t.Fatalf("run: %+v", res)
 	}
 	stored, gerr := st.GetRun(bg(), res.Run.ID)
 	if gerr != nil || stored.State != evalrun.StateFailed || stored.Error != want {
 		t.Fatalf("stored run: %+v %v", stored, gerr)
+	}
+	if strings.Contains(stored.Error, "connection reset") {
+		t.Fatalf("the store's error text must not reach the run row: %q", stored.Error)
 	}
 }
 

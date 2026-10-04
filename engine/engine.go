@@ -311,7 +311,18 @@ func (e *Engine) ImportCases(ctx context.Context, suiteID id.SuiteID, format str
 		return 0, fmt.Errorf("%w: parse %s: %w", sentinel.ErrInvalidInput, format, err)
 	}
 	if len(cases) == 0 {
-		return 0, sentinel.ErrEmptyInput
+		return 0, fmt.Errorf("%w: the data holds no cases", sentinel.ErrEmptyInput)
+	}
+	// A case without a name or an input would make every run of it an
+	// error. Refuse the whole import before writing anything, and name the
+	// row (counted from 1, in the order the cases were parsed).
+	for i, tc := range cases {
+		if strings.TrimSpace(tc.Name) == "" {
+			return 0, fmt.Errorf("%w: row %d has no name", sentinel.ErrInvalidInput, i+1)
+		}
+		if strings.TrimSpace(tc.Input) == "" {
+			return 0, fmt.Errorf("%w: row %d has no input", sentinel.ErrInvalidInput, i+1)
+		}
 	}
 	for _, tc := range cases {
 		if tc.ID.String() == "" {
