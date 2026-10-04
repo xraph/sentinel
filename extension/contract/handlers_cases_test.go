@@ -178,6 +178,8 @@ func TestCasesRefuseOtherApps(t *testing.T) {
 	wantCode(t, err, "NOT_FOUND")
 	_, err = casesDetailHandler(d)(ctx, caseRef{CaseID: tc.ID.String()}, operator)
 	wantCode(t, err, "NOT_FOUND")
+	_, missing := casesDetailHandler(d)(ctx, caseRef{CaseID: id.NewCaseID().String()}, operator)
+	wantSameNotFound(t, missing, err)
 	_, err = casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: tc.ID.String(), Name: strPtr("x")}, operator)
 	wantCode(t, err, "NOT_FOUND")
 	_, err = casesDeleteHandler(d)(ctx, caseRef{CaseID: tc.ID.String()}, operator)

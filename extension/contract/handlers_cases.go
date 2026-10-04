@@ -184,7 +184,13 @@ func (d Deps) caseInApp(ctx context.Context, app, rawID string) (*testcase.Case,
 		return nil, err
 	}
 	if _, err := d.suiteInApp(ctx, app, tc.SuiteID.String()); err != nil {
-		return nil, notFound("case not found")
+		// Only a NOT_FOUND collapses into the case's own answer. A store
+		// failure goes back unchanged so the handler's fail maps and logs it.
+		var ce *dashcontract.Error
+		if errors.As(err, &ce) && ce.Code == dashcontract.CodeNotFound {
+			return nil, notFound("case not found")
+		}
+		return nil, err
 	}
 	return tc, nil
 }

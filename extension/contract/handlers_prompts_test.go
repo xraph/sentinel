@@ -3,6 +3,8 @@ package contract
 import (
 	"context"
 	"testing"
+
+	"github.com/xraph/sentinel/id"
 )
 
 func TestPromptVersionsLifecycle(t *testing.T) {
@@ -47,6 +49,10 @@ func TestPromptVersionsRefuseOtherApps(t *testing.T) {
 	}
 	_, err = promptsDetailHandler(d)(ctx, versionRef{VersionID: other.ID}, operator)
 	wantCode(t, err, "NOT_FOUND")
+	_, missing := promptsDetailHandler(d)(ctx, versionRef{VersionID: id.NewPromptVersionID().String()}, operator)
+	wantSameNotFound(t, missing, err)
+	_, malformed := promptsDetailHandler(d)(ctx, versionRef{VersionID: "not-an-id"}, operator)
+	wantSameNotFound(t, malformed, err)
 	_, err = promptsSetCurrentHandler(d)(ctx, promptsSetCurrentInput{SuiteID: mine.ID.String(), VersionID: other.ID}, operator)
 	wantCode(t, err, "NOT_FOUND")
 }

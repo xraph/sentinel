@@ -114,7 +114,13 @@ func (d Deps) versionInApp(ctx context.Context, app, rawID string) (*promptversi
 	}
 	s, err := d.suiteInApp(ctx, app, pv.SuiteID.String())
 	if err != nil {
-		return nil, nil, notFound("prompt version not found")
+		// Only a NOT_FOUND collapses into the version's own answer. A store
+		// failure goes back unchanged so the handler's fail maps and logs it.
+		var ce *dashcontract.Error
+		if errors.As(err, &ce) && ce.Code == dashcontract.CodeNotFound {
+			return nil, nil, notFound("prompt version not found")
+		}
+		return nil, nil, err
 	}
 	return pv, s, nil
 }

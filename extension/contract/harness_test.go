@@ -31,6 +31,22 @@ func newTestDeps(t *testing.T, opts ...engine.Option) Deps {
 	return Deps{Engine: eng, DashboardAppID: testApp}
 }
 
+// wantSameNotFound asserts a missing id and another app's id are
+// indistinguishable to the caller: both NOT_FOUND with the same message.
+func wantSameNotFound(t *testing.T, missing, other error) {
+	t.Helper()
+	var m, o *dashcontract.Error
+	if !errors.As(missing, &m) || m.Code != dashcontract.CodeNotFound {
+		t.Fatalf("missing id: want NOT_FOUND, got %v", missing)
+	}
+	if !errors.As(other, &o) || o.Code != dashcontract.CodeNotFound {
+		t.Fatalf("other app's id: want NOT_FOUND, got %v", other)
+	}
+	if m.Message != o.Message {
+		t.Fatalf("the two answers differ: %q vs %q", m.Message, o.Message)
+	}
+}
+
 func wantCode(t *testing.T, err error, code dashcontract.ErrorCode) {
 	t.Helper()
 	var ce *dashcontract.Error
