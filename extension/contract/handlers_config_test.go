@@ -4,18 +4,24 @@ import (
 	"context"
 	"testing"
 
+	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/engine"
 	"github.com/xraph/sentinel/scorer"
 )
 
 func TestConfigGet(t *testing.T) {
-	deps := newTestDeps(t, engine.WithScorer(scorer.Descriptor{Name: "judge", Description: "LLM judge", Dimension: "persona", UsesLLM: true},
+	cfg := sentinel.DefaultConfig()
+	cfg.DefaultModel, cfg.Temperature = "custom-model", 0.35
+	deps := newTestDeps(t, engine.WithConfig(cfg), engine.WithScorer(scorer.Descriptor{Name: "judge", Description: "LLM judge", Dimension: "persona", UsesLLM: true},
 		func(map[string]any) (scorer.Scorer, error) {
 			return scorer.FromFunc("judge", func(context.Context, *scorer.Input) (*scorer.Output, error) { return &scorer.Output{Score: 1}, nil }), nil
 		}))
 	got, err := configGetHandler(deps)(context.Background(), configGetInput{}, operator)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got.DefaultModel != "custom-model" || got.Temperature != 0.35 {
+		t.Fatalf("the configured model and temperature must be reported: %+v", got)
 	}
 	if got.PassThreshold != 0.7 || got.RegressionThreshold != 0.05 || got.Concurrency != 4 {
 		t.Fatalf("effective config: %+v", got)

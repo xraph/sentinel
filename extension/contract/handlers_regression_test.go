@@ -46,6 +46,14 @@ func TestRegressionStates(t *testing.T) {
 	// Review focus 5.
 	_, err = runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: bad.ID.String(), Threshold: float(1.5)}, operator)
 	wantCode(t, err, "BAD_REQUEST")
+	// The handler's bounds are 0 to 1 inclusive.
+	_, err = runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: bad.ID.String(), Threshold: float(-0.01)}, operator)
+	wantCode(t, err, "BAD_REQUEST")
+	for _, edge := range []float64{0, 1} {
+		if _, err = runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: bad.ID.String(), Threshold: float(edge)}, operator); err != nil {
+			t.Fatalf("threshold %v is inside the bounds: %v", edge, err)
+		}
+	}
 }
 
 func TestRegressionForNonCompletedRuns(t *testing.T) {
@@ -142,6 +150,21 @@ func TestBaselineInAnotherAppIsIndistinguishableFromMissing(t *testing.T) {
 	}
 	_, missing := baselinesDetailHandler(d)(ctx, baselineRef{BaselineID: id.NewBaselineID().String()}, operator)
 	_, foreign := baselinesDetailHandler(d)(ctx, baselineRef{BaselineID: other.ID.String()}, operator)
+	wantSameNotFound(t, missing, foreign)
+
+	_, missing = baselinesDeleteHandler(d)(ctx, baselineRef{BaselineID: id.NewBaselineID().String()}, operator)
+	_, foreign = baselinesDeleteHandler(d)(ctx, baselineRef{BaselineID: other.ID.String()}, operator)
+	wantSameNotFound(t, missing, foreign)
+	if got, gerr := d.Engine.GetBaseline(ctx, other.ID); gerr != nil || got.Name != "theirs" {
+		t.Fatalf("another app's baseline must survive a refused delete: %+v %v", got, gerr)
+	}
+
+	// A comparison against another app's baseline is refused the same way.
+	mine := seedSuite(t, d, testApp, "mine", "p")
+	seedCase(t, d, mine.ID, "x", "x")
+	myRun := seedCompletedRun(t, d, mine, 1)
+	_, missing = runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: myRun.ID.String(), BaselineID: id.NewBaselineID().String()}, operator)
+	_, foreign = runsRegressionHandler(d)(ctx, runsRegressionInput{RunID: myRun.ID.String(), BaselineID: other.ID.String()}, operator)
 	wantSameNotFound(t, missing, foreign)
 }
 

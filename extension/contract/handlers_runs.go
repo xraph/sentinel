@@ -55,10 +55,13 @@ type RunView struct {
 	TotalCost       float64            `json:"totalCost"`
 	DimensionScores map[string]float64 `json:"dimensionScores"`
 	Settings        RunSettingsView    `json:"settings"`
-	Error           string             `json:"error,omitempty"`
-	CreatedAt       string             `json:"createdAt"`
-	CompletedAt     *string            `json:"completedAt,omitempty"`
-	LastProgressAt  *string            `json:"lastProgressAt,omitempty"`
+	// Error is why the run failed, as the engine recorded it. The engine
+	// writes a generic message here for a store failure; it never carries
+	// store error text.
+	Error          string  `json:"error,omitempty"`
+	CreatedAt      string  `json:"createdAt"`
+	CompletedAt    *string `json:"completedAt,omitempty"`
+	LastProgressAt *string `json:"lastProgressAt,omitempty"`
 }
 
 // ResultRow is one case's result without its output, which can be large.
@@ -73,7 +76,11 @@ type ResultRow struct {
 	Cost            float64            `json:"cost"`
 	DimensionScores map[string]float64 `json:"dimensionScores"`
 	RedTeam         *RedTeamRef        `json:"redTeam,omitempty"`
-	Error           string             `json:"error,omitempty"`
+	// Error carries the target's own error text for this case (what
+	// target.Call returned), or the scorers' when one could not judge it,
+	// stored as written. It comes from the code under test and the judges,
+	// never from the store.
+	Error string `json:"error,omitempty"`
 }
 
 // ScorerResultView is one scorer's verdict on a case.

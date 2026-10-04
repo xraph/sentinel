@@ -81,8 +81,13 @@ func TestSuitesCreateUpdateDelete(t *testing.T) {
 func TestSuitesUpdateAndDeleteRefuseOtherApps(t *testing.T) {
 	d := newTestDeps(t)
 	theirs := seedSuite(t, d, "app_b", "theirs", "p")
-	_, err := suitesUpdateHandler(d)(context.Background(), suitesUpdateInput{SuiteID: theirs.ID.String(), Name: strPtr("x")}, operator)
+	_, err := suitesUpdateHandler(d)(context.Background(), suitesUpdateInput{SuiteID: theirs.ID.String(), Name: strPtr("x"), SystemPrompt: strPtr("hijacked")}, operator)
 	wantCode(t, err, "NOT_FOUND")
+	_, missing := suitesUpdateHandler(d)(context.Background(), suitesUpdateInput{SuiteID: id.NewSuiteID().String(), Name: strPtr("x")}, operator)
+	wantSameNotFound(t, missing, err)
+	if got, gerr := d.Engine.GetSuite(context.Background(), theirs.ID); gerr != nil || got.Name != "theirs" || got.SystemPrompt != "p" || got.AppID != "app_b" {
+		t.Fatalf("another app's suite must be unchanged after a refused update: %+v %v", got, gerr)
+	}
 	_, err = suitesDeleteHandler(d)(context.Background(), suiteRef{SuiteID: theirs.ID.String()}, operator)
 	wantCode(t, err, "NOT_FOUND")
 	if _, still := d.Engine.GetSuite(context.Background(), theirs.ID); still != nil {

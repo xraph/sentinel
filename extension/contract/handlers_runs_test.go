@@ -138,10 +138,69 @@ func TestRunReadsRefuseOtherApps(t *testing.T) {
 // evaluating anything.
 func seedRunningRun(t *testing.T, d Deps, s *suite.Suite) *evalrun.Run {
 	t.Helper()
+	return seedRunningRunOf(t, d, s, 1)
+}
+
+// seedRunningRunOf is seedRunningRun for a suite of totalCases cases.
+func seedRunningRunOf(t *testing.T, d Deps, s *suite.Suite, totalCases int) *evalrun.Run {
+	t.Helper()
 	r := &evalrun.Run{Entity: sentinel.NewEntity(), ID: id.NewEvalRunID(), SuiteID: s.ID, Model: "m", AppID: s.AppID,
-		TotalCases: 1, State: evalrun.StateRunning, Config: map[string]any{}, DimensionScores: map[string]float64{}}
+		TotalCases: totalCases, State: evalrun.StateRunning, Config: map[string]any{}, DimensionScores: map[string]float64{}}
 	if err := d.Engine.Store().CreateRun(context.Background(), r); err != nil {
 		t.Fatalf("seed running run: %v", err)
 	}
 	return r
+}
+
+// A running run's row counters are still zero: its progress lives in the
+// results stored so far. Both reads must report that progress, never the
+// zeroed row.
+func TestRunningRunCountersComeFromStoredResults(t *testing.T) {
+	d := newTestDeps(t)
+	ctx := context.Background()
+	s := seedSuite(t, d, testApp, "s", "p")
+	c1 := seedCase(t, d, s.ID, "a", "x")
+	seedCase(t, d, s.ID, "b", "y")
+	run := seedRunningRunOf(t, d, s, 2)
+
+	res := &evalrun.Result{Entity: sentinel.NewEntity(), ID: id.NewEvalResultID(), RunID: run.ID, CaseID: c1.ID, CaseName: c1.Name,
+		Status: evalrun.StatusPass, Score: 0.9, DimensionScores: map[string]float64{"skill": 0.9}, ScorerResults: []evalrun.ScorerResult{}}
+	if err := d.Engine.Store().CreateResult(ctx, res); err != nil {
+		t.Fatalf("seed result: %v", err)
+	}
+	// The store stamps CreatedAt itself, so read the stored value back.
+	got, err := d.Engine.ListResults(ctx, run.ID)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("stored results: %d %v", len(got), err)
+	}
+	stored := got[0].CreatedAt
+	if row, _ := d.Engine.GetRun(ctx, run.ID); row.Passed != 0 || row.PassRate != 0 || row.CompletedAt != nil {
+		t.Fatalf("the run row must still be zeroed for this test to mean anything: %+v", row)
+	}
+
+	check := func(where string, v RunView) {
+		t.Helper()
+		if v.State != "running" || v.TotalCases != 2 || v.CompletedCases != 1 || v.Passed != 1 || v.Failed != 0 || v.Errored != 0 || v.PassRate != 1 || v.AvgScore != 0.9 {
+			t.Fatalf("%s: counters must come from the stored result: %+v", where, v)
+		}
+		if v.DimensionScores["skill"] != 0.9 {
+			t.Fatalf("%s: dimension scores must come from the stored result: %+v", where, v.DimensionScores)
+		}
+	}
+	detail, err := runsDetailHandler(d)(ctx, runRef{RunID: run.ID.String()}, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("runs.detail", detail.Run)
+	if detail.Run.LastProgressAt == nil || *detail.Run.LastProgressAt != ts(stored) {
+		t.Fatalf("lastProgressAt must be the stored result's timestamp %s: %v", ts(stored), detail.Run.LastProgressAt)
+	}
+	if detail.Regression.State != "running" {
+		t.Fatalf("a running run has no verdict yet: %+v", detail.Regression)
+	}
+	list, err := runsListHandler(d)(ctx, runsListInput{SuiteID: s.ID.String()}, operator)
+	if err != nil || len(list.Items) != 1 {
+		t.Fatalf("list: %+v %v", list, err)
+	}
+	check("runs.list", list.Items[0])
 }
