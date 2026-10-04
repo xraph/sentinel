@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	dashcontract "github.com/xraph/forge/extensions/dashboard/contract"
@@ -39,9 +40,12 @@ type RedTeamTally struct {
 }
 
 // RedTeamReport is built when read from a run's results and its cases.
-// JudgedBy lists the scorers the run recorded: three of the five
-// generators attach no scorer of their own, so the rate means only what
-// those scorers can detect.
+// JudgedBy is the sorted, deduplicated union of the scorers the run
+// recorded and the scorers carried by every red-team case that has a result
+// in the run (the engine runs a case's own scorers on top of the run's).
+// Three of the five generators attach no scorer of their own, so the rate
+// means only what those scorers can detect. JudgedBy and ByType are never
+// null.
 type RedTeamReport struct {
 	JudgedBy []string       `json:"judgedBy"`
 	ByType   []RedTeamTally `json:"byType"`
@@ -112,7 +116,7 @@ func redteamGenerateHandler(d Deps) func(context.Context, redteamGenerateInput, 
 			return redteamGenerateOutput{}, d.fail("redteam.generate", err)
 		}
 		if in.Count < 1 || in.Count > redteam.MaxPerType {
-			return redteamGenerateOutput{}, badRequest("count must be between 1 and 5, the number of templates each attack type has")
+			return redteamGenerateOutput{}, badRequest(fmt.Sprintf("count must be between 1 and %d, the number of templates each attack type has", redteam.MaxPerType))
 		}
 		seen := map[string]bool{}
 		var types []redteam.AttackType
@@ -130,7 +134,10 @@ func redteamGenerateHandler(d Deps) func(context.Context, redteamGenerateInput, 
 	}
 }
 
-// redteamReportHandler answers null for a run with no red-team cases.
+// redteamReportHandler answers null only when the run's suite has no
+// red-team case at all. A suite that has red-team cases but whose run has no
+// result for any of them yet answers a report with zero totals and an empty
+// ByType.
 func redteamReportHandler(d Deps) func(context.Context, runRef, dashcontract.Principal) (*RedTeamReport, error) {
 	return func(ctx context.Context, in runRef, p dashcontract.Principal) (*RedTeamReport, error) {
 		app, err := d.resolveApp(p)
@@ -149,8 +156,22 @@ func redteamReportHandler(d Deps) func(context.Context, runRef, dashcontract.Pri
 		if err != nil {
 			return nil, d.fail("redteam.report", err)
 		}
+		hasRedTeam := false
+		for _, tc := range cases {
+			if attackTypeOf(tc) != "" {
+				hasRedTeam = true
+				break
+			}
+		}
+		if !hasRedTeam {
+			return nil, nil
+		}
+		judges := map[string]bool{}
+		for _, n := range evalrun.SettingsFrom(r.Config).Scorers {
+			judges[n] = true
+		}
 		tallies := map[string]*RedTeamTally{}
-		report := &RedTeamReport{JudgedBy: stringsOrEmpty(evalrun.SettingsFrom(r.Config).Scorers), ByType: []RedTeamTally{}}
+		report := &RedTeamReport{ByType: []RedTeamTally{}}
 		for _, res := range results {
 			tc := cases[res.CaseID.String()]
 			if tc == nil {
@@ -159,6 +180,9 @@ func redteamReportHandler(d Deps) func(context.Context, runRef, dashcontract.Pri
 			at := attackTypeOf(tc)
 			if at == "" {
 				continue
+			}
+			for _, sc := range tc.Scorers {
+				judges[sc.Name] = true
 			}
 			tl := tallies[at]
 			if tl == nil {
@@ -176,9 +200,11 @@ func redteamReportHandler(d Deps) func(context.Context, runRef, dashcontract.Pri
 				report.Unscored++
 			}
 		}
-		if report.Total == 0 {
-			return nil, nil
+		report.JudgedBy = make([]string, 0, len(judges))
+		for n := range judges {
+			report.JudgedBy = append(report.JudgedBy, n)
 		}
+		sort.Strings(report.JudgedBy)
 		for _, tl := range tallies {
 			report.ByType = append(report.ByType, *tl)
 		}
