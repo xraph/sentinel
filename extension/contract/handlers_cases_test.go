@@ -180,10 +180,51 @@ func TestCasesRefuseOtherApps(t *testing.T) {
 	wantCode(t, err, "NOT_FOUND")
 	_, missing := casesDetailHandler(d)(ctx, caseRef{CaseID: id.NewCaseID().String()}, operator)
 	wantSameNotFound(t, missing, err)
-	_, err = casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: tc.ID.String(), Name: strPtr("x")}, operator)
+
+	_, err = casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: tc.ID.String(), Name: strPtr("x"), Input: strPtr("changed")}, operator)
 	wantCode(t, err, "NOT_FOUND")
+	_, missing = casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: id.NewCaseID().String(), Name: strPtr("x")}, operator)
+	wantSameNotFound(t, missing, err)
+	if got, gerr := d.Engine.GetCase(ctx, tc.ID); gerr != nil || got.Name != "c" || got.Input != "x" {
+		t.Fatalf("another app's case must be unchanged after a refused update: %+v %v", got, gerr)
+	}
+
 	_, err = casesDeleteHandler(d)(ctx, caseRef{CaseID: tc.ID.String()}, operator)
 	wantCode(t, err, "NOT_FOUND")
+	_, missing = casesDeleteHandler(d)(ctx, caseRef{CaseID: id.NewCaseID().String()}, operator)
+	wantSameNotFound(t, missing, err)
+	if _, gerr := d.Engine.GetCase(ctx, tc.ID); gerr != nil {
+		t.Fatalf("another app's case must survive a refused delete: %v", gerr)
+	}
+}
+
+// Writes aimed at another app's suite answer as a missing suite would and
+// leave the suite as it was.
+func TestCaseWritesIntoAnotherAppsSuiteWriteNothing(t *testing.T) {
+	d := newTestDeps(t)
+	theirs := seedSuite(t, d, "app_b", "theirs", "p")
+	ctx := context.Background()
+	gone := id.NewSuiteID().String()
+
+	_, other := casesCreateHandler(d)(ctx, casesCreateInput{SuiteID: theirs.ID.String(), Name: "c", Input: "x"}, operator)
+	_, missing := casesCreateHandler(d)(ctx, casesCreateInput{SuiteID: gone, Name: "c", Input: "x"}, operator)
+	wantSameNotFound(t, missing, other)
+
+	data := `[{"name":"a","input":"x"}]`
+	_, other = casesImportHandler(d)(ctx, casesImportInput{SuiteID: theirs.ID.String(), Format: "json", Data: data}, operator)
+	_, missing = casesImportHandler(d)(ctx, casesImportInput{SuiteID: gone, Format: "json", Data: data}, operator)
+	wantSameNotFound(t, missing, other)
+
+	_, other = promptsCreateHandler(d)(ctx, promptsCreateInput{SuiteID: theirs.ID.String(), SystemPrompt: "new"}, operator)
+	_, missing = promptsCreateHandler(d)(ctx, promptsCreateInput{SuiteID: gone, SystemPrompt: "new"}, operator)
+	wantSameNotFound(t, missing, other)
+
+	if cases, err := d.Engine.ListCases(ctx, theirs.ID); err != nil || len(cases) != 0 {
+		t.Fatalf("a refused create or import must write no case: %d %v", len(cases), err)
+	}
+	if versions, err := d.Engine.ListPromptVersions(ctx, theirs.ID); err != nil || len(versions) != 0 {
+		t.Fatalf("a refused prompts.create must write no version: %d %v", len(versions), err)
+	}
 }
 
 func TestCasesCreateValidates(t *testing.T) {
@@ -232,6 +273,47 @@ func TestCasesUpdateKeepsARedactedSubstring(t *testing.T) {
 	}
 }
 
+// A red-team case's substring is the system prompt, which the client never
+// saw. A submitted not_contains config that omits it, sends null, or sends
+// something that is not a string keeps the stored one; an explicit empty
+// string would match every output and is refused with nothing written.
+func TestCasesUpdateHiddenSubstringEdges(t *testing.T) {
+	const secret = "the secret prompt"
+	ctx := context.Background()
+	for name, cfg := range map[string]map[string]any{
+		"missing": {},
+		"nil":     {"substring": nil},
+		"number":  {"substring": 42.0},
+		"object":  {"substring": map[string]any{"a": 1}},
+	} {
+		d := newTestDeps(t)
+		s := seedSuite(t, d, testApp, "s", secret)
+		leak := seedLeakageCase(t, d, s.ID, secret)
+		scorers := []scorerConfigInput{{Name: "not_contains", Config: cfg}}
+		got, err := casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: leak.ID.String(), Name: strPtr("renamed"), Scorers: &scorers}, operator)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		wantHidden(t, name+" response", got, secret)
+		stored, _ := d.Engine.GetCase(ctx, leak.ID)
+		if stored.Name != "renamed" || len(stored.Scorers) != 1 || stored.Scorers[0].Config["substring"] != secret {
+			t.Errorf("%s: the stored substring must survive: %+v", name, stored.Scorers)
+		}
+	}
+
+	d := newTestDeps(t)
+	s := seedSuite(t, d, testApp, "s", secret)
+	leak := seedLeakageCase(t, d, s.ID, secret)
+	scorers := []scorerConfigInput{{Name: "not_contains", Config: map[string]any{"substring": ""}}}
+	_, err := casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: leak.ID.String(), Name: strPtr("renamed"), Scorers: &scorers}, operator)
+	wantCode(t, err, "BAD_REQUEST")
+	stored, _ := d.Engine.GetCase(ctx, leak.ID)
+	if stored.Name != leak.Name || len(stored.Scorers) != 1 || stored.Scorers[0].Config["substring"] != secret {
+		t.Fatalf("a refused update must write nothing: %+v", stored)
+	}
+}
+
 func TestCasesImport(t *testing.T) {
 	d := newTestDeps(t)
 	s := seedSuite(t, d, testApp, "s", "p")
@@ -239,6 +321,15 @@ func TestCasesImport(t *testing.T) {
 	got, err := casesImportHandler(d)(ctx, casesImportInput{SuiteID: s.ID.String(), Format: "json", Data: `[{"name":"a","input":"x"}]`}, operator)
 	if err != nil || got.Imported != 1 {
 		t.Fatalf("import: %v %+v", err, got)
+	}
+	// The client is told why an import was refused.
+	_, err = casesImportHandler(d)(ctx, casesImportInput{SuiteID: s.ID.String(), Format: "json", Data: "[]"}, operator)
+	wantMessage(t, err, "the data holds no cases")
+	_, err = casesImportHandler(d)(ctx, casesImportInput{SuiteID: s.ID.String(), Format: "json", Data: `[{"name":"a","input":"x"},{"name":"b"}]`}, operator)
+	wantCode(t, err, "BAD_REQUEST")
+	wantMessage(t, err, "row 2 has no input")
+	if stored, _ := d.Engine.ListCases(ctx, s.ID); len(stored) != 1 {
+		t.Fatalf("a refused import must write nothing: %d cases", len(stored))
 	}
 	for name, in := range map[string]casesImportInput{
 		"bad format": {SuiteID: s.ID.String(), Format: "yaml", Data: "x"},

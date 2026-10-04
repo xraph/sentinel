@@ -24,7 +24,10 @@ func waitCompleted(t *testing.T, d Deps, runID string) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		got, err := runsDetailHandler(d)(context.Background(), runRef{RunID: runID}, operator)
-		if err == nil && got.Run.State == "completed" {
+		if err != nil {
+			t.Fatalf("runs.detail while waiting for run %s: %v", runID, err)
+		}
+		if got.Run.State == "completed" {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -93,6 +96,10 @@ func TestRunsStartRefusals(t *testing.T) {
 	_, err := runsStartHandler(d)(ctx, runsStartInput{SuiteID: theirs.ID.String(), Target: "echo", Scorers: []string{"json_valid"}}, operator)
 	wantCode(t, err, "NOT_FOUND")
 	wantNoRuns(t, d, "another app's suite", testApp, "app_b")
+
+	// The client is told why, not just that the input was refused.
+	_, err = runsStartHandler(d)(ctx, runsStartInput{SuiteID: empty.ID.String(), Target: "echo", Scorers: []string{"json_valid"}}, operator)
+	wantMessage(t, err, "the suite has no cases")
 }
 
 func TestRunsCancel(t *testing.T) {

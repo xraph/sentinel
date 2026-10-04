@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
@@ -44,6 +45,19 @@ func wantSameNotFound(t *testing.T, missing, other error) {
 	}
 	if m.Message != o.Message {
 		t.Fatalf("the two answers differ: %q vs %q", m.Message, o.Message)
+	}
+}
+
+// wantMessage asserts err is a contract error whose message contains text,
+// which is how a test shows the client is told why.
+func wantMessage(t *testing.T, err error, text string) {
+	t.Helper()
+	var ce *dashcontract.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("want a contract error mentioning %q, got %v", text, err)
+	}
+	if !strings.Contains(ce.Message, text) {
+		t.Fatalf("message %q must mention %q", ce.Message, text)
 	}
 }
 
