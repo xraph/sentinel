@@ -12,8 +12,19 @@ contributor:
 # store (store/storetest/tenancy.go records it).
 intents:
   - { name: config.get, kind: query, version: 1, capability: read }
+  - { name: suites.list,   kind: query,   version: 1, capability: read }
+  - { name: suites.detail, kind: query,   version: 1, capability: read }
+  - { name: suites.create, kind: command, version: 1, capability: write, invalidates: [suites.list] }
+  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail] }
+  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail] }
 
 queries:
   configGet:
     intent: config.get
     cache: { staleTime: 60s }
+  suitesList:
+    intent: suites.list
+    cache: { staleTime: 30s }
+  suitesDetail:
+    intent: suites.detail
+    cache: { staleTime: 30s }

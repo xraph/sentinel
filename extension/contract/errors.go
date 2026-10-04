@@ -13,8 +13,6 @@ import (
 // *dashcontract.Error passes through unchanged. Anything unrecognised
 // becomes INTERNAL with a generic message: an unknown error's text can carry
 // a connection string, so it never reaches the client.
-//
-//nolint:unused // used by the intent handlers added in later tasks
 func mapError(err error) error {
 	if err == nil {
 		return nil
@@ -58,8 +56,6 @@ func mapError(err error) error {
 // fail maps err and, when the result is INTERNAL, logs the underlying
 // error with the intent, which is the only case an operator cannot
 // diagnose from what the client sees.
-//
-//nolint:unused // used by the intent handlers added in later tasks
 func (d Deps) fail(intent string, err error) error {
 	mapped := mapError(err)
 	var ce *dashcontract.Error
@@ -69,17 +65,14 @@ func (d Deps) fail(intent string, err error) error {
 	return mapped
 }
 
-//nolint:unused // used by the intent handlers added in later tasks
 func badRequest(msg string) error {
 	return &dashcontract.Error{Code: dashcontract.CodeBadRequest, Message: msg}
 }
 
-//nolint:unused // used by the intent handlers added in later tasks
 func notFound(msg string) error {
 	return &dashcontract.Error{Code: dashcontract.CodeNotFound, Message: msg}
 }
 
-//nolint:unused // used by the intent handlers added in later tasks
 func conflict(msg string) error {
 	return &dashcontract.Error{Code: dashcontract.CodeConflict, Message: msg}
 }

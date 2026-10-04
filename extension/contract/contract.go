@@ -57,6 +57,11 @@ func Register(d *dispatcher.Dispatcher, reg dashcontract.Registry, wreg dashcont
 	}
 	for _, bind := range []func() error{
 		func() error { return query(d, "config.get", configGetHandler(deps)) },
+		func() error { return query(d, "suites.list", suitesListHandler(deps)) },
+		func() error { return query(d, "suites.detail", suitesDetailHandler(deps)) },
+		func() error { return command(d, "suites.create", suitesCreateHandler(deps)) },
+		func() error { return command(d, "suites.update", suitesUpdateHandler(deps)) },
+		func() error { return command(d, "suites.delete", suitesDeleteHandler(deps)) },
 	} {
 		if err := bind(); err != nil {
 			return fmt.Errorf("sentinel/contract: %w", err)
@@ -69,7 +74,6 @@ func query[I, O any](d *dispatcher.Dispatcher, intent string, fn func(context.Co
 	return dispatcher.RegisterQuery(d, ContributorName, intent, 1, fn)
 }
 
-//nolint:unused // used by the intent handlers added in later tasks
 func command[I, O any](d *dispatcher.Dispatcher, intent string, fn func(context.Context, I, dashcontract.Principal) (O, error)) error {
 	return dispatcher.RegisterCommand(d, ContributorName, intent, 1, fn)
 }

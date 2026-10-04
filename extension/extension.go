@@ -164,7 +164,7 @@ func (e *Extension) Start(ctx context.Context) error {
 
 // RegisterContractContributor implements dashboard.ContractContributorAware:
 // it registers the sentinel contract contributor the React shell reads.
-// The templ DashboardContributor stays until the React pages replace it.
+// The templ dashboard is no longer registered; its dashboard/ directory remains until the React pages replace it.
 func (e *Extension) RegisterContractContributor(
 	disp *dispatcher.Dispatcher,
 	reg dashcontract.Registry,

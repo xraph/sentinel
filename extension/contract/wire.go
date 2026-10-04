@@ -2,7 +2,6 @@ package contract
 
 import "time"
 
-//nolint:unused // used by the intent handlers added in later tasks
 func ts(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 //nolint:unused // used by the intent handlers added in later tasks
