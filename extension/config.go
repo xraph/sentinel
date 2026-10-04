@@ -40,6 +40,13 @@ type Config struct {
 	// When empty and WithGroveDatabase was called, the default (unnamed) DB is used.
 	GroveDatabase string `json:"grove_database" mapstructure:"grove_database" yaml:"grove_database"`
 
+	// DashboardAppID is the app the dashboard reads and writes when the
+	// signed-in principal carries no app_id claim. Nothing populates that
+	// claim today, so a deployment that wants the dashboard sets this. There
+	// is no default: with neither, every dashboard request is refused,
+	// because an empty app id matches every app in every store.
+	DashboardAppID string `json:"dashboard_app_id" mapstructure:"dashboard_app_id" yaml:"dashboard_app_id"`
+
 	// RequireConfig requires config to be present in YAML files.
 	// If true and no config is found, Register returns an error.
 	RequireConfig bool `json:"-" yaml:"-"`

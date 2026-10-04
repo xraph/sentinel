@@ -292,6 +292,9 @@ func (e *Extension) mergeConfigurations(yamlConfig, programmaticConfig Config) C
 	if yamlConfig.GroveDatabase == "" && programmaticConfig.GroveDatabase != "" {
 		yamlConfig.GroveDatabase = programmaticConfig.GroveDatabase
 	}
+	if yamlConfig.DashboardAppID == "" && programmaticConfig.DashboardAppID != "" {
+		yamlConfig.DashboardAppID = programmaticConfig.DashboardAppID
+	}
 
 	// DefaultModel: YAML takes precedence, then programmatic, then default.
 	if yamlConfig.DefaultModel == "" {
@@ -381,6 +384,9 @@ func (e *Extension) mergeWithDefaults(programmatic Config) Config {
 	}
 	if programmatic.GroveDatabase != "" {
 		result.GroveDatabase = programmatic.GroveDatabase
+	}
+	if programmatic.DashboardAppID != "" {
+		result.DashboardAppID = programmatic.DashboardAppID
 	}
 
 	return result

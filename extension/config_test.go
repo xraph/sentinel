@@ -63,3 +63,19 @@ func TestExtensionRegistersTargetsAndScorers(t *testing.T) {
 		t.Fatal("scorer not registered")
 	}
 }
+
+func TestDashboardAppIDMerges(t *testing.T) {
+	e := New(WithConfig(Config{DashboardAppID: "from-code"}))
+	if got := e.mergeConfigurations(Config{DashboardAppID: "from-yaml"}, e.config).DashboardAppID; got != "from-yaml" {
+		t.Fatalf("yaml should win: %q", got)
+	}
+	if got := e.mergeConfigurations(Config{}, e.config).DashboardAppID; got != "from-code" {
+		t.Fatalf("programmatic should fill a gap: %q", got)
+	}
+	if got := e.mergeWithDefaults(e.config).DashboardAppID; got != "from-code" {
+		t.Fatalf("defaults path: %q", got)
+	}
+	if got := New().mergeWithDefaults(Config{}).DashboardAppID; got != "" {
+		t.Fatalf("there is no default app: %q", got)
+	}
+}
