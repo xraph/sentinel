@@ -32,4 +32,5 @@ func Run(t *testing.T, newStore Factory) {
 	t.Run("FinalizeRecordsFailure", func(t *testing.T) { testFinalizeRecordsFailure(t, newStore(t)) })
 	t.Run("ConcurrentResultWrites", func(t *testing.T) { testConcurrentResultWrites(t, newStore(t)) })
 	t.Run("OffsetPastEndIsEmpty", func(t *testing.T) { testOffsetPastEndIsEmpty(t, newStore(t)) })
+	t.Run("EmptyAppFilterMatchesEverything", func(t *testing.T) { testEmptyAppFilterMatchesEverything(t, newStore(t)) })
 }
