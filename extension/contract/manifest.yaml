@@ -16,13 +16,17 @@ intents:
   - { name: suites.detail, kind: query,   version: 1, capability: read }
   - { name: suites.create, kind: command, version: 1, capability: write, invalidates: [suites.list] }
   - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail] }
-  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail] }
+  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail] }
   - { name: cases.list,   kind: query,   version: 1, capability: read }
   - { name: cases.detail, kind: query,   version: 1, capability: read }
   - { name: cases.create, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail] }
   - { name: cases.update, kind: command, version: 1, capability: write, invalidates: [cases.list, cases.detail] }
   - { name: cases.delete, kind: command, version: 1, capability: write, invalidates: [cases.list, cases.detail, suites.list, suites.detail] }
   - { name: cases.import, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail] }
+  - { name: prompts.list,       kind: query,   version: 1, capability: read }
+  - { name: prompts.detail,     kind: query,   version: 1, capability: read }
+  - { name: prompts.create,     kind: command, version: 1, capability: write, invalidates: [prompts.list, prompts.detail, suites.list, suites.detail] }
+  - { name: prompts.setCurrent, kind: command, version: 1, capability: write, invalidates: [prompts.list, prompts.detail, suites.list, suites.detail] }
 
 queries:
   configGet:
@@ -39,4 +43,10 @@ queries:
     cache: { staleTime: 30s }
   casesDetail:
     intent: cases.detail
+    cache: { staleTime: 30s }
+  promptsList:
+    intent: prompts.list
+    cache: { staleTime: 30s }
+  promptsDetail:
+    intent: prompts.detail
     cache: { staleTime: 30s }
