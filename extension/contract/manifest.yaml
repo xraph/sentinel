@@ -15,8 +15,8 @@ intents:
   - { name: suites.list,   kind: query,   version: 1, capability: read }
   - { name: suites.detail, kind: query,   version: 1, capability: read }
   - { name: suites.create, kind: command, version: 1, capability: write, invalidates: [suites.list] }
-  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, runs.list, runs.detail, baselines.list, baselines.detail] }
-  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail, runs.list, runs.results, results.detail, runs.detail, runs.regression, baselines.list, baselines.detail] }
+  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, runs.list, runs.detail, baselines.list, baselines.detail, runs.trend] }
+  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail, runs.list, runs.results, results.detail, runs.detail, runs.regression, runs.trend, runs.compare, baselines.list, baselines.detail] }
   - { name: cases.list,   kind: query,   version: 1, capability: read }
   - { name: cases.detail, kind: query,   version: 1, capability: read }
   - { name: cases.create, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail] }
@@ -32,10 +32,12 @@ intents:
   - { name: results.detail, kind: query, version: 1, capability: read }
   - { name: runs.detail,      kind: query,   version: 1, capability: read }
   - { name: runs.regression,  kind: query,   version: 1, capability: read }
+  - { name: runs.trend,   kind: query, version: 1, capability: read }
+  - { name: runs.compare, kind: query, version: 1, capability: read }
   - { name: baselines.list,   kind: query,   version: 1, capability: read }
   - { name: baselines.detail, kind: query,   version: 1, capability: read }
-  - { name: baselines.save,   kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression] }
-  - { name: baselines.delete, kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression] }
+  - { name: baselines.save,   kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression, runs.trend] }
+  - { name: baselines.delete, kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression, runs.trend] }
 
 queries:
   configGet:
@@ -74,6 +76,12 @@ queries:
   runsRegression:
     intent: runs.regression
     cache: { staleTime: 30s }
+  runsTrend:
+    intent: runs.trend
+    cache: { staleTime: 30s }
+  runsCompare:
+    intent: runs.compare
+    cache: { staleTime: 60s }
   baselinesList:
     intent: baselines.list
     cache: { staleTime: 30s }

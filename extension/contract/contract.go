@@ -77,6 +77,8 @@ func Register(d *dispatcher.Dispatcher, reg dashcontract.Registry, wreg dashcont
 		func() error { return query(d, "results.detail", resultsDetailHandler(deps)) },
 		func() error { return query(d, "runs.detail", runsDetailHandler(deps)) },
 		func() error { return query(d, "runs.regression", runsRegressionHandler(deps)) },
+		func() error { return query(d, "runs.trend", runsTrendHandler(deps)) },
+		func() error { return query(d, "runs.compare", runsCompareHandler(deps)) },
 		func() error { return query(d, "baselines.list", baselinesListHandler(deps)) },
 		func() error { return query(d, "baselines.detail", baselinesDetailHandler(deps)) },
 		func() error { return command(d, "baselines.save", baselinesSaveHandler(deps)) },
