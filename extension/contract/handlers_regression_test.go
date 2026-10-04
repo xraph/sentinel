@@ -51,13 +51,17 @@ func TestRegressionStates(t *testing.T) {
 func TestRegressionForNonCompletedRuns(t *testing.T) {
 	d := newTestDeps(t)
 	for state, want := range map[evalrun.RunState]RegressionView{
-		evalrun.StateRunning:   {State: "running"},
-		evalrun.StateFailed:    {State: "notComparable", Reason: "runFailed"},
-		evalrun.StateCancelled: {State: "notComparable", Reason: "runCancelled"},
+		evalrun.StateRunning:         {State: "running"},
+		evalrun.StateFailed:          {State: "notComparable", Reason: "runFailed"},
+		evalrun.StateCancelled:       {State: "notComparable", Reason: "runCancelled"},
+		evalrun.RunState("exploded"): {State: "notComparable", Reason: "unknownState"},
 	} {
 		got, err := d.regressionFor(context.Background(), testApp, &evalrun.Run{State: state}, "", nil)
 		if err != nil || got.State != want.State || got.Reason != want.Reason {
 			t.Errorf("%s: %+v %v", state, got, err)
+		}
+		if got.DimensionDeltas == nil || got.RegressedCases == nil || got.MissingCases == nil || got.NewCases == nil || got.MissingDimensions == nil {
+			t.Errorf("%s: every collection must be non-nil: %+v", state, got)
 		}
 	}
 }
