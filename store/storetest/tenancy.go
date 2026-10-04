@@ -48,6 +48,25 @@ func testEmptyAppFilterMatchesEverything(t *testing.T, s store.Store) {
 	if err != nil || len(scoped) != 1 || scoped[0].ID.String() != b.ID.String() {
 		t.Fatalf("AppID app_b should list exactly the app_b suite: %v %v", scoped, err)
 	}
+	// The same holds for runs: the dashboard's runs.list and overview rely on
+	// ListRuns honouring the AppID filter on every backend.
+	for _, c := range []struct {
+		app         string
+		want, other *evalrun.Run
+	}{{"app_b", rb, ra}, {fixtureAppID, ra, rb}} {
+		got, err := s.ListRuns(bg(), &evalrun.ListFilter{AppID: c.app})
+		if err != nil {
+			t.Fatalf("list runs for %s: %v", c.app, err)
+		}
+		if !hasRun(got, c.want.ID) || hasRun(got, c.other.ID) {
+			t.Fatalf("ListRuns for %s must contain its own run and not the other app's: %d runs", c.app, len(got))
+		}
+		for _, r := range got {
+			if r.AppID != c.app {
+				t.Fatalf("ListRuns for %s returned a run of app %q", c.app, r.AppID)
+			}
+		}
+	}
 }
 
 func hasSuite(list []*suite.Suite, want id.SuiteID) bool {
