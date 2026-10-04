@@ -15,13 +15,13 @@ intents:
   - { name: suites.list,   kind: query,   version: 1, capability: read }
   - { name: suites.detail, kind: query,   version: 1, capability: read }
   - { name: suites.create, kind: command, version: 1, capability: write, invalidates: [suites.list, overview.stats] }
-  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, runs.list, runs.detail, runs.trend, baselines.list, baselines.detail, overview.stats] }
+  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, runs.list, runs.detail, runs.trend, runs.compare, baselines.list, baselines.detail, overview.stats] }
   - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail, runs.list, runs.detail, runs.results, results.detail, runs.trend, runs.regression, runs.compare, redteam.report, baselines.list, baselines.detail, overview.stats] }
   - { name: cases.list,   kind: query,   version: 1, capability: read }
   - { name: cases.detail, kind: query,   version: 1, capability: read }
   - { name: cases.create, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail, overview.stats] }
-  - { name: cases.update, kind: command, version: 1, capability: write, invalidates: [cases.list, cases.detail, redteam.report, overview.stats] }
-  - { name: cases.delete, kind: command, version: 1, capability: write, invalidates: [cases.list, cases.detail, suites.list, suites.detail, redteam.report, overview.stats] }
+  - { name: cases.update, kind: command, version: 1, capability: write, invalidates: [cases.list, cases.detail, runs.results, results.detail, runs.compare, redteam.report, overview.stats] }
+  - { name: cases.delete, kind: command, version: 1, capability: write, invalidates: [cases.list, cases.detail, suites.list, suites.detail, runs.results, results.detail, runs.compare, redteam.report, overview.stats] }
   - { name: cases.import, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail, overview.stats] }
   - { name: prompts.list,       kind: query,   version: 1, capability: read }
   - { name: prompts.detail,     kind: query,   version: 1, capability: read }
@@ -39,7 +39,7 @@ intents:
   - { name: baselines.save,   kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression, runs.trend, overview.stats] }
   - { name: baselines.delete, kind: command, version: 1, capability: write, invalidates: [baselines.list, baselines.detail, suites.list, suites.detail, runs.detail, runs.regression, runs.trend, overview.stats] }
   - { name: runs.start,       kind: command, version: 1, capability: write, invalidates: [runs.list, suites.detail, prompts.list, prompts.detail, overview.stats] }
-  - { name: runs.cancel,      kind: command, version: 1, capability: write, invalidates: [runs.list, runs.detail, runs.results, runs.regression, redteam.report, overview.stats] }
+  - { name: runs.cancel,      kind: command, version: 1, capability: write, invalidates: [runs.list, runs.detail, runs.results, runs.regression, runs.compare, redteam.report, overview.stats] }
   - { name: redteam.generate, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail, overview.stats] }
   - { name: redteam.report,   kind: query,   version: 1, capability: read }
   - { name: overview.stats,   kind: query,   version: 1, capability: read }

@@ -144,3 +144,56 @@ func TestEveryCommandRefreshesTheOverview(t *testing.T) {
 		}
 	}
 }
+
+// Each command's full invalidates list, pinned. The lists are compared
+// without regard to order. Dropping a name leaves a screen stale after a
+// write, and adding one costs a refetch on every write, so either change
+// has to be made here on purpose.
+func TestCommandInvalidatesArePinned(t *testing.T) {
+	want := map[string][]string{
+		"suites.create":      {"suites.list", "overview.stats"},
+		"suites.update":      {"suites.list", "suites.detail", "runs.list", "runs.detail", "runs.trend", "runs.compare", "baselines.list", "baselines.detail", "overview.stats"},
+		"suites.delete":      {"suites.list", "suites.detail", "cases.list", "cases.detail", "prompts.list", "prompts.detail", "runs.list", "runs.detail", "runs.results", "results.detail", "runs.trend", "runs.regression", "runs.compare", "redteam.report", "baselines.list", "baselines.detail", "overview.stats"},
+		"cases.create":       {"cases.list", "suites.list", "suites.detail", "overview.stats"},
+		"cases.update":       {"cases.list", "cases.detail", "runs.results", "results.detail", "runs.compare", "redteam.report", "overview.stats"},
+		"cases.delete":       {"cases.list", "cases.detail", "suites.list", "suites.detail", "runs.results", "results.detail", "runs.compare", "redteam.report", "overview.stats"},
+		"cases.import":       {"cases.list", "suites.list", "suites.detail", "overview.stats"},
+		"prompts.create":     {"prompts.list", "prompts.detail", "suites.list", "suites.detail", "overview.stats"},
+		"prompts.setCurrent": {"prompts.list", "prompts.detail", "suites.list", "suites.detail", "overview.stats"},
+		"baselines.save":     {"baselines.list", "baselines.detail", "suites.list", "suites.detail", "runs.detail", "runs.regression", "runs.trend", "overview.stats"},
+		"baselines.delete":   {"baselines.list", "baselines.detail", "suites.list", "suites.detail", "runs.detail", "runs.regression", "runs.trend", "overview.stats"},
+		"runs.start":         {"runs.list", "suites.detail", "prompts.list", "prompts.detail", "overview.stats"},
+		"runs.cancel":        {"runs.list", "runs.detail", "runs.results", "runs.regression", "runs.compare", "redteam.report", "overview.stats"},
+		"redteam.generate":   {"cases.list", "suites.list", "suites.detail", "overview.stats"},
+	}
+	seen := map[string]bool{}
+	for _, in := range loadManifest(t).Intents {
+		if in.Kind != dashcontract.IntentKindCommand {
+			continue
+		}
+		seen[in.Name] = true
+		wantList, ok := want[in.Name]
+		if !ok {
+			t.Errorf("command %s has no pinned invalidates list", in.Name)
+			continue
+		}
+		got := map[string]int{}
+		for _, q := range in.Invalidates {
+			got[q]++
+		}
+		for _, q := range wantList {
+			if got[q] == 0 {
+				t.Errorf("%s no longer invalidates %s", in.Name, q)
+			}
+			delete(got, q)
+		}
+		for q := range got {
+			t.Errorf("%s invalidates %s, which is not pinned", in.Name, q)
+		}
+	}
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("pinned command %s is not in the manifest", name)
+		}
+	}
+}
