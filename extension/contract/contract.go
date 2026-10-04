@@ -72,6 +72,9 @@ func Register(d *dispatcher.Dispatcher, reg dashcontract.Registry, wreg dashcont
 		func() error { return query(d, "prompts.detail", promptsDetailHandler(deps)) },
 		func() error { return command(d, "prompts.create", promptsCreateHandler(deps)) },
 		func() error { return command(d, "prompts.setCurrent", promptsSetCurrentHandler(deps)) },
+		func() error { return query(d, "runs.list", runsListHandler(deps)) },
+		func() error { return query(d, "runs.results", runsResultsHandler(deps)) },
+		func() error { return query(d, "results.detail", resultsDetailHandler(deps)) },
 	} {
 		if err := bind(); err != nil {
 			return fmt.Errorf("sentinel/contract: %w", err)

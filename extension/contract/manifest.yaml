@@ -15,8 +15,8 @@ intents:
   - { name: suites.list,   kind: query,   version: 1, capability: read }
   - { name: suites.detail, kind: query,   version: 1, capability: read }
   - { name: suites.create, kind: command, version: 1, capability: write, invalidates: [suites.list] }
-  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail] }
-  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail] }
+  - { name: suites.update, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, runs.list] }
+  - { name: suites.delete, kind: command, version: 1, capability: write, invalidates: [suites.list, suites.detail, cases.list, cases.detail, prompts.list, prompts.detail, runs.list, runs.results, results.detail] }
   - { name: cases.list,   kind: query,   version: 1, capability: read }
   - { name: cases.detail, kind: query,   version: 1, capability: read }
   - { name: cases.create, kind: command, version: 1, capability: write, invalidates: [cases.list, suites.list, suites.detail] }
@@ -27,6 +27,9 @@ intents:
   - { name: prompts.detail,     kind: query,   version: 1, capability: read }
   - { name: prompts.create,     kind: command, version: 1, capability: write, invalidates: [prompts.list, prompts.detail, suites.list, suites.detail] }
   - { name: prompts.setCurrent, kind: command, version: 1, capability: write, invalidates: [prompts.list, prompts.detail, suites.list, suites.detail] }
+  - { name: runs.list,      kind: query, version: 1, capability: read }
+  - { name: runs.results,   kind: query, version: 1, capability: read }
+  - { name: results.detail, kind: query, version: 1, capability: read }
 
 queries:
   configGet:
@@ -50,3 +53,12 @@ queries:
   promptsDetail:
     intent: prompts.detail
     cache: { staleTime: 30s }
+  runsList:
+    intent: runs.list
+    cache: { staleTime: 10s }
+  runsResults:
+    intent: runs.results
+    cache: { staleTime: 10s }
+  resultsDetail:
+    intent: results.detail
+    cache: { staleTime: 60s }
