@@ -82,3 +82,65 @@ func loadManifest(t *testing.T) *dashcontract.ContractManifest {
 	}
 	return m
 }
+
+// The contract's surface, pinned. Adding or removing an intent should be a
+// deliberate change to this list, the manifest and the React plugin.
+func TestIntentSet(t *testing.T) {
+	want := map[string]dashcontract.IntentKind{
+		"overview.stats": dashcontract.IntentKindQuery, "config.get": dashcontract.IntentKindQuery,
+		"suites.list": dashcontract.IntentKindQuery, "suites.detail": dashcontract.IntentKindQuery,
+		"cases.list": dashcontract.IntentKindQuery, "cases.detail": dashcontract.IntentKindQuery,
+		"prompts.list": dashcontract.IntentKindQuery, "prompts.detail": dashcontract.IntentKindQuery,
+		"runs.list": dashcontract.IntentKindQuery, "runs.detail": dashcontract.IntentKindQuery,
+		"runs.results": dashcontract.IntentKindQuery, "results.detail": dashcontract.IntentKindQuery,
+		"runs.trend": dashcontract.IntentKindQuery, "runs.regression": dashcontract.IntentKindQuery,
+		"runs.compare": dashcontract.IntentKindQuery, "baselines.list": dashcontract.IntentKindQuery,
+		"baselines.detail": dashcontract.IntentKindQuery, "redteam.report": dashcontract.IntentKindQuery,
+		"suites.create": dashcontract.IntentKindCommand, "suites.update": dashcontract.IntentKindCommand,
+		"suites.delete": dashcontract.IntentKindCommand, "cases.create": dashcontract.IntentKindCommand,
+		"cases.update": dashcontract.IntentKindCommand, "cases.delete": dashcontract.IntentKindCommand,
+		"cases.import": dashcontract.IntentKindCommand, "prompts.create": dashcontract.IntentKindCommand,
+		"prompts.setCurrent": dashcontract.IntentKindCommand, "baselines.save": dashcontract.IntentKindCommand,
+		"baselines.delete": dashcontract.IntentKindCommand, "runs.start": dashcontract.IntentKindCommand,
+		"runs.cancel": dashcontract.IntentKindCommand, "redteam.generate": dashcontract.IntentKindCommand,
+	}
+	m := loadManifest(t)
+	if len(m.Intents) != len(want) {
+		t.Errorf("manifest declares %d intents, want %d", len(m.Intents), len(want))
+	}
+	seen := map[string]bool{}
+	for _, in := range m.Intents {
+		seen[in.Name] = true
+		kind, ok := want[in.Name]
+		if !ok {
+			t.Errorf("unexpected intent %s", in.Name)
+			continue
+		}
+		if in.Kind != kind {
+			t.Errorf("%s is a %s, want %s", in.Name, in.Kind, kind)
+		}
+	}
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("intent %s is pinned but the manifest does not declare it", name)
+		}
+	}
+}
+
+// Every write refreshes the overview.
+func TestEveryCommandRefreshesTheOverview(t *testing.T) {
+	for _, in := range loadManifest(t).Intents {
+		if in.Kind != dashcontract.IntentKindCommand {
+			continue
+		}
+		found := false
+		for _, q := range in.Invalidates {
+			if q == "overview.stats" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s does not invalidate overview.stats", in.Name)
+		}
+	}
+}
