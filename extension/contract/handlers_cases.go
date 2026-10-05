@@ -340,26 +340,37 @@ func casesUpdateHandler(d Deps) func(context.Context, casesUpdateInput, dashcont
 			// The client only ever saw a red-team substring redacted. A
 			// submitted not_contains config whose substring is missing,
 			// null or not a string keeps the stored substring rather than
-			// wiping the check. An explicit empty string is refused: it
-			// would match every output.
+			// wiping the check. Rows are paired by position among the
+			// not_contains scorers: the k-th submitted one takes the k-th
+			// stored one, and a row with no stored partner is left as
+			// submitted. An explicit empty string is refused: it would
+			// match every output.
 			if hide {
-				stored := ""
+				var stored []string
 				for _, sc := range tc.Scorers {
-					if s, ok := sc.Config["substring"].(string); ok && sc.Name == "not_contains" {
-						stored = s
+					if sc.Name != "not_contains" {
+						continue
 					}
+					sub := ""
+					if v, ok := sc.Config["substring"].(string); ok {
+						sub = v
+					}
+					stored = append(stored, sub)
 				}
+				k := 0
 				for i := range submitted {
 					if submitted[i].Name != "not_contains" {
 						continue
 					}
+					pos := k
+					k++
 					if sub, isString := submitted[i].Config["substring"].(string); isString && sub == "" {
 						return CaseView{}, badRequest("a not_contains scorer needs a non-empty substring")
-					} else if !isString && stored != "" {
+					} else if !isString && pos < len(stored) && stored[pos] != "" {
 						if submitted[i].Config == nil {
 							submitted[i].Config = map[string]any{}
 						}
-						submitted[i].Config["substring"] = stored
+						submitted[i].Config["substring"] = stored[pos]
 					}
 				}
 			}

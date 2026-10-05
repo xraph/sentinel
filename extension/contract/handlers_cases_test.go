@@ -314,6 +314,108 @@ func TestCasesUpdateHiddenSubstringEdges(t *testing.T) {
 	}
 }
 
+// A hidden case can hold more than one not_contains scorer: the generated
+// leakage check and an operator's own. The server pairs the withheld values
+// with the submitted rows by position among the not_contains scorers, so an
+// edit that never saw the first one cannot hand it the second one's value.
+func TestCasesUpdateHiddenSubstringsPairByPosition(t *testing.T) {
+	const secret = "the secret prompt"
+	ctx := context.Background()
+	setup := func(t *testing.T) (Deps, *testcase.Case) {
+		d := newTestDeps(t)
+		s := seedSuite(t, d, testApp, "s", secret)
+		leak := seedLeakageCase(t, d, s.ID, secret)
+		leak.Scorers = append(leak.Scorers, testcase.ScorerConfig{Name: "not_contains", Config: map[string]any{"substring": "refund"}})
+		if err := d.Engine.UpdateCase(ctx, leak); err != nil {
+			t.Fatal(err)
+		}
+		return d, leak
+	}
+	update := func(t *testing.T, d Deps, leak *testcase.Case, rows []scorerConfigInput) CaseView {
+		t.Helper()
+		got, err := casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: leak.ID.String(), Name: strPtr("renamed"), Scorers: &rows}, operator)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	substrings := func(t *testing.T, d Deps, leak *testcase.Case) []any {
+		t.Helper()
+		stored, err := d.Engine.GetCase(ctx, leak.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]any, 0, len(stored.Scorers))
+		for _, sc := range stored.Scorers {
+			out = append(out, sc.Config["substring"])
+		}
+		return out
+	}
+	wantRedacted := func(t *testing.T, got CaseView, lengths ...int) {
+		t.Helper()
+		if len(got.Scorers) != len(lengths) {
+			t.Fatalf("response has %d scorers, want %d", len(got.Scorers), len(lengths))
+		}
+		for i, n := range lengths {
+			sc := got.Scorers[i]
+			if n < 0 { // not a not_contains row: shown as stored
+				if sc.Redacted != nil {
+					t.Fatalf("row %d: only not_contains rows are redacted: %+v", i, sc.Redacted)
+				}
+				continue
+			}
+			if _, leaked := sc.Config["substring"]; leaked {
+				t.Fatalf("row %d: the substring reached the client", i)
+			}
+			if n == 0 {
+				if sc.Redacted != nil {
+					t.Fatalf("row %d: nothing was stored, but it says redacted: %+v", i, sc.Redacted)
+				}
+				continue
+			}
+			if sc.Redacted == nil || sc.Redacted.Key != "substring" || sc.Redacted.Length != n {
+				t.Fatalf("row %d: redaction: %+v, want length %d", i, sc.Redacted, n)
+			}
+		}
+	}
+	equal := func(t *testing.T, got []any, want ...any) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("stored substrings %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("stored substrings %v, want %v", got, want)
+			}
+		}
+	}
+
+	t.Run("both rows without a substring keep both, in order", func(t *testing.T) {
+		d, leak := setup(t)
+		got := update(t, d, leak, []scorerConfigInput{{Name: "not_contains", Config: map[string]any{}}, {Name: "not_contains"}})
+		wantRedacted(t, got, len(secret), len("refund"))
+		equal(t, substrings(t, d, leak), secret, "refund")
+	})
+	t.Run("a typed substring replaces only its own row", func(t *testing.T) {
+		d, leak := setup(t)
+		got := update(t, d, leak, []scorerConfigInput{{Name: "not_contains"}, {Name: "not_contains", Config: map[string]any{"substring": "new"}}})
+		wantRedacted(t, got, len(secret), len("new"))
+		equal(t, substrings(t, d, leak), secret, "new")
+	})
+	t.Run("a row added past the stored ones gets nothing", func(t *testing.T) {
+		d, leak := setup(t)
+		got := update(t, d, leak, []scorerConfigInput{{Name: "not_contains"}, {Name: "not_contains"}, {Name: "not_contains"}})
+		wantRedacted(t, got, len(secret), len("refund"), 0)
+		equal(t, substrings(t, d, leak), secret, "refund", nil)
+	})
+	t.Run("other scorers between the rows do not shift the pairing", func(t *testing.T) {
+		d, leak := setup(t)
+		got := update(t, d, leak, []scorerConfigInput{{Name: "not_contains"}, {Name: "contains", Config: map[string]any{"substring": "ok"}}, {Name: "not_contains"}})
+		wantRedacted(t, got, len(secret), -1, len("refund"))
+		equal(t, substrings(t, d, leak), secret, "ok", "refund")
+	})
+}
+
 func TestCasesImport(t *testing.T) {
 	d := newTestDeps(t)
 	s := seedSuite(t, d, testApp, "s", "p")
