@@ -1,7 +1,7 @@
 // Package contract wires Sentinel into the Forge dashboard's contract path.
 // It registers the `sentinel` contributor and answers its intents from the
-// engine. This is the surface the React shell reads; the templ dashboard in
-// sentinel/dashboard is retired once every surface has an equivalent here.
+// engine. This is the only dashboard surface Sentinel has: the React shell
+// reads it through @forge-go/dashboard-plugin-sentinel.
 package contract
 
 import (
