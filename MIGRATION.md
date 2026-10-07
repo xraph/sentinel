@@ -71,11 +71,11 @@ what you registered, and with none it says so and links to Setup instead of
 offering a button. Scorers you write yourself go in the same way, with
 `WithScorer`, so the run dialog can offer them.
 
-Sentinel needs forge v1.11.2 or later, because that's the first forge whose
-dashboard transport passes a manifest's `invalidates` to the client, so a
-write refreshes the pages that read what it changed. We build against v1.12.0,
-which also stops pulling in templ and ForgeUI. The REST API under `base_path` is unchanged and
-still mounts unless you set `disable_routes`.
+Sentinel requires forge v1.12.0. The part the dashboard depends on arrived
+in v1.11.2, the first forge whose transport passes a manifest's `invalidates`
+to the client, so a write refreshes the pages that read what it changed.
+v1.12.0 also stops pulling in templ and ForgeUI. The REST API under
+`base_path` is unchanged and still mounts unless you set `disable_routes`.
 
 ## What changed underneath
 
@@ -252,9 +252,9 @@ contract calls the page makes.
 
 - Now the suite's Prompts tab. Version, Changelog, Current and Created stay,
   with Runs (how many runs used the version).
-- Pass rate and Avg score, averaged over every run of the version, become the
-  latest completed run's pass rate. Runs of one version can use different
-  scorers and thresholds, and an average over them mixes unlike things.
+- Pass rate and Avg score read columns on the version row that nothing ever
+  wrote, so both always showed "-". The tab now shows the pass rate of the
+  latest completed run that used the version, from the runs themselves.
 - New: Make current, behind a confirm. The API always had it and nothing
   called it.
 - New version opens a dialog. The old `?page=` links meant this list was
@@ -270,12 +270,13 @@ contract calls the page makes.
 
 ### Prompt version detail
 
-- The prompt and changelog stay. The stat cards rendered their arguments in
-  the wrong slots; the facts are plain now: number, created, runs, latest pass
-  rate.
+- The prompt and changelog stay. The facts are plain now: number, created,
+  runs, latest pass rate.
+- The Pass Rate, Avg Score and Run ID cards read the same never-written
+  columns, so all three always said "No linked run". They are gone. A version
+  is used by many runs, and the Runs count says how many.
 - New: a diff against the version before, loaded only when you open a
-  version. The linked run is dropped; a version is used by many runs, and the
-  Runs count says how many.
+  version.
 
 ### Runs list
 
@@ -291,8 +292,12 @@ contract calls the page makes.
 
 ### Run detail and run report
 
-- The report page folds into run detail: its content was a subset, and its
-  stat cards were in the wrong slots.
+- The report page folds into run detail. Its stats and dimension scores are
+  on the run page, and its stat cards were in the wrong slots.
+- The report's Results table had a Scorers column: each scorer's name as a
+  badge, coloured by pass or fail. That column is not carried over. Each
+  result's own page lists its scorers with their verdicts, so you see them one
+  result at a time. This is a gap we have not closed, not a decision.
 - New: a verdict band that answers first: regressed against which baseline,
   within threshold, no baseline yet, or why the run is not compared (cancelled,
   failed, another suite). It names the evidence: the pass rate change, regressed
@@ -374,8 +379,9 @@ after you ask.
   with each one's dimension, whether it calls an LLM, and whether it needs
   config of its own. The old page was a hard-coded list of ten, one of which
   (`custom`) was never a registered scorer, and it did not mention the eleven
-  programmatic scorers at all. Setup lists the nine built-ins plus whatever
-  you register with `WithScorer`.
+  scorers you construct in code (the LLM and persona scorers) at all. Setup
+  lists the nine built-ins, and any of those eleven once you register it with
+  `WithScorer`.
 
 ### Widgets and settings
 
@@ -388,6 +394,26 @@ after you ask.
   Sentinel engine behavior" though it was read-only. Setup is read-only too and
   says how to register a target when there are none.
 
+### Empty states
+
+Every list still says when it is empty. The wording now says what to do, and
+the action it names exists.
+
+| templ | Now |
+|---|---|
+| Suites: "No suites found. Create your first evaluation suite to get started." | "No suites yet." The Create suite button sits in the page header. |
+| Cases, on the cases page and suite detail: "No cases yet" | The Cases tab: "No cases yet." |
+| Prompt versions, on the prompts page and suite detail | The Prompts tab: "No prompt versions yet. Runs use the suite's own prompt." |
+| Runs, on the runs page and suite detail: "No runs yet" | "No runs yet." With filters set, "No runs match these filters", and past the first page, "No runs on this page." |
+| Overview recent runs and the recent runs widget: "Run an evaluation to see results here" | "No runs yet. Start one from a suite's Runs tab." |
+| Overview active runs: "No active runs. All evaluations are complete" | The Running now section only appears while a run is in flight. |
+| Baselines, on the baselines page and suite detail: "Save a baseline from a completed evaluation run" | "No baselines yet. Save one from a completed run's page, and later runs are compared with it." |
+| Run detail and report results: "No results" | "No case has been scored yet." With a status filter set, "No results with this status." |
+| Baseline detail results: "This baseline has no per-case results." | "This baseline saved no results." |
+
+New pages bring their own: a suite with no completed run says there is no
+trend yet, and a run that measured no dimensions says so.
+
 ## Dropped, and why
 
 | What | Why |
@@ -397,11 +423,11 @@ after you ask.
 | Suites search | It filtered only the current page and left the count wrong. |
 | Pagination on suites, cases and baselines | Suites paged in memory; cases and baselines were fake. Each list comes back whole. Runs page for real. |
 | Avg Pass Rate stat | An unweighted all-history mean across unrelated suites, "0.0%" with no data. |
-| Run report page | Its content was a subset of run detail. |
+| Run report page | Its stats are on run detail. Its per-result Scorers column is a gap, not a decision (see Run detail). |
 | Run detail's average latency card | Latency is per result now. |
-| The linked run on a prompt version | A version is used by many runs; the Runs count replaces it. |
+| The linked run on a prompt version | Never written, so always empty. A version is used by many runs; the Runs count replaces it. |
 | Widgets as widgets | No widget slots in the shell; the Overview covers both. |
-| Avg score on the prompt versions list | It averaged runs scored with different settings. |
+| Avg score on the prompt versions list and version page | The column was never written. The latest pass rate replaces it. |
 | Per-case dimension badges on a baseline | The run's dimension scores stay. |
 | Case metadata on the case page | Not a decision: the contract sends it and the page does not show it yet. |
 
@@ -430,10 +456,17 @@ than moved:
 10. A raw `suite_id` from the query string went into inline JavaScript, a
     possible reflected XSS.
 11. Dimension scores came out in random order, score bar colours ignored the
-    pass threshold, and timestamps in lists and the overview had no year.
+    pass threshold, and timestamps in the runs list, suite detail and the
+    overview had no year.
 12. Store errors became empty lists, so a database failure read as "No suites
     found".
 13. Text was truncated by bytes, which could split a character.
+14. Nothing was scoped to an app. Every page read every tenant's suites and
+    runs, so if you see fewer suites now, `dashboard_app_id` is doing its job.
+15. Two empty states pointed at controls that did not exist ("Run an
+    evaluation from a suite", "Save a baseline from a completed evaluation
+    run"), and "All evaluations are complete" showed whenever nothing was
+    running, even when nothing had ever run.
 
 ## Badges
 
@@ -445,13 +478,13 @@ than moved:
 | Run state: failed | destructive | destructive | |
 | Result: pass | primary | outline | A pass is the common case. |
 | Result: fail | destructive | destructive | |
-| Result: error | destructive | primary | It means the case could not be judged, which is different from failing. |
+| Result: error | destructive (outline on baseline detail) | primary | It means the case could not be judged, which is different from failing. |
 | Verdict | (none) | regressed destructive, within threshold outline, the rest grey | Only a regression is loud, and always with an icon and a word. |
-| Scenario | colours per type, cognitive stress red | standard outline, the rest grey | A scenario is not a severity. |
+| Scenario | standard grey, cognitive stress destructive, the rest primary | standard outline, the rest grey | A scenario is not a severity. |
 | Current | primary | primary | A marker worth finding. |
 | Red team, Calls an LLM | (none) | primary | Markers worth finding. |
 | Needs config | (none) | grey | |
-| Scorer verdict | (none) | passed outline, failed destructive | The same rule as a result. |
+| Scorer verdict | passed primary, failed destructive | passed outline, failed destructive | The same rule as a result. |
 
 ## What stays uncovered
 
