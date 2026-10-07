@@ -237,11 +237,11 @@ contract calls the page makes.
   change or remove it: it decides whether the case's scorers hide the system
   prompt, so the server always keeps the stored value. A case gets one from
   red-team generation, an import, or the REST API's case create.
-- The redaction is the dashboard contract's, not the REST API's. A `GET` on a
-  case under `base_path` returns its `not_contains` substring in full, so the
-  dashboard hides the system prompt only from people who cannot reach that
-  API. Keep the REST routes behind the access you would give the prompt
-  itself, or set `disable_routes`.
+- The withheld substring is a display rule, not an access boundary. The
+  same people can read the suite's prompt in its Edit dialog and every
+  version's prompt on its page, and the REST API under `base_path` returns
+  cases as they are stored. The case page just doesn't put the prompt in
+  front of you each time you open a red-team case.
 - A red-team case's leakage substring is never shown, only its length, and
   editing the case without retyping it keeps the stored one. The substring is
   the system prompt the case checks for.

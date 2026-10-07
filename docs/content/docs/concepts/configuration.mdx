@@ -174,3 +174,5 @@ extensions:
 ### Merge behaviour
 
 File-based configuration is merged with programmatic options. Programmatic boolean flags (`DisableRoutes`, `DisableMigrate`) always win when set to `true`. For other fields, YAML values take precedence, then programmatic values, then defaults.
+
+A zero `pass_threshold` or `regression_threshold` counts as unset, so it falls back to the next source and then to the default. If you want any drop at all to count as a regression, set `regression_threshold` to a very small value such as `0.0001`.
