@@ -444,7 +444,7 @@ func (e *Engine) evaluateCase(
 		s, err := e.scorers.Get(cfg.Name, cfg.Config)
 		if err != nil {
 			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", cfg.Name, err))
-			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: cfg.Name, Reason: "scorer error: " + err.Error()})
+			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: cfg.Name, Reason: evalrun.ScorerErrorPrefix + err.Error()})
 			continue
 		}
 		all = append(all, s)
@@ -458,7 +458,7 @@ func (e *Engine) evaluateCase(
 		so, err := s.Score(ctx, input)
 		if err != nil {
 			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", s.Name(), err))
-			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: s.Name(), Reason: "scorer error: " + err.Error()})
+			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: s.Name(), Reason: evalrun.ScorerErrorPrefix + err.Error()})
 			continue
 		}
 		scorerResults = append(scorerResults, evalrun.ScorerResult{

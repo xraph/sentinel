@@ -257,3 +257,28 @@ func TestRunsResultsCarryEachScorersVerdict(t *testing.T) {
 		t.Fatalf("no scorer results must still send an array: %s", empty)
 	}
 }
+
+// A scorer that could not judge the case is not one that failed it: the
+// verdict and the result page both say errored.
+func TestScorerVerdictsSayWhenAScorerErrored(t *testing.T) {
+	res := &evalrun.Result{ScorerResults: []evalrun.ScorerResult{
+		{ScorerName: "judge", Reason: evalrun.ScorerErrorPrefix + "model unavailable"},
+		{ScorerName: "contains", Passed: true},
+		{ScorerName: "exact"},
+	}}
+	row := resultRow(res, nil)
+	want := []ScorerVerdict{{Name: "judge", Errored: true}, {Name: "contains", Passed: true}, {Name: "exact"}}
+	for i := range want {
+		if row.Scorers[i] != want[i] {
+			t.Fatalf("verdict %d: %+v, want %+v", i, row.Scorers[i], want[i])
+		}
+	}
+	raw, _ := json.Marshal(row.Scorers)
+	if string(raw) != `[{"name":"judge","passed":false,"errored":true},{"name":"contains","passed":true},{"name":"exact","passed":false}]` {
+		t.Fatalf("errored is sent only when true: %s", raw)
+	}
+	views := scorerResultViews(res)
+	if !views[0].Errored || views[1].Errored || views[2].Errored {
+		t.Fatalf("result detail: %+v", views)
+	}
+}

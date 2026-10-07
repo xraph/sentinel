@@ -1,6 +1,8 @@
 package evalrun
 
 import (
+	"strings"
+
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/id"
 )
@@ -41,6 +43,17 @@ type ScorerResult struct {
 	Reason     string         `json:"reason"`
 	Dimension  string         `json:"dimension,omitempty"`
 	Details    map[string]any `json:"details,omitempty"`
+}
+
+// ScorerErrorPrefix starts the Reason of a scorer that could not judge the
+// case: it could not be built from its config, or its Score call failed.
+// Such a result never passed, but it did not fail the output either.
+const ScorerErrorPrefix = "scorer error: "
+
+// Errored reports whether the scorer could not judge the case, as opposed to
+// judging it and failing it.
+func (r ScorerResult) Errored() bool {
+	return strings.HasPrefix(r.Reason, ScorerErrorPrefix)
 }
 
 // RunTrace captures agent execution data for persona-aware evaluation.

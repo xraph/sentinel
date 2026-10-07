@@ -68,6 +68,9 @@ type RunView struct {
 type ScorerVerdict struct {
 	Name   string `json:"name"`
 	Passed bool   `json:"passed"`
+	// Errored is true when the scorer could not judge the case, which is
+	// not the same as failing it.
+	Errored bool `json:"errored,omitempty"`
 }
 
 // ResultRow is one case's result without its output, which can be large.
@@ -82,7 +85,9 @@ type ResultRow struct {
 	Cost            float64            `json:"cost"`
 	DimensionScores map[string]float64 `json:"dimensionScores"`
 	RedTeam         *RedTeamRef        `json:"redTeam,omitempty"`
-	// Scorers is each scorer's verdict on the case, in the order they ran.
+	// Scorers is each scorer's verdict on the case, in the order the engine
+	// recorded them: case scorers that could not be built first, then the
+	// run's scorers and the case's own as they ran.
 	// Reasons and details stay on results.detail: a reason can quote the
 	// output, and a red-team output is only shown when asked for.
 	Scorers []ScorerVerdict `json:"scorers"`
@@ -101,6 +106,9 @@ type ScorerResultView struct {
 	Reason     string         `json:"reason"`
 	Dimension  string         `json:"dimension,omitempty"`
 	Details    map[string]any `json:"details,omitempty"`
+	// Errored is true when the scorer could not judge the case. Passed is
+	// false then too, but the output was not failed.
+	Errored bool `json:"errored,omitempty"`
 }
 
 // TraceView is an agent run's trace.
@@ -256,7 +264,7 @@ func resultRow(r *evalrun.Result, cases map[string]*testcase.Case) ResultRow {
 		Scorers: make([]ScorerVerdict, 0, len(r.ScorerResults)),
 	}
 	for _, sr := range r.ScorerResults {
-		row.Scorers = append(row.Scorers, ScorerVerdict{Name: sr.ScorerName, Passed: sr.Passed})
+		row.Scorers = append(row.Scorers, ScorerVerdict{Name: sr.ScorerName, Passed: sr.Passed, Errored: sr.Errored()})
 	}
 	if tc := cases[row.CaseID]; tc != nil {
 		if at := attackTypeOf(tc); at != "" {
@@ -264,6 +272,15 @@ func resultRow(r *evalrun.Result, cases map[string]*testcase.Case) ResultRow {
 		}
 	}
 	return row
+}
+
+func scorerResultViews(r *evalrun.Result) []ScorerResultView {
+	out := make([]ScorerResultView, 0, len(r.ScorerResults))
+	for _, sr := range r.ScorerResults {
+		out = append(out, ScorerResultView{ScorerName: sr.ScorerName, Score: sr.Score, Passed: sr.Passed,
+			Reason: sr.Reason, Dimension: sr.Dimension, Details: sr.Details, Errored: sr.Errored()})
+	}
+	return out
 }
 
 func traceView(t *evalrun.RunTrace) *TraceView {
@@ -395,11 +412,7 @@ func resultsDetailHandler(d Deps) func(context.Context, resultRef, dashcontract.
 				continue
 			}
 			v := ResultView{ResultRow: resultRow(res, cases), Output: res.Output, OutputLength: utf8.RuneCountInString(res.Output),
-				ScorerResults: []ScorerResultView{}, RunTrace: traceView(res.RunTrace)}
-			for _, sr := range res.ScorerResults {
-				v.ScorerResults = append(v.ScorerResults, ScorerResultView{ScorerName: sr.ScorerName, Score: sr.Score, Passed: sr.Passed,
-					Reason: sr.Reason, Dimension: sr.Dimension, Details: sr.Details})
-			}
+				ScorerResults: scorerResultViews(res), RunTrace: traceView(res.RunTrace)}
 			return v, nil
 		}
 		return ResultView{}, notFound("result not found")
