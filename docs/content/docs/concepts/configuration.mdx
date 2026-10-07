@@ -9,11 +9,12 @@ description: Options and defaults for the Sentinel engine and Forge extension.
 
 ```go
 type Config struct {
-    DefaultModel    string        // LLM model (default: "smart")
-    Temperature     float64       // LLM sampling temperature (default: 0)
-    PassThreshold   float64       // minimum score to pass (default: 0.7)
-    Concurrency     int           // max concurrent case evaluations (default: 4)
-    ShutdownTimeout time.Duration // graceful shutdown timeout (default: 30s)
+    DefaultModel        string        // LLM model (default: "smart")
+    Temperature         float64       // LLM sampling temperature (default: 0)
+    PassThreshold       float64       // minimum score to pass (default: 0.7)
+    RegressionThreshold float64       // how far a metric may fall below the baseline (default: 0.05)
+    Concurrency         int           // max concurrent case evaluations (default: 4)
+    ShutdownTimeout     time.Duration // graceful shutdown timeout (default: 30s)
 }
 ```
 
@@ -22,11 +23,12 @@ type Config struct {
 ```go
 sentinel.DefaultConfig() // returns:
 // Config{
-//     DefaultModel:    "smart",
-//     Temperature:     0,
-//     PassThreshold:   0.7,
-//     Concurrency:     4,
-//     ShutdownTimeout: 30 * time.Second,
+//     DefaultModel:        "smart",
+//     Temperature:         0,
+//     PassThreshold:       0.7,
+//     RegressionThreshold: 0.05,
+//     Concurrency:         4,
+//     ShutdownTimeout:     30 * time.Second,
 // }
 ```
 
@@ -95,6 +97,37 @@ ext := extension.New(
 | `WithBasePath(path)` | `string` | `""` | URL prefix for all sentinel routes. |
 | `WithGroveDatabase(name)` | `string` | `""` | Named grove.DB to resolve from DI. |
 | `WithRequireConfig(b)` | `bool` | `false` | Require config in YAML files. |
+| `WithTarget(name, description, t)` | `string, string, target.Target` | -- | Register a named target, so the dashboard can start runs against it (repeatable). |
+| `WithScorer(d, f)` | `scorer.Descriptor, scorer.Factory` | -- | Register a scorer the dashboard can offer, such as an LLM scorer that needs your client (repeatable). |
+
+## Dashboard
+
+Sentinel's dashboard is the `@forge-go/dashboard-plugin-sentinel` plugin for the Forge dashboard's React shell. Add it to your shell's plugin list and the pages mount at `/@sentinel`. The extension registers the contract the plugin reads on its own, so there's nothing to wire in Go.
+
+You do need to tell Sentinel which app the dashboard works in:
+
+```yaml
+extensions:
+  sentinel:
+    dashboard_app_id: app_yourapp
+```
+
+The dashboard takes the app from the signed-in principal's `app_id` claim first. Nothing sets that claim yet, so today it comes from `dashboard_app_id`. There's no default. With neither, every dashboard request is refused, because an empty app id would match every app's suites and runs.
+
+To start runs from the dashboard, register at least one target. Scorers that need your application's LLM client go in the same way:
+
+```go
+ext := extension.New(
+    extension.WithTarget("support-bot", "The support assistant under test", myTarget),
+    extension.WithScorer(scorer.Descriptor{
+        Name:      "judge",
+        Dimension: "persona",
+        UsesLLM:   true,
+    }, judgeFactory),
+)
+```
+
+With no target registered, the dashboard says so and points you at its Setup page instead of offering a Start button.
 
 ## File-based configuration (YAML)
 
@@ -115,9 +148,11 @@ extensions:
     default_model: "smart"
     temperature: 0
     pass_threshold: 0.7
+    regression_threshold: 0.05
     concurrency: 4
     shutdown_timeout: "30s"
     grove_database: ""
+    dashboard_app_id: "app_yourapp"
 ```
 
 ### Config fields
@@ -130,9 +165,11 @@ extensions:
 | `default_model` | `string` | `"smart"` | LLM model identifier |
 | `temperature` | `float64` | `0` | LLM sampling temperature |
 | `pass_threshold` | `float64` | `0.7` | Minimum score to pass |
+| `regression_threshold` | `float64` | `0.05` | How far a metric may fall below the current baseline before a run counts as regressed |
 | `concurrency` | `int` | `4` | Parallel evaluation workers |
 | `shutdown_timeout` | `duration` | `"30s"` | Max graceful shutdown wait |
 | `grove_database` | `string` | `""` | Named grove.DB from DI |
+| `dashboard_app_id` | `string` | none | The app the dashboard reads and writes when the principal has no `app_id` claim. With neither, every dashboard request is refused. |
 
 ### Merge behaviour
 
