@@ -75,6 +75,7 @@ type casesCreateInput struct {
 	ScenarioType string              `json:"scenarioType"`
 	Tags         []string            `json:"tags"`
 	Scorers      []scorerConfigInput `json:"scorers"`
+	Context      map[string]any      `json:"context"`
 }
 
 type casesUpdateInput struct {
@@ -85,6 +86,9 @@ type casesUpdateInput struct {
 	ScenarioType *string              `json:"scenarioType"`
 	Tags         *[]string            `json:"tags"`
 	Scorers      *[]scorerConfigInput `json:"scorers"`
+	// Context replaces the stored context whole, except attack_type: see
+	// contextFrom.
+	Context *map[string]any `json:"context"`
 }
 
 type casesDeleteOutput struct {
@@ -126,8 +130,9 @@ func attackTypeOf(tc *testcase.Case) string {
 }
 
 // promptHidden reports whether the case's scorers may embed the system
-// prompt under test. It reads the stored Context, which no contract write
-// can change, never the tags a client can edit.
+// prompt under test. It reads the stored context's attack_type, which no
+// contract write can change (see contextFrom), never the tags a client can
+// edit.
 func promptHidden(tc *testcase.Case) bool {
 	at, ok := tc.Context["attack_type"].(string)
 	return ok && at != ""
@@ -193,6 +198,24 @@ func (d Deps) caseInApp(ctx context.Context, app, rawID string) (*testcase.Case,
 		return nil, err
 	}
 	return tc, nil
+}
+
+// contextFrom is the context a write stores: the submitted one, with
+// attack_type taken from the stored case and never from the request. That
+// key decides whether the case's scorers hide the system prompt, so no
+// contract write may add, change or remove it. Red-team generation and
+// import are the only ways a case gets one. stored is nil for a new case.
+func contextFrom(submitted, stored map[string]any) map[string]any {
+	out := make(map[string]any, len(submitted)+1)
+	for k, v := range submitted {
+		if k != "attack_type" {
+			out[k] = v
+		}
+	}
+	if at, ok := stored["attack_type"]; ok {
+		out["attack_type"] = at
+	}
+	return out
 }
 
 func cleanTags(in []string) []string {
@@ -289,7 +312,7 @@ func casesCreateHandler(d Deps) func(context.Context, casesCreateInput, dashcont
 		tc := &testcase.Case{
 			Entity: sentinel.NewEntity(), ID: id.NewCaseID(), SuiteID: s.ID, Name: strings.TrimSpace(in.Name), Input: in.Input,
 			Expected: in.Expected, ScenarioType: st, Scorers: scorers, Tags: cleanTags(in.Tags),
-			Context: map[string]any{}, Metadata: map[string]any{},
+			Context: contextFrom(in.Context, nil), Metadata: map[string]any{},
 		}
 		if err := d.Engine.CreateCase(ctx, tc); err != nil {
 			return CaseView{}, d.fail("cases.create", err)
@@ -334,6 +357,9 @@ func casesUpdateHandler(d Deps) func(context.Context, casesUpdateInput, dashcont
 		}
 		if in.Tags != nil {
 			tc.Tags = cleanTags(*in.Tags)
+		}
+		if in.Context != nil {
+			tc.Context = contextFrom(*in.Context, tc.Context)
 		}
 		if in.Scorers != nil {
 			submitted := *in.Scorers

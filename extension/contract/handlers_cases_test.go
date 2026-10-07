@@ -447,3 +447,75 @@ func TestCasesImport(t *testing.T) {
 		wantCode(t, err, "BAD_REQUEST")
 	}
 }
+
+func TestCasesCreateTakesContextButNeverAnAttackType(t *testing.T) {
+	d := newTestDeps(t)
+	s := seedSuite(t, d, testApp, "s", "p")
+	ctx := context.Background()
+	in := casesCreateInput{SuiteID: s.ID.String(), Name: "c", Input: "x",
+		Context: map[string]any{"latency_ms": 120.0, "attack_type": "leakage"}}
+	got, err := casesCreateHandler(d)(ctx, in, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Context["latency_ms"] != 120.0 {
+		t.Fatalf("context kept: %+v", got.Context)
+	}
+	if _, set := got.Context["attack_type"]; set {
+		t.Fatalf("a create must not mark a case as red team: %+v", got.Context)
+	}
+	none, err := casesCreateHandler(d)(ctx, casesCreateInput{SuiteID: s.ID.String(), Name: "c2", Input: "x"}, operator)
+	if err != nil || none.Context == nil || len(none.Context) != 0 {
+		t.Fatalf("no context sent means an empty one: %+v %v", none.Context, err)
+	}
+}
+
+// The stored attack_type decides whether a case's scorers hide the system
+// prompt, so an edit can change everything else in the context and never it.
+func TestCasesUpdateContextKeepsTheStoredAttackType(t *testing.T) {
+	d := newTestDeps(t)
+	s := seedSuite(t, d, testApp, "s", "ctx test prompt")
+	inj := seedInjectionCase(t, d, s.ID, "ctx test prompt")
+	plain := seedCase(t, d, s.ID, "plain", "hi")
+	ctx := context.Background()
+
+	dropped := map[string]any{"variant": "edited"}
+	got, err := casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: inj.ID.String(), Context: &dropped}, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Context["attack_type"] != "injection" || got.Context["variant"] != "edited" {
+		t.Fatalf("attack_type must survive being left out: %+v", got.Context)
+	}
+	wantHidden(t, "update without attack_type", got, "ctx test prompt")
+
+	changed := map[string]any{"attack_type": "offtopic", "note": "n"}
+	got, err = casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: inj.ID.String(), Context: &changed}, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Context["attack_type"] != "injection" || got.Context["note"] != "n" {
+		t.Fatalf("attack_type must not change: %+v", got.Context)
+	}
+	if _, kept := got.Context["variant"]; kept {
+		t.Fatalf("the context is replaced, not merged: %+v", got.Context)
+	}
+
+	added := map[string]any{"attack_type": "leakage", "cost": 0.5}
+	got, err = casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: plain.ID.String(), Context: &added}, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, set := got.Context["attack_type"]; set || got.Context["cost"] != 0.5 {
+		t.Fatalf("an edit must not mark a case as red team: %+v", got.Context)
+	}
+	stored, _ := d.Engine.GetCase(ctx, plain.ID)
+	if _, set := stored.Context["attack_type"]; set {
+		t.Fatalf("stored: %+v", stored.Context)
+	}
+
+	untouched, err := casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: plain.ID.String(), Expected: new(string)}, operator)
+	if err != nil || untouched.Context["cost"] != 0.5 {
+		t.Fatalf("an edit that sends no context keeps it: %+v %v", untouched.Context, err)
+	}
+}
