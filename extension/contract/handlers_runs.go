@@ -64,6 +64,12 @@ type RunView struct {
 	LastProgressAt *string `json:"lastProgressAt,omitempty"`
 }
 
+// ScorerVerdict is one scorer's pass or fail on a result.
+type ScorerVerdict struct {
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+}
+
 // ResultRow is one case's result without its output, which can be large.
 type ResultRow struct {
 	ID              string             `json:"id"`
@@ -76,6 +82,10 @@ type ResultRow struct {
 	Cost            float64            `json:"cost"`
 	DimensionScores map[string]float64 `json:"dimensionScores"`
 	RedTeam         *RedTeamRef        `json:"redTeam,omitempty"`
+	// Scorers is each scorer's verdict on the case, in the order they ran.
+	// Reasons and details stay on results.detail: a reason can quote the
+	// output, and a red-team output is only shown when asked for.
+	Scorers []ScorerVerdict `json:"scorers"`
 	// Error carries the target's own error text for this case (what
 	// target.Call returned), or the scorers' when one could not judge it,
 	// stored as written. It comes from the code under test and the judges,
@@ -243,6 +253,10 @@ func resultRow(r *evalrun.Result, cases map[string]*testcase.Case) ResultRow {
 	row := ResultRow{
 		ID: r.ID.String(), CaseID: r.CaseID.String(), CaseName: r.CaseName, Status: string(r.Status), Score: r.Score,
 		LatencyMs: r.LatencyMs, TokensUsed: r.TokensUsed, Cost: r.Cost, DimensionScores: dimsOrEmpty(r.DimensionScores), Error: r.Error,
+		Scorers: make([]ScorerVerdict, 0, len(r.ScorerResults)),
+	}
+	for _, sr := range r.ScorerResults {
+		row.Scorers = append(row.Scorers, ScorerVerdict{Name: sr.ScorerName, Passed: sr.Passed})
 	}
 	if tc := cases[row.CaseID]; tc != nil {
 		if at := attackTypeOf(tc); at != "" {

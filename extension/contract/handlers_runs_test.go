@@ -2,6 +2,8 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/xraph/sentinel"
@@ -203,4 +205,55 @@ func TestRunningRunCountersComeFromStoredResults(t *testing.T) {
 		t.Fatalf("list: %+v %v", list, err)
 	}
 	check("runs.list", list.Items[0])
+}
+
+// Each row carries every scorer's verdict, so the results table can show
+// which scorer failed a case without opening it. Only the name and the
+// verdict: a reason can quote the output, and a red-team output stays behind
+// the result page's reveal.
+func TestRunsResultsCarryEachScorersVerdict(t *testing.T) {
+	d := newTestDeps(t)
+	s := seedSuite(t, d, testApp, "s", "secret")
+	seedCase(t, d, s.ID, "plain", "x")
+	seedLeakageCase(t, d, s.ID, "secret")
+	run := seedCompletedRun(t, d, s, 0)
+	ctx := context.Background()
+
+	rows, err := runsResultsHandler(d)(ctx, runsResultsInput{RunID: run.ID.String()}, operator)
+	if err != nil || len(rows.Items) != 2 {
+		t.Fatalf("results: %+v %v", rows, err)
+	}
+	stored, err := d.Engine.ListResults(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string][]ScorerVerdict{}
+	for _, r := range stored {
+		v := []ScorerVerdict{}
+		for _, sr := range r.ScorerResults {
+			v = append(v, ScorerVerdict{Name: sr.ScorerName, Passed: sr.Passed})
+		}
+		byID[r.ID.String()] = v
+	}
+	for _, row := range rows.Items {
+		want := byID[row.ID]
+		if len(want) == 0 || len(row.Scorers) != len(want) {
+			t.Fatalf("%s: verdicts %+v, want %+v", row.CaseName, row.Scorers, want)
+		}
+		for i := range want {
+			if row.Scorers[i] != want[i] {
+				t.Fatalf("%s: verdict %d is %+v, want %+v", row.CaseName, i, row.Scorers[i], want[i])
+			}
+		}
+	}
+	raw, _ := json.Marshal(rows.Items[0])
+	var m map[string]any
+	_ = json.Unmarshal(raw, &m)
+	verdict := m["scorers"].([]any)[0].(map[string]any)
+	if len(verdict) != 2 || verdict["name"] == nil || verdict["passed"] == nil {
+		t.Fatalf("a verdict is its name and passed, nothing else: %v", verdict)
+	}
+	if empty, _ := json.Marshal(resultRow(&evalrun.Result{}, nil)); !strings.Contains(string(empty), `"scorers":[]`) {
+		t.Fatalf("no scorer results must still send an array: %s", empty)
+	}
 }
