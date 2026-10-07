@@ -3,8 +3,7 @@
 Sentinel's dashboard used to render server-side with templ and ForgeUI, from
 `dashboard/`. It now lives in the Forge dashboard's React shell as
 `@forge-go/dashboard-plugin-sentinel`, reading the `sentinel` contract
-contributor in `extension/contract`. The commit after this file deletes the
-templ package.
+contributor in `extension/contract`.
 
 This file is the record of that move. We wrote it from an inventory of every
 templ source, taken before anything changed: 31 `.templ` files (17 pages, a
@@ -17,9 +16,9 @@ widget and setting is listed below, and each one says whether it moved,
 changed, or was dropped, and why.
 
 The cut happened in two steps. Commit 21dca4b stopped the extension from
-registering the templ dashboard, so nothing has served those pages since. The
-commit that follows this file deletes `dashboard/` and the templ and ForgeUI
-requirements with it.
+registering the templ dashboard, so nothing has served those pages since.
+Commit a77f6f8 deleted `dashboard/` and the templ and ForgeUI requirements
+with it.
 
 ## What you need to do
 
@@ -129,10 +128,10 @@ contract calls the page makes.
 | Suite detail | `/suites/detail` | Suite detail, `/suites/:id`, with tabs | `suites.detail`, `suites.update`, `suites.delete` |
 | Cases list | `/suites/cases` | The suite's Cases tab, `/suites/:id` | `cases.list`, `cases.create`, `cases.import` |
 | Case form | `/suites/cases/create`, `/suites/cases/edit` | Add and Edit dialogs | `cases.create`, `cases.update`, `config.get` |
-| Case detail | `/suites/cases/detail` | Case detail, `/suites/:id/cases/:caseId` | `cases.detail`, `cases.update`, `cases.delete` |
+| Case detail | `/suites/cases/detail` | Case detail, `/suites/:id/cases/:caseId` | `cases.detail`, `suites.detail`, `cases.update`, `cases.delete`, `config.get` |
 | Prompt versions list | `/prompts` | The suite's Prompts tab, `/suites/:id/prompts` | `prompts.list`, `prompts.create`, `prompts.setCurrent` |
 | Prompt version form | `/prompts/create` | New version dialog | `prompts.create` |
-| Prompt version detail | `/prompts/detail` | Version page with a diff, `/suites/:id/prompts/:versionId` | `prompts.detail`, `prompts.setCurrent` |
+| Prompt version detail | `/prompts/detail` | Version page with a diff, `/suites/:id/prompts/:versionId` | `prompts.detail`, `suites.detail`, `prompts.setCurrent` |
 | Runs list | `/runs` | Runs, `/runs` | `runs.list`, `suites.list` |
 | (none) | | The suite's Runs tab, `/suites/:id/runs`, with the trend and Start run | `runs.list`, `runs.trend`, `runs.start`, `config.get` |
 | Run detail | `/runs/detail` | Run detail, `/runs/:id` | `runs.detail`, `runs.results`, `runs.regression`, `runs.cancel`, `baselines.save`, `baselines.detail`, `baselines.list`, `runs.list`, `redteam.report` |
@@ -142,7 +141,7 @@ contract calls the page makes.
 | Baselines list | `/baselines` | Baselines, `/baselines`, and the suite's Baselines tab | `baselines.list`, `baselines.delete` |
 | Baseline detail | `/baselines/detail` | Baseline detail, `/baselines/:id` | `baselines.detail`, `baselines.delete` |
 | Scorers reference | `/scorers` | Setup, `/setup` | `config.get` |
-| (none) | | The suite's Red team tab, `/suites/:id/redteam` | `redteam.generate`, `redteam.report`, `cases.list` |
+| (none) | | The suite's Red team tab, `/suites/:id/redteam` | `redteam.generate`, `redteam.report`, `cases.list`, `runs.list` |
 | `sentinel-stats` widget | | Overview counts | `overview.stats` |
 | `sentinel-recent-runs` widget | | Overview recent runs | `overview.stats` |
 | `sentinel-config` settings panel | | Setup | `config.get` |
@@ -229,9 +228,15 @@ contract calls the page makes.
 ### Case form
 
 - Name, Scenario type, Input and Expected output stay, in a dialog.
-- Tags and scorers are editable now. The old form could not touch them.
-  Scorers are a list of rows, each a registered scorer with its config.
-  Context still is not editable; the case page shows it.
+- Tags, scorers and context are editable now. The old form could not touch
+  them. Scorers are a list of rows, each a registered scorer with its config.
+  Context is a JSON object every scorer gets with the case, and it is only
+  sent once you change it.
+- A red-team case's `attack_type` is left out of the context field, and the
+  form says it is kept. No write can add, change or remove it: it decides
+  whether the case's scorers hide the system prompt, so the server always
+  keeps the stored value. A case gets one only from red-team generation or an
+  import.
 - A red-team case's leakage substring is never shown, only its length, and
   editing the case without retyping it keeps the stored one. The substring is
   the system prompt the case checks for.
@@ -242,8 +247,7 @@ contract calls the page makes.
 
 - Scenario, Tags, Input, Expected output and Context stay. Suite ID and Case
   ID give way to a link back to the suite, with created and updated times.
-- Metadata is not shown. The contract still sends it, so this is a gap we
-  have not closed yet, not a decision.
+- Metadata is shown as text when the case has any. It is not editable.
 - Scorers show each one's config as text, with a withheld substring shown as
   "The substring, N characters".
 - Delete is new, and Edit now works.
@@ -295,9 +299,10 @@ contract calls the page makes.
 - The report page folds into run detail. Its stats and dimension scores are
   on the run page, and its stat cards were in the wrong slots.
 - The report's Results table had a Scorers column: each scorer's name as a
-  badge, coloured by pass or fail. That column is not carried over. Each
-  result's own page lists its scorers with their verdicts, so you see them one
-  result at a time. This is a gap we have not closed, not a decision.
+  badge, coloured by pass or fail. Run detail's results have it now, in the
+  scorers' run order, outline for a pass and destructive for a fail, with a
+  mark and a word beside each so colour is never the only signal. Reasons
+  stay on each result's own page.
 - New: a verdict band that answers first: regressed against which baseline,
   within threshold, no baseline yet, or why the run is not compared (cancelled,
   failed, another suite). It names the evidence: the pass rate change, regressed
@@ -419,17 +424,19 @@ trend yet, and a run that measured no dimensions says so.
 | What | Why |
 |---|---|
 | Topbar "API Docs" action and sidebar footer link | The shell owns the chrome. |
+| The manifest's accent colour (`#10b981`) and topbar search | The shell owns the chrome. |
+| Nav groups "Sentinel" (Overview) and "Reference" (Scorers) | Every page sits under one group, Evaluation, and Scorers became Setup. |
+| The widgets' refresh intervals (stats every 60 s, recent runs every 15 s) | The Overview refreshes every three seconds while a run is active. |
 | `searchable` capability | Declared and never implemented. |
 | Suites search | It filtered only the current page and left the count wrong. |
 | Pagination on suites, cases and baselines | Suites paged in memory; cases and baselines were fake. Each list comes back whole. Runs page for real. |
 | Avg Pass Rate stat | An unweighted all-history mean across unrelated suites, "0.0%" with no data. |
-| Run report page | Its stats are on run detail. Its per-result Scorers column is a gap, not a decision (see Run detail). |
+| Run report page | Its stats and its per-result Scorers column are on run detail. |
 | Run detail's average latency card | Latency is per result now. |
 | The linked run on a prompt version | Never written, so always empty. A version is used by many runs; the Runs count replaces it. |
 | Widgets as widgets | No widget slots in the shell; the Overview covers both. |
 | Avg score on the prompt versions list and version page | The column was never written. The latest pass rate replaces it. |
 | Per-case dimension badges on a baseline | The run's dimension scores stay. |
-| Case metadata on the case page | Not a decision: the contract sends it and the page does not show it yet. |
 
 ## What the templ dashboard got wrong
 
@@ -490,8 +497,9 @@ than moved:
 
 The tests do not reach four things, and you should know which:
 
-- The LLM scorers and the scenario and dataset generators need real models, so
-  nothing here runs them.
+- The LLM scorers need real models, so nothing here runs them.
+- The scenario and dataset generators need them too, and nothing here runs
+  those either.
 - The Mongo store reads nested values in a case's context and metadata, and
   in scorer config, back as `bson.D`, not as Go maps.
 - Postgres stores scores and costs in 4-byte `REAL` columns, so a score read
