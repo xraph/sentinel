@@ -519,3 +519,34 @@ func TestCasesUpdateContextKeepsTheStoredAttackType(t *testing.T) {
 		t.Fatalf("an edit that sends no context keeps it: %+v %v", untouched.Context, err)
 	}
 }
+
+// The hide decision is taken from the case as loaded, before any field is
+// applied. A request that drops attack_type from the context and sends the
+// leakage row back without its substring, together, must still keep both.
+func TestCasesUpdateContextAndScorersTogetherKeepThePromptHidden(t *testing.T) {
+	d := newTestDeps(t)
+	s := seedSuite(t, d, testApp, "s", "together prompt")
+	leak := seedLeakageCase(t, d, s.ID, "together prompt")
+	ctx := context.Background()
+	noAttack := map[string]any{"note": "n"}
+	scorers := []scorerConfigInput{{Name: "not_contains"}}
+	got, err := casesUpdateHandler(d)(ctx, casesUpdateInput{CaseID: leak.ID.String(), Context: &noAttack, Scorers: &scorers}, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHidden(t, "context and scorers together", got, "together prompt")
+	stored, _ := d.Engine.GetCase(ctx, leak.ID)
+	if stored.Context["attack_type"] != "leakage" || stored.Scorers[0].Config["substring"] != "together prompt" {
+		t.Fatalf("stored: %+v %+v", stored.Context, stored.Scorers)
+	}
+
+	// JSON null decodes to a nil pointer: the context is left alone.
+	var in casesUpdateInput
+	if jerr := json.Unmarshal([]byte(`{"caseId":"`+leak.ID.String()+`","context":null}`), &in); jerr != nil {
+		t.Fatal(jerr)
+	}
+	got, err = casesUpdateHandler(d)(ctx, in, operator)
+	if err != nil || got.Context["note"] != "n" || got.Context["attack_type"] != "leakage" {
+		t.Fatalf("a null context changes nothing: %+v %v", got.Context, err)
+	}
+}

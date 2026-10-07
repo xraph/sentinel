@@ -203,8 +203,9 @@ func (d Deps) caseInApp(ctx context.Context, app, rawID string) (*testcase.Case,
 // contextFrom is the context a write stores: the submitted one, with
 // attack_type taken from the stored case and never from the request. That
 // key decides whether the case's scorers hide the system prompt, so no
-// contract write may add, change or remove it. Red-team generation and
-// import are the only ways a case gets one. stored is nil for a new case.
+// contract write may add, change or remove it. A case gets one from
+// red-team generation, an import, or the REST API's case create, which
+// stores the context it is sent. stored is nil for a new case.
 func contextFrom(submitted, stored map[string]any) map[string]any {
 	out := make(map[string]any, len(submitted)+1)
 	for k, v := range submitted {
