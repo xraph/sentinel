@@ -233,10 +233,15 @@ contract calls the page makes.
   Context is a JSON object every scorer gets with the case, and it is only
   sent once you change it.
 - A red-team case's `attack_type` is left out of the context field, and the
-  form says it is kept. No write can add, change or remove it: it decides
-  whether the case's scorers hide the system prompt, so the server always
-  keeps the stored value. A case gets one only from red-team generation or an
-  import.
+  form says it is kept. Typing one in is refused. No dashboard write can add,
+  change or remove it: it decides whether the case's scorers hide the system
+  prompt, so the server always keeps the stored value. A case gets one from
+  red-team generation, an import, or the REST API's case create.
+- The redaction is the dashboard contract's, not the REST API's. A `GET` on a
+  case under `base_path` returns its `not_contains` substring in full, so the
+  dashboard hides the system prompt only from people who cannot reach that
+  API. Keep the REST routes behind the access you would give the prompt
+  itself, or set `disable_routes`.
 - A red-team case's leakage substring is never shown, only its length, and
   editing the case without retyping it keeps the stored one. The substring is
   the system prompt the case checks for.
@@ -300,9 +305,12 @@ contract calls the page makes.
   on the run page, and its stat cards were in the wrong slots.
 - The report's Results table had a Scorers column: each scorer's name as a
   badge, coloured by pass or fail. Run detail's results have it now, in the
-  scorers' run order, outline for a pass and destructive for a fail, with a
-  mark and a word beside each so colour is never the only signal. Reasons
-  stay on each result's own page.
+  order the engine recorded them (case scorers that could not be built
+  first), outline for a pass and destructive for a fail. A scorer that could
+  not judge the case says errored, not failed, here and on the result page.
+  A mark beside each name means colour is never the only signal, and screen
+  readers hear the verdict as a word. Reasons stay on each result's own
+  page.
 - New: a verdict band that answers first: regressed against which baseline,
   within threshold, no baseline yet, or why the run is not compared (cancelled,
   failed, another suite). It names the evidence: the pass rate change, regressed
@@ -491,7 +499,7 @@ than moved:
 | Current | primary | primary | A marker worth finding. |
 | Red team, Calls an LLM | (none) | primary | Markers worth finding. |
 | Needs config | (none) | grey | |
-| Scorer verdict | passed primary, failed destructive | passed outline, failed destructive | The same rule as a result. |
+| Scorer verdict | passed primary, failed destructive | passed outline, failed destructive, errored primary | The same rule as a result: a scorer that could not judge is not a fail. |
 
 ## What stays uncovered
 
