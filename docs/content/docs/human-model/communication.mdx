@@ -1,59 +1,31 @@
 ---
 title: Communication Evaluation
-description: Test how an agent talks — tone, formality, verbosity, and technical level.
+description: Ask a judge model whether an answer's tone and format match what you expect.
 ---
 
-**Communication evaluation** tests whether an agent adapts its communication style to the audience and maintains consistent tone, formality, verbosity, and technical level.
-
-## What it tests
-
-- Does the agent use the right tone for the context?
-- Is the formality level appropriate for the audience?
-- Is verbosity calibrated (not too terse, not too wordy)?
-- Does the technical level match the user's expertise?
+Communication evaluation checks how an agent talks: the tone and the shape of the answer. A judge model does the checking, so you need an LLM client.
 
 ## Scorer: `communication_style`
 
-The `communication_style` scorer evaluates the agent's output against expected communication parameters:
-
 ```go
-testcase.ScorerConfig{
-    Name: "communication_style",
-    Config: map[string]any{
-        "expected_tone":      "professional",
-        "formality_min":      0.6,
-        "formality_max":      0.9,
-        "verbosity_min":      0.3,
-        "verbosity_max":      0.6,
-        "technical_level_min": 0.7,
-    },
-}
+s := scorer.NewCommunicationStyleScorer(client, "gpt-4o-mini", "friendly, plain language", "short paragraphs")
 ```
+
+`client` is a `scorer.LLMClient`. Tone and format are free-text descriptions. The scorer sends them, the case input and the answer to the judge at temperature 0 and asks for a JSON score from 0 to 1 with a reason. There are no numeric formality, verbosity or technical-level settings; put whatever you care about into the two descriptions. A client error makes the case `error`.
+
+The scorer isn't in the registry by default. To name it on a case, register a factory as shown in the [overview](/docs/human-model/overview#using-the-scorers).
 
 ## Scenario: `comms_adaptation`
 
-The `comms_adaptation` scenario generator creates test cases that require the agent to adapt its communication style to different audiences:
+`scenario.NewCommsAdaptationGenerator(audiences)` writes one case per audience, up to `Count` (default: all of them). Each names `communication_style` with that audience's `expected_tone` and `expected_format`:
 
 ```go
-Case{
-    ScenarioType: testcase.ScenarioCommsAdaptation,
-    Input:        "Explain how database indexing works",
-    Context: map[string]any{
-        "audience":        "junior developer",
-        "expected_tone":   "friendly",
-        "technical_level": 0.4,
-    },
-}
+gen := scenario.NewCommsAdaptationGenerator([]scenario.Audience{
+	{Name: "junior developer", Description: "New to the codebase", ExpectedTone: "friendly", ExpectedFormat: "step by step"},
+	{Name: "staff engineer", Description: "Knows the system well", ExpectedTone: "direct", ExpectedFormat: "terse bullet points"},
+})
+cases, err := gen.Generate(ctx, &scenario.GenerateConfig{SuiteID: suiteID.String()})
 ```
-
-## Communication parameters
-
-| Parameter | Range | Description |
-|-----------|-------|-------------|
-| `Tone` | string | Descriptive label: `"professional"`, `"friendly"`, `"casual"` |
-| `Formality` | 0.0 - 1.0 | Casual to formal spectrum |
-| `Verbosity` | 0.0 - 1.0 | Terse to verbose spectrum |
-| `TechnicalLevel` | 0.0 - 1.0 | Layperson to expert spectrum |
 
 ## Dimension score
 
@@ -61,8 +33,9 @@ Case{
 result.DimensionScores["communication"] // 0.0 to 1.0
 ```
 
+`sentineltest.CommunicationMatch(min)` asserts on it.
+
 ## Use cases
 
-- Verify a customer support agent uses friendly, low-tech language with end users
-- Test that a technical lead communicates concisely with expert-level detail
-- Ensure an agent adapts formality when switching between internal and external communications
+- Check that a support agent keeps jargon out of answers for end users
+- Make sure an internal tool answers experts briefly

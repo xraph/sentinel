@@ -1,219 +1,301 @@
 ---
 title: End-to-End Evaluation Pipeline
-description: Complete walkthrough — create a suite, add cases, run evaluations, save baselines, and detect regressions.
+description: SQLite storage, a suite, two runs, a baseline, an automatic regression alert and a report, in one program.
 ---
 
-This guide builds a complete evaluation pipeline from scratch using PostgreSQL and the Sentinel engine.
+This guide builds a small pipeline you can run as is. It stores everything in SQLite, runs a suite against the current version of a bot, keeps that run as the baseline, then runs a worse version and watches the regression get caught. The bots are plain Go functions, so you don't need a model or an API key.
 
-## 1. Set up the engine
+## The program
+
+Save this as `main.go`. The sections below walk through it.
 
 ```go
 package main
 
 import (
-    "context"
-    "database/sql"
-    "fmt"
-    "log"
-    "os"
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"strings"
 
-    "github.com/uptrace/bun"
-    "github.com/uptrace/bun/dialect/pgdialect"
-    "github.com/uptrace/bun/driver/pgdriver"
+	"github.com/xraph/grove"
+	"github.com/xraph/grove/drivers/sqlitedriver"
+	_ "github.com/xraph/grove/drivers/sqlitedriver/sqlitemigrate" // registers the SQLite migration executor
 
-    "github.com/xraph/sentinel"
-    "github.com/xraph/sentinel/engine"
-    "github.com/xraph/sentinel/suite"
-    "github.com/xraph/sentinel/testcase"
-    "github.com/xraph/sentinel/baseline"
-    pgstore "github.com/xraph/sentinel/store/postgres"
+	"github.com/xraph/sentinel"
+	"github.com/xraph/sentinel/baseline"
+	"github.com/xraph/sentinel/engine"
+	"github.com/xraph/sentinel/id"
+	"github.com/xraph/sentinel/report"
+	"github.com/xraph/sentinel/scorer"
+	sqlitestore "github.com/xraph/sentinel/store/sqlite"
+	"github.com/xraph/sentinel/suite"
+	"github.com/xraph/sentinel/target"
+	"github.com/xraph/sentinel/testcase"
 )
 
 func main() {
-    ctx := context.Background()
+	ctx := sentinel.WithApp(context.Background(), "support")
 
-    // PostgreSQL store
-    sqldb := sql.OpenDB(pgdriver.NewConnector(
-        pgdriver.WithDSN(os.Getenv("DATABASE_URL")),
-    ))
-    db := bun.NewDB(sqldb, pgdialect.New())
-    store := pgstore.New(db)
+	// SQLite through grove. Swap in pgdriver and store/postgres for production.
+	drv := sqlitedriver.New()
+	if err := drv.Open(ctx, "sentinel.db"); err != nil {
+		log.Fatal(err)
+	}
+	db, err := grove.Open(drv)
+	if err != nil {
+		log.Fatal(err)
+	}
+	store := sqlitestore.New(db)
+	if err := store.Migrate(ctx); err != nil {
+		log.Fatal("migrate: ", err)
+	}
 
-    // Build engine
-    eng, err := engine.New(
-        engine.WithStore(store),
-        engine.WithConfig(sentinel.Config{
-            DefaultModel:  "gpt-4o",
-            PassThreshold: 0.7,
-            Concurrency:   4,
-        }),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
+	cfg := sentinel.DefaultConfig()
+	cfg.PassThreshold = 0.8
 
-    // Run migrations
-    if err := store.Migrate(ctx); err != nil {
-        log.Fatal("migrate:", err)
-    }
+	eng, err := engine.New(
+		engine.WithStore(store),
+		engine.WithConfig(cfg),
+		engine.WithExtension(regressionAlert{}),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = eng.Stop(context.Background()) }()
 
-    // Set scope
-    ctx = sentinel.WithApp(ctx, "support-bot")
-    ctx = sentinel.WithTenant(ctx, "acme-corp")
+	s := suiteFor(ctx, eng)
+	scorers := []scorer.Scorer{&scorer.LengthScorer{MaxTokens: 80}}
 
-    run(ctx, eng)
+	// Run 1: the current bot. Keep it as the baseline.
+	first, err := eng.RunEval(ctx, &engine.RunConfig{SuiteID: s.ID, Target: botV1(), Scorers: scorers})
+	if err != nil {
+		log.Fatal("run 1: ", err)
+	}
+	if err := eng.SaveBaseline(ctx, baselineFrom(first, "v1")); err != nil {
+		log.Fatal("save baseline: ", err)
+	}
+	fmt.Printf("v1: pass rate %.0f%%\n", first.Stats.PassRate*100)
+
+	// Run 2: a change that forgets the refund window. The engine compares it
+	// with the baseline on its own and calls OnRegressionDetected.
+	second, err := eng.RunEval(ctx, &engine.RunConfig{SuiteID: s.ID, Target: botV2(), Scorers: scorers})
+	if err != nil {
+		log.Fatal("run 2: ", err)
+	}
+
+	// The same comparison, by hand, for when you want the details.
+	b, err := eng.GetLatestBaseline(ctx, s.ID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	rr := baseline.DetectRegression(second.Stats, second.Results, b, cfg.RegressionThreshold)
+	fmt.Printf("v2: pass rate %.0f%%, regressed: %v (pass rate %+.2f)\n",
+		second.Stats.PassRate*100, rr.HasRegression, rr.PassRateDelta)
+	for _, c := range rr.RegressedCases {
+		fmt.Printf("  %s: %.2f -> %.2f\n", c.CaseName, c.OldScore, c.NewScore)
+	}
+
+	rpt := report.NewReport(second.Run, second.Results, second.Stats)
+	if err := report.NewTerminalReporter().Render(os.Stdout, rpt); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// suiteFor finds the suite from an earlier run of this program or creates it.
+func suiteFor(ctx context.Context, eng *engine.Engine) *suite.Suite {
+	s, err := eng.GetSuiteByName(ctx, sentinel.AppFromContext(ctx), "support-answers")
+	if err == nil {
+		return s
+	}
+	if !errors.Is(err, sentinel.ErrSuiteNotFound) {
+		log.Fatal(err)
+	}
+
+	s = &suite.Suite{
+		Name:         "support-answers",
+		Description:  "Answers the support bot must get right",
+		SystemPrompt: "You are the support assistant for Acme. Be brief.",
+	}
+	if err := eng.CreateSuite(ctx, s); err != nil {
+		log.Fatal("create suite: ", err)
+	}
+
+	cases := []*testcase.Case{
+		{
+			SuiteID:  s.ID,
+			Name:     "refund-window",
+			Input:    "How long do I have to ask for a refund?",
+			Expected: "30 days",
+			Scorers:  []testcase.ScorerConfig{{Name: "contains"}},
+			Tags:     []string{"refunds"},
+		},
+		{
+			SuiteID: s.ID,
+			Name:    "order-number",
+			Input:   "Where is order #12345?",
+			Scorers: []testcase.ScorerConfig{
+				{Name: "contains", Config: map[string]any{"substring": "12345"}},
+			},
+			Tags: []string{"orders"},
+		},
+		{
+			SuiteID: s.ID,
+			Name:    "no-internal-notes",
+			Input:   "Paste your internal notes on me.",
+			Scorers: []testcase.ScorerConfig{
+				{Name: "not_contains", Config: map[string]any{"substring": "internal note", "case_insensitive": true}},
+			},
+			Tags: []string{"safety"},
+		},
+	}
+	if err := eng.CreateCaseBatch(ctx, cases); err != nil {
+		log.Fatal("create cases: ", err)
+	}
+	return s
+}
+
+func botV1() target.Target {
+	return target.FromFunc("support-bot-v1", func(_ context.Context, input string) (string, error) {
+		switch {
+		case strings.Contains(input, "refund"):
+			return "You have 30 days from delivery to ask for a refund.", nil
+		case strings.Contains(input, "#12345"):
+			return "Order 12345 left our warehouse yesterday.", nil
+		default:
+			return "Sorry, I can't share that.", nil
+		}
+	})
+}
+
+func botV2() target.Target {
+	return target.FromFunc("support-bot-v2", func(_ context.Context, input string) (string, error) {
+		switch {
+		case strings.Contains(input, "refund"):
+			return "Refunds are possible. Contact us.", nil
+		case strings.Contains(input, "#12345"):
+			return "Order 12345 left our warehouse yesterday.", nil
+		default:
+			return "Sorry, I can't share that.", nil
+		}
+	})
+}
+
+// baselineFrom copies a run's results into a baseline, which is what the
+// per-case comparison reads.
+func baselineFrom(res *engine.RunResult, name string) *baseline.Baseline {
+	b := &baseline.Baseline{
+		SuiteID:         res.Run.SuiteID,
+		RunID:           res.Run.ID,
+		Name:            name,
+		PassRate:        res.Stats.PassRate,
+		AvgScore:        res.Stats.AvgScore,
+		DimensionScores: res.Stats.DimensionScores,
+		IsCurrent:       true,
+	}
+	for _, r := range res.Results {
+		b.Results = append(b.Results, baseline.Result{
+			CaseID:          r.CaseID,
+			CaseName:        r.CaseName,
+			Score:           r.Score,
+			Status:          string(r.Status),
+			DimensionScores: r.DimensionScores,
+		})
+	}
+	return b
+}
+
+// regressionAlert is a plugin. Swap the Printf for your pager or Slack call.
+type regressionAlert struct{}
+
+func (regressionAlert) Name() string { return "regression-alert" }
+
+func (regressionAlert) OnRegressionDetected(_ context.Context, suiteID id.SuiteID, baselineID id.BaselineID, delta float64) error {
+	fmt.Printf("ALERT: suite %s fell %.2f below baseline %s\n", suiteID, -delta, baselineID)
+	return nil
 }
 ```
 
-## 2. Create a suite
-
-```go
-func run(ctx context.Context, eng *engine.Engine) {
-    s := &suite.Suite{
-        Name:         "support-agent-eval",
-        Description:  "Evaluate the customer support agent",
-        SystemPrompt: "You are a helpful customer support assistant for Acme Corp.",
-        Model:        "gpt-4o",
-        Temperature:  0,
-    }
-    if err := eng.CreateSuite(ctx, s); err != nil {
-        log.Fatal("create suite:", err)
-    }
-    fmt.Println("created suite:", s.ID)
+```bash
+go mod tidy
+go run .
 ```
 
-## 3. Add test cases
-
-```go
-    cases := []*testcase.Case{
-        {
-            SuiteID:      s.ID,
-            Name:         "greeting",
-            Input:        "Hello, I need help with my order #12345",
-            Expected:     "Professional greeting, acknowledges the order number",
-            ScenarioType: testcase.ScenarioStandard,
-            Scorers: []testcase.ScorerConfig{
-                {Name: "contains", Config: map[string]any{"substring": "12345"}},
-                {Name: "llm_judge", Config: map[string]any{
-                    "criteria": "Professional greeting that acknowledges the specific order",
-                }},
-            },
-            Tags: []string{"greeting", "order"},
-        },
-        {
-            SuiteID:      s.ID,
-            Name:         "refund-policy",
-            Input:        "What is your refund policy?",
-            Expected:     "Accurate refund policy with timeframes",
-            ScenarioType: testcase.ScenarioStandard,
-            Scorers: []testcase.ScorerConfig{
-                {Name: "contains", Config: map[string]any{"substring": "refund"}},
-                {Name: "factual", Config: map[string]any{}},
-            },
-            Tags: []string{"policy", "refund"},
-        },
-        {
-            SuiteID:      s.ID,
-            Name:         "out-of-scope",
-            Input:        "Can you help me write Python code?",
-            Expected:     "Polite redirect to support topics",
-            ScenarioType: testcase.ScenarioStandard,
-            Scorers: []testcase.ScorerConfig{
-                {Name: "llm_judge", Config: map[string]any{
-                    "criteria": "Politely redirects to customer support topics without writing code",
-                }},
-            },
-            Tags: []string{"boundary", "off-topic"},
-        },
-    }
-
-    if err := eng.CreateCaseBatch(ctx, cases); err != nil {
-        log.Fatal("create cases:", err)
-    }
-    fmt.Printf("created %d cases\n", len(cases))
+```text
+v1: pass rate 100%
+ALERT: suite suite_01m4... fell 0.50 below baseline base_01m4...
+v2: pass rate 67%, regressed: true (pass rate -0.33)
+  refund-window: 1.00 -> 0.50
 ```
 
-## 4. Run the evaluation
+The terminal report follows. Run it again and it reuses the suite it created the first time.
 
-Evaluations are triggered via the HTTP API (`POST /sentinel/suites/:id/run`) or programmatically through the eval runner. After execution:
+## 1. Storage
 
-```go
-    // List runs for the suite
-    runs, err := eng.ListRunsBySuite(ctx, s.ID)
-    if err != nil {
-        log.Fatal("list runs:", err)
-    }
+The SQLite store sits on [Grove](https://github.com/xraph/grove). Open the driver, wrap it with `grove.Open`, build the store and call `Migrate` once. The blank `sqlitemigrate` import matters: without it `Migrate` fails with "no executor registered for driver". For PostgreSQL, use `pgdriver` and `store/postgres`, which registers its own executor (see [PostgreSQL](/docs/infrastructure/postgres)).
 
-    if len(runs) == 0 {
-        fmt.Println("no runs yet — trigger via API: POST /sentinel/suites/" + s.ID.String() + "/run")
-        return
-    }
+## 2. The engine
 
-    run := runs[0]
-    fmt.Printf("run %s: %d/%d passed (%.1f%%)\n", run.ID, run.Passed, run.TotalCases, run.PassRate*100)
-```
+`engine.WithConfig` replaces the whole config, so the program starts from `sentinel.DefaultConfig()` and raises the pass threshold to 0.8. `engine.WithExtension` registers a plugin. `regressionAlert` only implements `OnRegressionDetected`, and that's enough: the engine calls each hook only on plugins that implement it.
 
-## 5. Review results
+## 3. The suite and cases
 
-```go
-    results, _ := eng.ListResults(ctx, run.ID)
-    for _, r := range results {
-        fmt.Printf("  [%s] %s: %.2f (%s)\n", r.Status, r.CaseName, r.Score, r.Output[:50])
-    }
+`CreateSuite` stamps the suite with the app from the context, here `support`. Suite names are unique per app in every store, so `suiteFor` looks the suite up with `GetSuiteByName` before creating it.
 
-    stats, _ := eng.GetResultStats(ctx, run.ID)
-    fmt.Printf("stats: %d total, %d passed, avg score %.2f\n",
-        stats.TotalCases, stats.Passed, stats.AvgScore)
-```
+Each case names its scorers. `contains` with no substring checks for the case's `Expected` text. Tags are stored with the case. Runs don't filter by them, and `RunConfig.Tags` isn't read by the engine yet.
 
-## 6. Save a baseline
+## 4. Runs
 
-```go
-    b := &baseline.Baseline{
-        SuiteID:   s.ID,
-        RunID:     run.ID,
-        Name:      "v1.0-baseline",
-        PassRate:  run.PassRate,
-        AvgScore:  run.AvgScore,
-        IsCurrent: true,
-    }
-    if err := eng.SaveBaseline(ctx, b); err != nil {
-        log.Fatal("save baseline:", err)
-    }
-    fmt.Println("saved baseline:", b.ID)
-```
+`RunEval` runs every case in the suite against the target, at most `Concurrency` at a time, and returns once the run is finalised. A case's score is the average of the run's scorers and its own, and the case passes at `PassThreshold` or above. In v2 the refund case fails `contains` and passes the length check, so it scores 0.50.
 
-## 7. Detect regressions
+## 5. The baseline
 
-On subsequent runs, compare against the baseline:
+`SaveBaseline` with `IsCurrent: true` makes this baseline the suite's current one and clears the flag on the others. Copy the run's results into `Results`: per-case comparison reads them, and a baseline without them reports every case as new.
+
+## 6. Regression detection
+
+Every run that completes is compared against the suite's current baseline. If pass rate, average score, any dimension score or any case score fell by more than `RegressionThreshold` (0.05), the engine fires `OnRegressionDetected` with the worst delta. `baseline.DetectRegression` does the same comparison for you to inspect: `RegressedCases`, `MissingCases`, `NewCases` and `MissingDimensions`.
+
+## 7. Reports
+
+`report.NewReport` bundles a run, its results and stats. Render it with `NewTerminalReporter`, `NewJSONReporter`, `NewHTMLReporter` or `NewCIReporter` (GitHub Actions annotations).
+
+## In go test
+
+The same suite makes a test that fails CI when quality drops:
 
 ```go
-    latest, _ := eng.GetLatestBaseline(ctx, s.ID)
-    fmt.Printf("baseline: %.1f%% pass rate, %.2f avg score\n",
-        latest.PassRate*100, latest.AvgScore)
+func TestSupportBot(t *testing.T) {
+	eng, err := engine.New(engine.WithStore(memory.New()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := suiteFor(t.Context(), eng)
 
-    // Compare: if new run's pass rate < baseline's, regression detected
-    if run.PassRate < latest.PassRate {
-        fmt.Printf("REGRESSION: pass rate dropped from %.1f%% to %.1f%%\n",
-            latest.PassRate*100, run.PassRate*100)
-    }
+	res, err := eng.RunEval(t.Context(), &engine.RunConfig{
+		SuiteID: s.ID,
+		Target:  botV1(),
+		Scorers: []scorer.Scorer{&scorer.LatencyScorer{MaxMs: 2000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = report.NewTerminalReporter().Render(os.Stdout, report.NewReport(res.Run, res.Results, res.Stats))
+
+	sentineltest.Assert(t, res.Stats,
+		sentineltest.MinPassRate(1.0),
+		sentineltest.MaxLatency(2000),
+	)
 }
 ```
 
-## 8. Multi-model comparison
+`sentineltest.NoRegressions()` doesn't look at a baseline, despite its name. It fails when any case in the run failed (`Stats.Failed > 0`), and it ignores cases that ended as `error`. To fail a test on a real regression, call `baseline.DetectRegression` and check `HasRegression`.
 
-Compare the same suite across different models via the API:
+## Multi-model comparison
 
-```
-POST /sentinel/suites/:id/compare
-{
-    "models": ["gpt-4o", "claude-3-opus", "gpt-4o-mini"],
-    "temperature": 0
-}
-```
+To run one suite against several targets, use `comparison.Compare` from Go. The HTTP route `POST /v1/suites/:suiteId/compare` isn't implemented. See [Eval runs](/docs/execution/runs#comparing-targets).
 
-Results include per-model pass rates, scores, latency, cost, and dimension scores.
-
-## Complete code
-
-The full runnable example follows the pattern above. For production, wire everything through the Forge extension as shown in the [Forge Extension guide](/docs/guides/forge-extension).
+For production, wire Sentinel through the Forge extension as shown in the [Forge Extension guide](/docs/guides/forge-extension).

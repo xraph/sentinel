@@ -1,158 +1,147 @@
 ---
 title: Go Packages
-description: Quick reference for all Sentinel Go packages and their public APIs.
+description: Quick reference for the Sentinel Go packages and their public APIs.
 ---
 
-All Sentinel packages are importable from `github.com/xraph/sentinel`.
+Everything is in one module, `github.com/xraph/sentinel`. The full API is on [pkg.go.dev](https://pkg.go.dev/github.com/xraph/sentinel).
 
 ## Core packages
 
 ### `github.com/xraph/sentinel`
 
-Root package. Exports context helpers, error constants, and shared types.
+Root package: context helpers, config, errors and shared types.
 
 | Export | Description |
 |--------|-------------|
-| `WithTenant(ctx, id)` | Inject tenant ID into context |
-| `WithApp(ctx, id)` | Inject app ID into context |
-| `TenantFromContext(ctx)` | Read tenant ID from context |
-| `AppFromContext(ctx)` | Read app ID from context |
-| `Config` | Engine configuration struct |
-| `DefaultConfig()` | Returns default Config values |
-| `Entity` | Base type with timestamps |
-| `NewEntity()` | Returns Entity with current timestamps |
+| `WithApp(ctx, id)`, `AppFromContext(ctx)` | Put an app ID on a context and read it back |
+| `WithTenant(ctx, id)`, `TenantFromContext(ctx)` | The same for a tenant ID, which nothing in Sentinel reads yet |
+| `Config`, `DefaultConfig()` | Engine configuration and its defaults |
+| `Entity`, `NewEntity()` | Base type with `CreatedAt` and `UpdatedAt` |
+| `ID`, `Prefix` | Aliases of `id.ID` and `id.Prefix` |
 | `ErrNoStore`, `ErrStoreClosed`, `ErrMigrationFailed` | Store errors |
-| `ErrSuiteNotFound`, `ErrCaseNotFound`, `ErrRunNotFound` | Not-found errors |
-| `ErrBaselineNotFound`, `ErrPromptVersionNotFound` | Not-found errors |
-| `ErrSuiteAlreadyExists` | Conflict error |
-| `ErrInvalidState`, `ErrEmptyInput` | State errors |
-| `ErrNoTarget`, `ErrNoScorers` | Evaluation errors |
+| `ErrSuiteNotFound`, `ErrCaseNotFound`, `ErrRunNotFound`, `ErrBaselineNotFound`, `ErrPromptVersionNotFound` | Not-found errors |
+| `ErrSuiteAlreadyExists`, `ErrPromptVersionExists` | Conflict errors |
+| `ErrInvalidState`, `ErrRunCancelled`, `ErrEmptyInput`, `ErrInvalidInput`, `ErrUnsupportedFormat` | State and input errors |
+| `ErrNoTarget`, `ErrNoScorers`, `ErrUnknownTarget`, `ErrUnknownScorer` | Evaluation errors |
+
+See [Error Handling](/docs/concepts/errors) for when each one comes back.
 
 ### `github.com/xraph/sentinel/engine`
 
-The central Engine and all CRUD operations.
+The coordinator.
 
 | Export | Description |
 |--------|-------------|
 | `New(...Option) (*Engine, error)` | Create an engine |
-| `Engine.Start(ctx)` | Initialize the engine |
-| `Engine.Stop(ctx)` | Graceful shutdown |
-| `Engine.CreateSuite` | Create a suite |
-| `Engine.GetSuite` | Get suite by ID |
-| `Engine.GetSuiteByName` | Get suite by name |
-| `Engine.ListSuites` | List suites |
-| `Engine.UpdateSuite` | Update a suite |
-| `Engine.DeleteSuite` | Delete a suite |
-| `Engine.CreateCase` | Create a case |
-| `Engine.CreateCaseBatch` | Create multiple cases |
-| `Engine.GetCase` | Get case by ID |
-| `Engine.UpdateCase` | Update a case |
-| `Engine.DeleteCase` | Delete a case |
-| `Engine.ListCases` | List cases for a suite |
-| `Engine.CountCases` | Count cases for a suite |
-| `Engine.ImportCases` | Import cases from file |
-| `Engine.GetRun` | Get run by ID |
-| `Engine.ListRuns` | List runs with filter |
-| `Engine.ListRunsBySuite` | List runs for a suite |
-| `Engine.ListResults` | List results for a run |
-| `Engine.GetResultStats` | Get aggregate run stats |
-| `Engine.SaveBaseline` | Save a baseline |
-| `Engine.GetBaseline` | Get baseline by ID |
-| `Engine.GetLatestBaseline` | Get latest baseline for suite |
-| `Engine.ListBaselines` | List baselines for suite |
-| `Engine.DeleteBaseline` | Delete a baseline |
-| `Engine.CreatePromptVersion` | Create a prompt version |
-| `Engine.GetPromptVersion` | Get prompt version by ID |
-| `Engine.ListPromptVersions` | List prompt versions |
-| `Engine.GetCurrentPromptVersion` | Get current prompt version |
-| `Engine.SetCurrentPromptVersion` | Set current prompt version |
-| `WithStore`, `WithConfig`, `WithExtension`, `WithLogger` | Engine options |
+| `WithStore`, `WithConfig`, `WithExtension`, `WithLogger`, `WithTarget`, `WithScorer` | Options |
+| `RunConfig`, `RunResult`, `StartConfig`, `RegisteredTarget` | Run inputs and outputs |
+| `Engine.RunEval(ctx, *RunConfig)` | Run a suite synchronously with target and scorer values |
+| `Engine.StartRun(ctx, *StartConfig)` | Start a run by registered names and return at once |
+| `Engine.CancelRun(ctx, runID)` | Ask a running run to stop |
+| `Engine.GenerateRedTeam(ctx, suiteID, types, count)` | Write attack cases into a suite |
+| `Engine.ImportCases(ctx, suiteID, format, data)` | Parse JSON, CSV or JSONL and write the cases |
+| `Engine.CreateSuite`, `GetSuite`, `GetSuiteByName`, `ListSuites`, `UpdateSuite`, `DeleteSuite` | Suites |
+| `Engine.CreateCase`, `CreateCaseBatch`, `GetCase`, `UpdateCase`, `DeleteCase`, `ListCases`, `CountCases` | Cases |
+| `Engine.GetRun`, `ListRuns`, `ListRunsBySuite`, `ListResults`, `GetResultStats` | Runs and results |
+| `Engine.SaveBaseline`, `GetBaseline`, `GetLatestBaseline`, `ListBaselines`, `DeleteBaseline` | Baselines |
+| `Engine.CreatePromptVersion`, `GetPromptVersion`, `ListPromptVersions`, `GetCurrentPromptVersion`, `SetCurrentPromptVersion` | Prompt versions |
+| `Engine.Targets()`, `Target(name)`, `Scorers()` | Registered targets and the scorer registry |
+| `Engine.Start(ctx)`, `Stop(ctx)`, `Health(ctx)` | Lifecycle. `Start` does nothing yet; `Stop` cancels runs and closes the store |
+| `Engine.Store()`, `Config()`, `Logger()`, `Extensions()` | Accessors |
 
 ## Entity packages
 
 ### `github.com/xraph/sentinel/suite`
 
-Suite entity and store interface. See [Entities](/docs/concepts/entities).
+`Suite`, `ListFilter` and the store interface. See [Entities](/docs/concepts/entities).
 
 ### `github.com/xraph/sentinel/testcase`
 
-Case entity, `ScenarioType` constants, `ScorerConfig`. See [Entities](/docs/concepts/entities).
+`Case`, `ScenarioType` and its constants, `ScorerConfig`, and `ImportJSON`, `ImportCSV`, `ImportJSONL`.
 
 ### `github.com/xraph/sentinel/evalrun`
 
-Run, Result, RunTrace, ScorerResult, ResultStats. See [Runs](/docs/execution/runs).
+`Run`, `Result`, `RunTrace`, `StepTrace`, `ToolTrace`, `ScorerResult`, `ResultStats`, `RunState`, `ResultStatus`, `ListFilter`, `Finalization`, `Settings` and `SettingsFrom`. See [Runs](/docs/execution/runs).
 
 ### `github.com/xraph/sentinel/baseline`
 
-Baseline and BaselineResult. See [Baselines](/docs/execution/checkpoints).
+`Baseline`, `Result`, `DetectRegression`, `RegressionResult` with `WorstDelta()`, `RegressedCase` and `CaseRef`. See [Baselines](/docs/execution/checkpoints).
 
 ### `github.com/xraph/sentinel/promptversion`
 
-PromptVersion entity and store interface.
+`PromptVersion` and the store interface.
 
 ## Evaluation packages
 
 ### `github.com/xraph/sentinel/scorer`
 
-Scorer interface, registry, and 22 built-in scorers.
+The `Scorer` interface, `Input`, `Output`, the `Registry` with `Descriptor` and `Factory`, `LLMClient` and `EmbeddingClient`, and 20 built-in scorers plus `FromFunc`.
 
-**Traditional scorers:** `exact`, `contains`, `not_contains`, `regex`, `json_valid`, `json_schema`, `length`, `latency`, `cost`, `llm_judge`, `semantic`, `hallucination`, `factual`, `custom`
+**Deterministic:** `ExactScorer`, `ContainsScorer`, `NotContainsScorer`, `NewRegexScorer`, `JSONValidScorer`, `JSONSchemaScorer` (checks JSON validity only; the schema isn't enforced yet), `LengthScorer` (word count), `LatencyScorer`, `CostScorer`
 
-**Persona-aware scorers:** `skill_usage`, `trait_consistency`, `behavior_trigger`, `cognitive_phase`, `communication_style`, `perception_focus`, `persona_coherence`
+**Model-graded:** `NewLLMJudgeScorer`, `NewFactualScorer`, `NewHallucinationScorer`, `NewSemanticScorer`
+
+**Agent:** `NewSkillUsageScorer`, `NewTraitConsistencyScorer`, `NewBehaviorTriggerScorer`, `NewCognitivePhaseScorer`, `NewCommunicationStyleScorer`, `NewPerceptionFocusScorer`, `NewPersonaCoherenceScorer`
+
+The registry knows only the nine deterministic names (`exact`, `contains`, `not_contains`, `regex`, `json_valid`, `json_schema`, `length`, `latency`, `cost`) until you add more with `engine.WithScorer`.
 
 ### `github.com/xraph/sentinel/target`
 
-Target adapters for evaluation:
-
-| Type | Description |
-|------|-------------|
-| `LLMTarget` | Direct LLM API calls |
-| `AgentTarget` | Agent invocation with trace capture |
-| `FuncTarget` | Wrap a plain function |
+| Export | Description |
+|--------|-------------|
+| `Target`, `Output` | The interface (`Name()`, `Call(ctx, input)`) and what a call returns |
+| `FromFunc(name, fn)` | Wrap a plain function |
+| `NewLLMTarget(client, model, systemPrompt, temperature)` | One LLM call through your `LLMClient` |
+| `NewAgentTarget(client, agentID, personaRef)` | An agent call through your `AgentClient`, with its trace |
+| `CallOptions`, `CallOptionsFrom(ctx)`, `WithCallOptions` | The prompt, model and temperature a run passes to its target |
 
 ### `github.com/xraph/sentinel/scenario`
 
-6 scenario generators: `skill_challenge`, `trait_probe`, `behavior_trigger`, `cognitive_stress`, `comms_adaptation`, `perception_test`
+Six generators: `NewSkillChallengeGenerator`, `NewTraitProbeGenerator`, `NewBehaviorTriggerGenerator`, `NewCognitiveStressGenerator`, `NewCommsAdaptationGenerator`, `NewPerceptionGenerator`, with `GenerateConfig` and `Audience`.
 
 ### `github.com/xraph/sentinel/redteam`
 
-5 adversarial attack generators: injection, jailbreak, leakage, hallucination, off-topic
+Five generators (injection, jailbreak, leakage, hallucination, off-topic), `AttackType` constants, `GeneratorFor`, `MaxPerType`. The `Report` and `Config` types aren't used by anything yet.
 
 ### `github.com/xraph/sentinel/comparison`
 
-Multi-model comparison and baseline diff/regression detection.
+`Compare` runs a suite against several targets, `FormatTable` prints the result, and `Diff` gives deltas between two `ResultStats`.
 
 ### `github.com/xraph/sentinel/dataset`
 
-Data loaders (JSON, CSV, JSONL) and LLM-generated test case creation.
+`LoadJSON`, `LoadCSV`, `LoadJSONL`, `ToCases`, `Sample`, and `NewLLMGenerator` for model-written cases.
 
 ### `github.com/xraph/sentinel/report`
 
-Report generators: terminal, JSON, HTML, CI-friendly output.
+`NewReport`, and the terminal, JSON, HTML and CI (GitHub Actions annotation) reporters.
+
+### `github.com/xraph/sentinel/sentineltest`
+
+`Assert` with `MinPassRate`, `MinAverageScore`, `MaxLatency`, `MaxCost`, `NoRegressions`, and the dimension checks `SkillProficiency`, `TraitConsistency`, `BehaviorTriggerRate`, `CognitivePhaseCompliance`, `CommunicationMatch` and `PersonaCoherence`. `NoRegressions` fails when any case failed; it doesn't compare against a baseline.
 
 ## Store packages
 
 ### `github.com/xraph/sentinel/store`
 
-Composite store interface embedding all subsystem stores.
+The composite `Store` interface.
 
-### `github.com/xraph/sentinel/store/postgres`
+### `store/postgres`, `store/sqlite`, `store/mongo`
 
-PostgreSQL backend via bun ORM with embedded migrations.
+`New(db *grove.DB)` for each, plus its `Migrations` group. Call `Migrate` before first use. SQLite needs the `sqlitemigrate` blank import; see [SQLite](/docs/infrastructure/sqlite).
 
-### `github.com/xraph/sentinel/store/sqlite`
+### `store/memory`
 
-SQLite backend via bun ORM.
+`New()`, for tests and throwaway runs.
 
-### `github.com/xraph/sentinel/store/memory`
+### `store/storetest`
 
-In-memory backend for testing.
+`Run(t, factory)`, the conformance suite.
 
 ## Infrastructure packages
 
 ### `github.com/xraph/sentinel/plugin`
 
-Extension interfaces (16 hooks) and type-cached Registry.
+`Extension` and the 15 hook interfaces, plus the `Registry`.
 
 ### `github.com/xraph/sentinel/observability`
 
@@ -163,15 +152,15 @@ func NewMetricsExtensionWithFactory(factory gu.MetricFactory) *MetricsExtension
 
 ### `github.com/xraph/sentinel/audit_hook`
 
-Audit trail extension with `Recorder` interface and `RecorderFunc` adapter.
+Package `audithook`: `New(recorder, ...Option)`, `Recorder`, `RecorderFunc`, `AuditEvent`, `WithActions`, `WithLogger`, and the action, severity and outcome constants.
 
 ### `github.com/xraph/sentinel/api`
 
-Forge-native HTTP handlers. `New(eng, router)` creates the API, `RegisterRoutes(router)` mounts all endpoints.
+Forge HTTP handlers. `New(eng, router)` creates the API, `RegisterRoutes(router)` mounts the routes under `/v1`, `Handler()` returns an `http.Handler`. Many routes don't register yet; see the [HTTP API reference](/docs/api-reference/http-api).
 
 ### `github.com/xraph/sentinel/extension`
 
-Forge framework extension adapter. `New(...Option)` creates the Forge extension.
+The Forge extension. `New(...ExtOption)` creates it; `Config`, `DefaultConfig()` and the `With...` options configure it. See the [Forge guide](/docs/guides/forge-extension).
 
 ## ID package
 
@@ -195,4 +184,4 @@ func ParseRedTeamID(s string) (RedTeamID, error)
 func ParsePromptVersionID(s string) (PromptVersionID, error)
 ```
 
-All IDs implement `String() string` and are based on TypeID (UUIDv7, K-sortable).
+The typed names are aliases of `id.ID`, a TypeID on UUIDv7. All IDs have `String()`, and the nil ID prints as an empty string.

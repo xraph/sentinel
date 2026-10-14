@@ -1,13 +1,51 @@
 ---
 title: Eval Runs & Results
-description: How Sentinel tracks evaluation execution — runs, results, and scoring.
+description: How to start, watch and cancel evaluation runs, and what runs and results record.
 ---
 
-Every evaluation execution is tracked as a **Run** containing **Results**. This model provides full observability into how an evaluation suite performed against a target.
+Every evaluation is a **Run** with one **Result** per case. You start runs from Go or from the dashboard.
+
+## Starting a run
+
+`RunEval` is synchronous. You pass the target and scorers as values, and it returns when the run is finalised:
+
+```go
+res, err := eng.RunEval(ctx, &engine.RunConfig{
+    SuiteID:     suiteID,
+    Target:      bot,                                    // required, else ErrNoTarget
+    Scorers:     []scorer.Scorer{&scorer.JSONValidScorer{}}, // at least one, else ErrNoScorers
+    Model:       "",  // empty: the suite's model
+    PersonaRef:  "",  // empty: the suite's PersonaRef
+    Concurrency: 0,   // 0: the engine's Concurrency
+})
+// res.Run, res.Results, res.Stats
+```
+
+`RunConfig.Tags` exists but the engine doesn't read it yet.
+
+`StartRun` is asynchronous. It takes a target and scorers by the names you registered with `engine.WithTarget` and `engine.WithScorer` (or the built-in scorer names), creates the run and returns it straight away while evaluation continues on the engine's own context:
+
+```go
+run, err := eng.StartRun(ctx, &engine.StartConfig{
+    SuiteID: suiteID,
+    Target:  "support-bot",                   // registered with engine.WithTarget
+    Scorers: []string{"json_valid", "exact"}, // registry names
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Later, from any replica that shares the store:
+if err := eng.CancelRun(ctx, run.ID); err != nil {
+    log.Println(err)
+}
+```
+
+`StartRun` refuses a scorer that can't be built without config (`regex`, `length`, `latency`, `cost`) with `ErrInvalidInput`, since run-level scorers get none. Every refusal happens before anything is written.
+
+`CancelRun` marks a running run cancelled in the store. The runner checks before scheduling each case, so cases already in flight finish and are stored. `engine.Stop` cancels the runs this process started and waits up to `ShutdownTimeout`. When `RunEval`'s run is cancelled, by `CancelRun` or by its context, it returns the partial result with an error wrapping `sentinel.ErrRunCancelled`.
 
 ## Run
-
-A Run represents a single execution of an evaluation suite against a target:
 
 ```go
 type Run struct {
@@ -28,26 +66,28 @@ type Run struct {
     AppID           string
     TargetTenantID  string
     PersonaRef      string
+    Config          map[string]any
     State           RunState
-    DimensionScores map[string]float64
+    Error           string
     CompletedAt     *time.Time
+    DimensionScores map[string]float64
 }
 ```
 
+`SystemPrompt`, `Model` and `Temperature` record what the run actually sent. `Config` records its settings (`pass_threshold`, `regression_threshold`, `concurrency`, `target`, `scorers`, `model`, `prompt_version_id`); `evalrun.SettingsFrom(run.Config)` reads them back. `TargetTenantID` is never set.
+
 ### Run states
 
-Runs follow a state machine with 4 states:
+| State | Meaning |
+|-------|---------|
+| `running` | Cases are being evaluated |
+| `completed` | Every case was evaluated and stored. Cases can still have failed or errored |
+| `failed` | Results couldn't be stored, or the stats couldn't be read back. `Error` says which |
+| `cancelled` | `CancelRun`, a cancelled context or shutdown stopped it. Its counters cover only the cases that finished |
 
-| State | Description |
-|-------|-------------|
-| `running` | Evaluation is actively processing cases |
-| `completed` | All cases finished successfully |
-| `failed` | Evaluation terminated with an error |
-| `cancelled` | Evaluation was cancelled |
+A target error doesn't fail the run. It makes that case's result `error`.
 
 ## Result
-
-A Result is the outcome of evaluating a single test case within a run:
 
 ```go
 type Result struct {
@@ -63,6 +103,7 @@ type Result struct {
     TokensUsed      int
     Cost            float64
     ScorerResults   []ScorerResult
+    Error           string
     DimensionScores map[string]float64
     RunTrace        *RunTrace
 }
@@ -70,30 +111,30 @@ type Result struct {
 
 ### Result status
 
-| Status | Description |
-|--------|-------------|
-| `pass` | Score meets or exceeds the pass threshold |
-| `fail` | Score is below the pass threshold |
-| `error` | Evaluation failed (target error, scorer error, etc.) |
+| Status | Meaning |
+|--------|---------|
+| `pass` | The average of all scorers reached `PassThreshold` |
+| `fail` | The average fell short |
+| `error` | The target failed, a scorer returned an error, or a case scorer name isn't registered. `Error` has the details |
+
+`Score` is the plain average of every scorer that produced a score. A scorer's own `Passed` flag is recorded in its `ScorerResult` but doesn't decide the case. `DimensionScores` averages the scores of scorers that report a dimension (`skill`, `trait` and so on).
 
 ## ScorerResult
-
-Each scorer produces a `ScorerResult`:
 
 ```go
 type ScorerResult struct {
     ScorerName string
     Score      float64
     Passed     bool
-    Reason     string
-    Dimension  string         // e.g., "skill", "trait"
+    Reason     string         // starts with "scorer error: " when the scorer failed
+    Dimension  string         // e.g. "skill", "trait"
     Details    map[string]any
 }
 ```
 
 ## RunTrace
 
-For persona-aware evaluations using `AgentTarget`, the `RunTrace` captures the agent's execution:
+An `AgentTarget` (or any target you write) can return a trace, which the agent scorers read:
 
 ```go
 type RunTrace struct {
@@ -103,13 +144,13 @@ type RunTrace struct {
 
 type StepTrace struct {
     Index      int
-    Type       string
+    Type       string // the cognitive_phase scorer matches this against phase names
     Output     string
     TokensUsed int
 }
 
 type ToolTrace struct {
-    ToolName  string
+    ToolName  string // skill_usage and behavior_trigger match this
     Arguments string
     Result    string
     Error     string
@@ -118,7 +159,7 @@ type ToolTrace struct {
 
 ## ResultStats
 
-Aggregate statistics for a run:
+Aggregates computed by the store from a run's results:
 
 ```go
 type ResultStats struct {
@@ -126,7 +167,7 @@ type ResultStats struct {
     Passed          int
     Failed          int
     Errored         int
-    PassRate        float64
+    PassRate        float64 // Passed / TotalCases, so errors count against it
     AvgScore        float64
     AvgLatencyMs    int
     TotalTokens     int
@@ -138,19 +179,43 @@ type ResultStats struct {
 ## Engine methods
 
 ```go
+eng.RunEval(ctx, cfg)
+eng.StartRun(ctx, cfg)
+eng.CancelRun(ctx, runID)
 eng.GetRun(ctx, runID)
-eng.ListRuns(ctx, filter)
+eng.ListRuns(ctx, filter)        // evalrun.ListFilter: SuiteID, AppID, State, Limit, Offset
 eng.ListRunsBySuite(ctx, suiteID)
 eng.ListResults(ctx, runID)
 eng.GetResultStats(ctx, runID)
 ```
 
+## Comparing targets
+
+`comparison.Compare` runs one suite against several targets, one `RunEval` each, and fires `OnComparisonCompleted`:
+
+```go
+rpt, err := comparison.Compare(ctx, eng, &comparison.CompareConfig{
+    SuiteID: suiteID,
+    Targets: []target.Target{a, b},
+    Scorers: []scorer.Scorer{&scorer.ExactScorer{CaseInsensitive: true}},
+})
+if err != nil {
+    log.Fatal(err)
+}
+comparison.FormatTable(os.Stdout, rpt)
+```
+
+Each run's model is set to the target's `Name()`. An `LLMTarget` named `llm:gpt-4o` therefore receives `llm:gpt-4o` as its model during the comparison, because it prefers the run's model. Wrap it in a target whose `Name()` is the bare model name, or have your client strip the prefix. The first error stops the comparison.
+
 ## API routes
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/sentinel/runs` | List runs |
-| `GET` | `/sentinel/runs/:id` | Get a specific run |
-| `GET` | `/sentinel/runs/:id/results` | List results for a run |
-| `GET` | `/sentinel/runs/:id/stats` | Get aggregate stats |
-| `POST` | `/sentinel/suites/:id/run` | Execute an evaluation |
+All under `base_path` plus `/v1` (`/sentinel/v1` by default). Against Forge v1.12.7 only two of the run routes register; see the [HTTP API reference](/docs/api-reference/http-api).
+
+| Method | Path | Status |
+|--------|------|--------|
+| `GET` | `/runs/:runId` | Works |
+| `GET` | `/runs/:runId/stats` | Works |
+| `POST` | `/suites/:suiteId/runs` | Registered, but never passes a target, so it always answers 400 with `sentinel: no target configured` |
+| `GET` | `/suites/:suiteId/runs` | Doesn't register (405, since `POST` shares the path) |
+| `GET` | `/runs/:runId/results` | Doesn't register (404) |
+| `POST` | `/suites/:suiteId/compare` | A stub that answers 400, and it doesn't register either (404) |

@@ -1,9 +1,9 @@
 ---
 title: SQLite Store
-description: Lightweight SQLite store for development, testing, and single-node deployments.
+description: A file-backed store for development, tests and single-node deployments, with no database server.
 ---
 
-The `store/sqlite` package implements Sentinel's `store.Store` interface using the grove ORM with the SQLite driver. It requires no external database process, making it ideal for development, integration tests, and single-node deployments.
+The `store/sqlite` package implements Sentinel's `store.Store` on SQLite through [Grove](https://github.com/xraph/grove) and its `sqlitedriver`. The driver uses modernc's pure-Go SQLite, so there's no cgo and no server to run.
 
 ## Usage
 
@@ -11,10 +11,16 @@ The `store/sqlite` package implements Sentinel's `store.Store` interface using t
 import (
     "github.com/xraph/grove"
     "github.com/xraph/grove/drivers/sqlitedriver"
+    _ "github.com/xraph/grove/drivers/sqlitedriver/sqlitemigrate" // registers the migration executor
+
     "github.com/xraph/sentinel/store/sqlite"
 )
 
-db, err := grove.Open(sqlitedriver.Open("sentinel.db"))
+drv := sqlitedriver.New()
+if err := drv.Open(ctx, "sentinel.db"); err != nil {
+    log.Fatal(err)
+}
+db, err := grove.Open(drv)
 if err != nil {
     log.Fatal(err)
 }
@@ -29,15 +35,13 @@ eng, err := engine.New(
 )
 ```
 
-Pass `":memory:"` for a fully in-process, zero-persistence store useful in tests:
+Unlike the PostgreSQL store, this package doesn't register its migration executor. Keep the blank `sqlitemigrate` import, or `Migrate` fails with "no executor registered for driver".
 
-```go
-db, err := grove.Open(sqlitedriver.Open(":memory:"))
-```
+For tests, open a file under `t.TempDir()`, as Sentinel's own conformance test does. Avoid `":memory:"`: each pooled connection would get its own empty database. If you don't need SQL at all, `store/memory` is simpler.
 
 ## Tables
 
-The SQLite store creates the same tables as the PostgreSQL store, with SQLite-appropriate types:
+The SQLite store creates the same tables as the PostgreSQL store, with SQLite types:
 
 | Table | Entity | Key columns |
 |-------|--------|-------------|
@@ -52,10 +56,10 @@ The SQLite store creates the same tables as the PostgreSQL store, with SQLite-ap
 
 | Aspect | Detail |
 |--------|--------|
-| Driver | grove ORM + sqlitedriver |
-| Migrations | grove orchestrator with programmatic migrations |
-| Transactions | SQLite-level transactions |
-| Concurrency | Multiple readers, single writer (WAL mode) |
+| Driver | Grove with `sqlitedriver` (modernc.org/sqlite) |
+| Migrations | Go strings in `store/sqlite/migrations.go`, run by Grove's orchestrator |
+| Transactions | `DeleteSuite` and `SetCurrentPromptVersion` run in a transaction. `SaveBaseline` with `IsCurrent` clears the old flag and inserts in two statements without one |
+| Concurrency | The driver turns on WAL mode and foreign keys: many readers, one writer |
 | JSON columns | Stored as TEXT with JSON serialization/deserialization |
 
 ## When to use

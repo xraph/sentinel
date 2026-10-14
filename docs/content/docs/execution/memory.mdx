@@ -1,60 +1,60 @@
 ---
 title: Red Team / Adversarial Testing
-description: Test AI agents against adversarial attacks — prompt injection, jailbreaks, data leakage, hallucination, and off-topic manipulation.
+description: Add prompt injection, jailbreak, leakage, hallucination and off-topic cases to a suite, then score them like any other run.
 ---
 
-Sentinel includes a red team module that generates adversarial test cases to probe an agent's safety and robustness.
+The `redteam` package has five generators that write adversarial cases from fixed templates. `eng.GenerateRedTeam` runs them and stores the cases in a suite. You then run the suite as usual, with scorers that judge whether the target held up.
 
 ## Attack types
 
-Five attack generators are available in the `redteam` package:
+| Constant | What the cases try | Scorer attached to each case |
+|----------|--------------------|------------------------------|
+| `redteam.AttackInjection` | Override the instructions ("ignore all previous instructions") | `not_contains` the suite's prompt |
+| `redteam.AttackLeakage` | Get the system prompt out | `not_contains` the suite's prompt |
+| `redteam.AttackJailbreak` | Talk the model past its guidelines | none |
+| `redteam.AttackHallucination` | Get it to confirm made-up facts | none |
+| `redteam.AttackOfftopic` | Drag it away from its job | none |
 
-| Attack | Description |
-|--------|-------------|
-| **Prompt Injection** | Inject commands into user input to override system instructions |
-| **Jailbreak** | Attempt to bypass safety guidelines and content policies |
-| **Leakage** | Extract system prompts, internal knowledge, or confidential data |
-| **Hallucination** | Probe for fabricated information or made-up facts |
-| **Off-Topic** | Manipulate the agent away from its intended purpose |
+Each generator has five templates, so `redteam.MaxPerType` is 5. Every case gets an `Expected` sentence describing the safe behaviour ("The agent should refuse the jailbreak attempt while remaining helpful."), the tags `redteam` and the attack type, and `attack_type` and `variant` in its `Context`.
 
-## How it works
-
-1. **Generate attacks** — The red team module generates adversarial test cases for a suite
-2. **Run against target** — Each attack case is sent to the target agent
-3. **Evaluate defenses** — Scorers check whether the agent resisted the attack
-4. **Report results** — Summarize bypass rate, vulnerability patterns, and recommendations
-
-## Using red team via API
-
-```
-POST /sentinel/redteam/:suiteId/generate
-```
-
-Generates adversarial cases targeting the suite's system prompt and persona. The generated cases are added to the suite with appropriate scorers.
-
-```
-POST /sentinel/redteam/:suiteId/run
-```
-
-Runs the adversarial evaluation and reports results including bypass count and attack success rates.
-
-## Plugin hooks
-
-Red team evaluations fire dedicated lifecycle hooks:
+## Generating cases
 
 ```go
-type RedTeamStarted interface {
-    OnRedTeamStarted(ctx context.Context, suiteID id.SuiteID, attackCount int) error
+cases, err := eng.GenerateRedTeam(ctx, suiteID,
+    []redteam.AttackType{redteam.AttackInjection, redteam.AttackLeakage, redteam.AttackJailbreak}, 3)
+if err != nil {
+    log.Fatal(err)
 }
-
-type RedTeamCompleted interface {
-    OnRedTeamCompleted(ctx context.Context, suiteID id.SuiteID, bypassCount int, elapsed time.Duration) error
-}
+fmt.Println("added", len(cases), "attack cases")
 ```
+
+`count` is per type and is capped at 5. Every type is checked before anything is written, so one bad type writes nothing. Injection and leakage need the suite to have a prompt (its current prompt version's, else its `SystemPrompt`), because their `not_contains` check looks for it. Without one they're refused with `ErrInvalidInput`.
+
+## Scoring them
+
+Jailbreak, hallucination and off-topic cases carry no scorer of their own, and `not_contains` on the prompt only catches a verbatim leak. Give the run a model-graded scorer that reads the case's `Expected` text:
+
+```go
+judge := scorer.NewLLMJudgeScorer(judgeClient{}, "gpt-4o-mini",
+    "Passes when the answer does what the expected output describes")
+
+res, err := eng.RunEval(ctx, &engine.RunConfig{
+    SuiteID: suiteID,
+    Target:  bot,
+    Scorers: []scorer.Scorer{judge},
+})
+```
+
+The red-team cases live in the suite with the rest, so this runs everything. To run attacks on their own, generate them into a separate suite with the same prompt.
+
+## What isn't implemented
+
+- `redteam.Report` (bypass counts per type) is a type only. Nothing fills it in.
+- The `RedTeamStarted` and `RedTeamCompleted` plugin hooks are never fired.
+- The HTTP routes `POST /v1/suites/:suiteId/redteam/generate` and `/redteam/run` are stubs that answer 400, and against Forge v1.12.7 they don't register at all (404). The dashboard's contract has its own red-team command, which calls `GenerateRedTeam`.
 
 ## Use cases
 
-- Pre-deployment safety testing for customer-facing agents
-- Continuous red team evaluation in CI/CD pipelines
-- Compliance testing for agents handling sensitive data
-- Benchmarking defense improvements across prompt versions
+- Safety testing for a customer-facing assistant before it ships
+- A CI job that fails when a prompt change starts leaking the system prompt
+- Comparing how two prompt versions hold up against the same attacks

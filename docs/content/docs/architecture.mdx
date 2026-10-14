@@ -3,91 +3,81 @@ title: Architecture
 description: How Sentinel's packages fit together.
 ---
 
-Sentinel is organized as a set of focused Go packages. The `engine` package is the central coordinator. All other packages define interfaces, entities, and subsystem logic that compose around it.
+Sentinel is a set of focused Go packages. The `engine` package is the coordinator. The rest define entities, interfaces and the pieces that plug into it.
 
 ## Package diagram
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                         engine.Engine                                  │
-│  CreateSuite / GetSuite / ListSuites / UpdateSuite / DeleteSuite      │
-│  CreateCase / CreateCaseBatch / GetCase / ListCases / ImportCases      │
-│  GetRun / ListRuns / ListResults / GetResultStats                     │
-│  SaveBaseline / GetBaseline / GetLatestBaseline / ListBaselines       │
-│  CreatePromptVersion / ListPromptVersions / SetCurrentPromptVersion   │
+│                         engine.Engine                                │
+│  Suites, cases, runs, results, baselines, prompt versions (CRUD)     │
+│  RunEval (sync) / StartRun (async) / CancelRun                       │
+│  GenerateRedTeam / ImportCases                                       │
+│  Targets() / Scorers() registries                                    │
 ├──────────────────────────────────────────────────────────────────────┤
-│                     Evaluation pipeline                                │
-│  1. Load suite + cases                                                 │
-│  2. Resolve target (LLM, Agent, or Function)                          │
-│  3. Run each case: send input → capture output + trace                │
-│  4. Score output with configured scorers                              │
-│  5. Aggregate results, emit plugin hooks                              │
-│  6. Compare against baseline → detect regressions                     │
+│                     Evaluation pipeline                              │
+│  1. Load suite, cases, effective prompt                              │
+│  2. Create the run (state: running), fire hooks                      │
+│  3. Call the target per case, up to Concurrency at once              │
+│  4. Score with run scorers + case scorers, store each result         │
+│  5. Finalise counters and state                                      │
+│  6. Compare against the current baseline, fire hook on regression    │
 ├──────────────────────┬───────────────────────────────────────────────┤
-│  plugin.Registry      │  api.API (Forge HTTP handlers)                │
-│  OnEvalRunStarted     │  32+ REST endpoints:                          │
-│  OnEvalRunCompleted   │  - Suites (5 routes)                          │
-│  OnCaseCompleted      │  - Cases (5 routes)                           │
-│  OnRegressionDetected │  - Runs (5 routes)                            │
-│  OnBaselineSaved      │  - Baselines, RedTeam, Prompts,               │
-│  (16 total hooks)     │    Scenarios, Reports                         │
+│  plugin.Registry     │  api.API (Forge HTTP handlers, /v1)           │
+│  15 hook interfaces  │  extension.Extension (Forge adapter)          │
+│                      │  extension/contract (dashboard contributor)   │
 ├──────────────────────┴───────────────────────────────────────────────┤
-│                         store.Store                                    │
-│  (composite: suite.Store + testcase.Store + evalrun.Store +           │
-│   baseline.Store + promptversion.Store + Migrate/Ping/Close)          │
-├──────────────────────────────────────────────────────────────────────┤
-│  store/postgres       │  store/sqlite         │  store/memory          │
-│  (PostgreSQL + bun)   │  (SQLite + bun)       │  (in-memory maps)     │
-└──────────────────────────────────────────────────────────────────────┘
+│                         store.Store                                  │
+│  suite.Store + testcase.Store + evalrun.Store + baseline.Store +     │
+│  promptversion.Store + Migrate / Ping / Close                        │
+├──────────────────┬─────────────────┬────────────────┬────────────────┤
+│  store/postgres  │  store/sqlite   │  store/mongo   │  store/memory  │
+│  (grove + pg)    │  (grove+sqlite) │  (grove+mongo) │  (maps)        │
+└──────────────────┴─────────────────┴────────────────┴────────────────┘
 ```
 
 ## Engine construction
 
-`engine.New` accepts option functions:
+`engine.New` takes option functions and returns `(*Engine, error)`:
 
 ```go
+cfg := sentinel.DefaultConfig()
+cfg.DefaultModel = "gpt-4o"
+cfg.PassThreshold = 0.8
+cfg.Concurrency = 8
+
 eng, err := engine.New(
-    engine.WithStore(pgStore),             // required: composite Store
-    engine.WithConfig(sentinel.Config{     // optional: override defaults
-        DefaultModel:  "gpt-4o",
-        PassThreshold: 0.8,
-    }),
-    engine.WithExtension(metricsExt),      // optional: lifecycle hooks
-    engine.WithLogger(slog.Default()),     // optional: structured logger
+    engine.WithStore(st),
+    engine.WithConfig(cfg),
+    engine.WithExtension(observability.NewMetricsExtension()),
 )
 ```
 
-All components are interfaces — swap any with your own implementation.
+`engine.WithLogger` takes a go-utils `log.Logger`; without it the engine logs nothing. `engine.WithTarget` and `engine.WithScorer` register targets and scorers by name, for runs started by name and for the dashboard. See [Configuration](/docs/concepts/configuration).
 
 ## Evaluation flow
 
-When an evaluation run is triggered:
+`RunEval` (synchronous, with target and scorer values) and `StartRun` (asynchronous, with registered names) share one pipeline:
 
-1. **Load suite and cases** — Read the suite configuration and all test cases from the store.
+1. Load the suite and its cases. A suite with no cases is refused with `ErrEmptyInput` before anything is written. The prompt is the suite's current prompt version if it has one, else the suite's `SystemPrompt`. The model is the run's, else the suite's. The temperature is the suite's, else the configured default.
 
-2. **Resolve target** — Set up the evaluation target: an `LLMTarget` for raw LLM calls, an `AgentTarget` for agent invocations (with full run trace capture), or a `FuncTarget` for wrapping plain functions.
+2. Create the run in state `running`, recording the threshold, concurrency, target, scorers, model and prompt version in its `Config`. `OnEvalRunStarted` fires, and `OnPersonaEvalStarted` too when the run or suite has a `PersonaRef`.
 
-3. **Execute cases** — For each case, send the input to the target and capture the output. Cases run concurrently up to the configured `Concurrency` limit.
+3. Call the target with each case's input, at most `Concurrency` cases at once. The prompt, model and temperature reach the target through the context (`target.CallOptionsFrom`). Before scheduling each case the runner checks whether the run was cancelled, so a `CancelRun` from another replica stops it.
 
-4. **Score results** — Each case's output is evaluated by its configured scorers. Persona-aware scorers also analyze the run trace for tool usage, trait consistency, and cognitive phase transitions.
+4. Score the output with the run's scorers, then the case's own scorers resolved by name from the registry. The case's score is the average. It passes at `PassThreshold` or above. A target error, a scorer error or an unknown scorer name makes it `error`. Each result is stored as soon as the case finishes.
 
-5. **Aggregate and record** — Results are aggregated into the run record with pass rate, average score, dimension scores, token usage, and cost.
+5. Read the counters back from the store and finalise the run as `completed`, or `failed` when results couldn't be stored or the stats couldn't be read. A cancelled run stays `cancelled`.
 
-6. **Compare against baseline** — If a baseline exists, compare the new run against it and detect regressions.
+6. For a completed run, compare it with the suite's current baseline. If anything fell by more than `RegressionThreshold`, `OnRegressionDetected` fires. No baseline means no comparison.
 
-## Tenant isolation
+## App scoping
 
-`sentinel.WithTenant(ctx, id)` and `sentinel.WithApp(ctx, id)` inject identifiers into the context. These are extracted at every layer:
-
-- **Store** — all queries include `WHERE app_id = ?` filters
-- **Engine** — scope is applied before any store operation
-- **API** — the Forge request context provides tenant/app identifiers
-
-Cross-tenant access is structurally impossible: even if a caller passes a suite ID from another app, the store layer returns `ErrSuiteNotFound`.
+`sentinel.WithApp(ctx, id)` puts an app ID on the context. `CreateSuite` stamps it on a suite that has no `AppID`, and runs take the suite's. List filters (`suite.ListFilter`, `evalrun.ListFilter`) take an app ID, and an empty one matches every app. Lookups by ID aren't scoped. `sentinel.WithTenant` stores a tenant ID that nothing in Sentinel reads yet. See [Multi-Tenancy](/docs/concepts/multi-tenancy).
 
 ## Plugin system
 
-Extensions implement the `plugin.Extension` base interface (just `Name() string`) and then opt in to specific lifecycle hooks by implementing additional interfaces:
+Plugins implement `plugin.Extension` (just `Name() string`) and opt in to hooks by implementing more interfaces:
 
 ```go
 type Extension interface {
@@ -101,40 +91,44 @@ type EvalRunStarted interface {
 type EvalRunCompleted interface { /* ... */ }
 type CaseCompleted interface { /* ... */ }
 type RegressionDetected interface { /* ... */ }
-// ... 16 hooks total
+// ... 15 hook interfaces in all
 ```
 
-The `plugin.Registry` type-caches extensions at registration time, so emit calls iterate only over extensions that implement the relevant hook.
+The `plugin.Registry` sorts plugins by hook when you register them, so an event only calls the plugins that implement it. Hook errors are logged and never stop the pipeline. See [Plugins](/docs/infrastructure/plugins).
 
-Built-in extensions:
-- `observability.MetricsExtension` — counters for all lifecycle events
-- `audithook.Extension` — bridges lifecycle events to an audit trail backend
+Built-in plugins:
+- `observability.MetricsExtension`: counters for lifecycle events
+- `audithook.Extension`: turns lifecycle events into audit records
 
 ## Package index
 
 | Package | Import path | Purpose |
 |---------|-------------|---------|
-| `sentinel` | `github.com/xraph/sentinel` | Root — Entity, Config, scope helpers, errors |
+| `sentinel` | `github.com/xraph/sentinel` | Root: Entity, Config, app and tenant context helpers, errors |
 | `id` | `.../id` | TypeID-based entity identifiers (7 prefixes) |
-| `engine` | `.../engine` | Central coordinator — all CRUD and eval orchestration |
+| `engine` | `.../engine` | The coordinator: CRUD, runs, regression checks, red team, imports |
 | `suite` | `.../suite` | Suite entity and store interface |
-| `testcase` | `.../testcase` | Case entity, ScenarioType, ScorerConfig |
-| `evalrun` | `.../evalrun` | Run, Result, RunTrace entities and store |
-| `baseline` | `.../baseline` | Baseline entity for regression detection |
-| `promptversion` | `.../promptversion` | Prompt version entity for A/B testing |
-| `scorer` | `.../scorer` | Scorer interface, registry, 22 built-in scorers |
+| `testcase` | `.../testcase` | Case entity, ScenarioType, ScorerConfig, JSON/CSV/JSONL import |
+| `evalrun` | `.../evalrun` | Run, Result, RunTrace, ResultStats and store interface |
+| `baseline` | `.../baseline` | Baseline entity and `DetectRegression` |
+| `promptversion` | `.../promptversion` | Prompt version entity |
+| `scorer` | `.../scorer` | Scorer interface, registry, 20 built-in scorers and `FromFunc` |
 | `scenario` | `.../scenario` | 6 scenario generators |
-| `target` | `.../target` | Target interface — LLM, Agent, Func adapters |
-| `redteam` | `.../redteam` | 5 adversarial attack generators |
-| `comparison` | `.../comparison` | Multi-model comparison and baseline diff |
-| `dataset` | `.../dataset` | Data loaders (JSON, CSV, JSONL) and generation |
-| `report` | `.../report` | Report generators (terminal, JSON, HTML, CI) |
+| `target` | `.../target` | Target interface with LLM, agent and function targets |
+| `redteam` | `.../redteam` | 5 attack generators |
+| `comparison` | `.../comparison` | Multi-target comparison and stats diff |
+| `dataset` | `.../dataset` | JSON, CSV and JSONL loaders, sampling, LLM case generation |
+| `report` | `.../report` | Terminal, JSON, HTML and CI reports |
+| `sentineltest` | `.../sentineltest` | Assertions for `go test` |
 | `store` | `.../store` | Composite store interface |
-| `store/postgres` | `.../store/postgres` | PostgreSQL backend (bun ORM) |
-| `store/sqlite` | `.../store/sqlite` | SQLite backend (bun ORM) |
-| `store/memory` | `.../store/memory` | In-memory backend for testing |
-| `plugin` | `.../plugin` | Extension interfaces and Registry |
-| `observability` | `.../observability` | Metrics extension |
-| `audit_hook` | `.../audit_hook` | Audit trail extension |
-| `api` | `.../api` | Forge-native HTTP handlers (32+ routes) |
-| `extension` | `.../extension` | Forge framework extension adapter |
+| `store/postgres` | `.../store/postgres` | PostgreSQL backend (grove) |
+| `store/sqlite` | `.../store/sqlite` | SQLite backend (grove) |
+| `store/mongo` | `.../store/mongo` | MongoDB backend (grove) |
+| `store/memory` | `.../store/memory` | In-memory backend |
+| `store/storetest` | `.../store/storetest` | Conformance suite every backend runs |
+| `plugin` | `.../plugin` | Hook interfaces and Registry |
+| `observability` | `.../observability` | Metrics plugin |
+| `audit_hook` | `.../audit_hook` | Audit plugin (package name `audithook`) |
+| `api` | `.../api` | Forge HTTP handlers |
+| `extension` | `.../extension` | Forge extension adapter |
+| `extension/contract` | `.../extension/contract` | Dashboard contract contributor |

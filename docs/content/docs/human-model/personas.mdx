@@ -1,54 +1,37 @@
 ---
 title: Persona Coherence
-description: Test the whole person — end-to-end identity coherence across all dimensions.
+description: Ask a judge model whether an answer sounds like it came from the persona you describe.
 ---
 
-**Persona coherence evaluation** tests whether an agent maintains a consistent identity across all dimensions simultaneously. Rather than testing individual aspects, this evaluates the agent as a whole person.
-
-## What it tests
-
-- Does the agent maintain a coherent identity across interactions?
-- Are skill usage, personality, communication, and thinking patterns internally consistent?
-- Does the agent's behavior match its declared persona?
-- Is the identity stable under pressure or unusual inputs?
+Persona coherence is the whole-person check: does this answer feel like it came from the agent you meant to build? A judge model does the checking, so you need an LLM client.
 
 ## Scorer: `persona_coherence`
 
-The `persona_coherence` scorer evaluates end-to-end identity consistency across all available dimension scores:
+```go
+s := scorer.NewPersonaCoherenceScorer(client, "gpt-4o-mini",
+	"A senior engineer: patient with juniors, thorough, never rushes a security finding")
+```
+
+`client` is a `scorer.LLMClient`. The scorer sends the persona description, the case input, the answer and, when there's a trace, the number of tool calls and steps, to the judge at temperature 0, and asks for a JSON score from 0 to 1 with a reason. It doesn't combine the other dimension scores; it's one more judgement from the model. A client error makes the case `error`.
+
+The scorer isn't in the registry by default. To name it on a case, register a factory as shown in the [overview](/docs/human-model/overview#using-the-scorers).
+
+## Scenario type
+
+`testcase.ScenarioPersonaCoherence` exists as a label, but there's no generator for it. Write these cases yourself: inputs that exercise several dimensions at once, such as a junior developer's first pull request with both a security bug and style problems.
+
+## PersonaRef
+
+A suite and a run can carry a `PersonaRef`, a name for the persona under test:
 
 ```go
-testcase.ScorerConfig{
-    Name: "persona_coherence",
-    Config: map[string]any{
-        "persona_ref":     "senior-engineer",
-        "min_consistency": 0.75,
-        "dimensions":      []string{"skill", "trait", "communication", "cognition"},
-    },
+s := &suite.Suite{
+	Name:       "senior-engineer-eval",
+	PersonaRef: "senior-engineer",
 }
 ```
 
-## Scenario: `persona_coherence`
-
-The `persona_coherence` scenario generator creates test cases that exercise multiple dimensions simultaneously:
-
-```go
-Case{
-    ScenarioType: testcase.ScenarioPersonaCoherence,
-    Input:        "A junior developer asks you to review their first pull request. It has a security issue and some style problems.",
-    Context: map[string]any{
-        "persona":          "senior-engineer",
-        "expected_traits":  []string{"thoroughness", "patience"},
-        "expected_skills":  []string{"code-review"},
-        "expected_tone":    "professional but supportive",
-    },
-}
-```
-
-This scenario tests that the agent:
-- Uses code review skills correctly (skill dimension)
-- Shows thoroughness and patience (trait dimension)
-- Communicates professionally but supportively (communication dimension)
-- Follows an analytical then reflective cognitive pattern (cognition dimension)
+A run takes `RunConfig.PersonaRef`, else the suite's. Sentinel records it on the run and fires the `PersonaEvalStarted` and `PersonaEvalCompleted` hooks for runs that have one. It doesn't look anything up from it: no scorer reads it, and it isn't passed to the target. An `AgentTarget` sends the persona you gave `NewAgentTarget`.
 
 ## Dimension score
 
@@ -56,22 +39,10 @@ This scenario tests that the agent:
 result.DimensionScores["persona"] // 0.0 to 1.0
 ```
 
-The persona score is typically derived from the consistency across all other dimension scores. A high persona coherence score means the agent performs well across all dimensions in a way that forms a coherent identity.
-
-## PersonaRef
-
-Suites can declare a `PersonaRef` field that references an agent persona by name. When set, persona-aware scorers use this reference to look up expected traits, skills, and behaviors:
-
-```go
-s := &suite.Suite{
-    Name:       "senior-engineer-eval",
-    PersonaRef: "senior-engineer", // references an agent persona
-}
-```
+`sentineltest.PersonaCoherence(min)` asserts on it.
 
 ## Use cases
 
-- End-to-end evaluation of a fully configured AI agent
-- Regression testing after persona configuration changes
-- Comparing two different persona configurations for the same role
-- Validating that a persona behaves consistently across diverse scenarios
+- End-to-end checks of a fully configured agent
+- Regression tests after you change a persona's prompt
+- Comparing two persona configurations for the same role

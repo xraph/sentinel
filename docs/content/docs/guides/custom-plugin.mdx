@@ -3,7 +3,7 @@ title: Custom Plugin
 description: Build a custom Sentinel plugin by implementing lifecycle hook interfaces.
 ---
 
-Sentinel's plugin system uses Go interfaces — implement only the hooks you need and register your plugin with the engine.
+Sentinel's plugin system uses Go interfaces. Implement only the hooks you need and register your plugin with the engine.
 
 ## The base interface
 
@@ -19,7 +19,7 @@ type Extension interface {
 
 ## Choosing hooks
 
-Sentinel defines 16 lifecycle hooks as separate interfaces. Implement any combination:
+Sentinel defines 15 lifecycle hooks as separate interfaces. Implement any combination. [Plugins](/docs/infrastructure/plugins) says when each one fires; `RedTeamStarted` and `RedTeamCompleted` never do yet.
 
 | Hook | Signature |
 |------|-----------|
@@ -49,6 +49,7 @@ package slacknotifier
 import (
     "context"
     "fmt"
+    "time"
 
     "github.com/xraph/sentinel/id"
     "github.com/xraph/sentinel/plugin"
@@ -77,8 +78,9 @@ func (s *SlackNotifier) OnRegressionDetected(
     baselineID id.BaselineID,
     delta float64,
 ) error {
-    msg := fmt.Sprintf("Regression detected in suite %s: %.1f%% drop", suiteID, delta*100)
-    return sendSlackMessage(s.webhookURL, msg)
+    // delta is the worst drop against the baseline, a negative number.
+    msg := fmt.Sprintf("Regression in suite %s: fell %.2f below baseline %s", suiteID, -delta, baselineID)
+    return sendSlackMessage(ctx, s.webhookURL, msg)
 }
 
 func (s *SlackNotifier) OnEvalRunCompleted(
@@ -89,9 +91,11 @@ func (s *SlackNotifier) OnEvalRunCompleted(
     elapsed time.Duration,
 ) error {
     msg := fmt.Sprintf("Eval run %s completed: %.1f%% pass rate in %s", runID, passRate*100, elapsed)
-    return sendSlackMessage(s.webhookURL, msg)
+    return sendSlackMessage(ctx, s.webhookURL, msg)
 }
 ```
+
+`sendSlackMessage` is yours: a POST to the webhook. Hooks run synchronously on the run's goroutines, so keep them quick or hand the work to a goroutine of your own.
 
 ## Registering with the engine
 
@@ -122,7 +126,7 @@ sentinelExt := extension.New(
 
 ## How dispatch works
 
-The engine's plugin registry uses type assertions at registration time to discover which hooks each plugin implements. When an event fires, only plugins that implement that specific hook are called. Hooks are invoked sequentially in registration order — if any hook returns an error, it is logged but does not abort the operation.
+The engine's plugin registry uses type assertions at registration time to discover which hooks each plugin implements. When an event fires, only plugins that implement that specific hook are called. Hooks are invoked sequentially in registration order. If a hook returns an error, it's logged and the operation carries on.
 
 ## Built-in plugins
 
@@ -130,7 +134,7 @@ Sentinel ships two built-in plugins you can use as reference implementations:
 
 | Plugin | Package | Hooks |
 |--------|---------|-------|
-| Metrics | `observability` | `EvalRunStarted`, `EvalRunCompleted`, `EvalRunFailed`, `CaseCompleted`, `CaseFailed`, `RegressionDetected` |
-| Audit | `audit_hook` | All 16 hooks |
+| Metrics | `observability` | Every hook except `CaseStarted`, `PromptVersionCreated` and `Shutdown` |
+| Audit | `audit_hook` | Every hook except `CaseStarted` and `Shutdown` |
 
 See [Observability](/docs/infrastructure/observability) and [Audit Trail](/docs/infrastructure/audit) for details.

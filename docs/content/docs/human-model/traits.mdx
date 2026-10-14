@@ -1,46 +1,28 @@
 ---
 title: Trait Evaluation
-description: Test who an agent is — personality consistency across interactions.
+description: Ask a judge model whether an agent's answer shows a given personality trait.
 ---
 
-**Trait evaluation** tests whether an agent maintains consistent personality characteristics across different interactions and contexts.
-
-## What it tests
-
-- Does the agent maintain the same personality across conversations?
-- Are declared traits (e.g., thoroughness, patience) reflected in behavior?
-- Does personality remain consistent under different phrasings of the same question?
+Trait evaluation checks whether an answer shows a personality trait you describe, such as thoroughness or patience. A judge model does the checking, so you need an LLM client.
 
 ## Scorer: `trait_consistency`
 
-The `trait_consistency` scorer evaluates whether the agent's responses reflect its declared personality traits:
-
 ```go
-testcase.ScorerConfig{
-    Name: "trait_consistency",
-    Config: map[string]any{
-        "trait_name":    "thoroughness",
-        "dimension":     "depth",
-        "expected_value": 0.85,
-        "tolerance":     0.15,
-    },
-}
+s := scorer.NewTraitConsistencyScorer(client, "gpt-4o-mini",
+	"thoroughness", "Checks edge cases and explains the reasoning behind each finding")
 ```
+
+`client` is a `scorer.LLMClient`. The scorer sends the trait name, its description, the case input and the answer to the judge at temperature 0 and asks for a JSON score from 0 to 1 with a reason. It looks at one answer at a time: consistency across cases comes from running several cases (or the trait probe scenario) and comparing their scores, not from the scorer itself. A client error makes the case `error`.
+
+The scorer isn't in the registry by default. To name it on a case, register a factory as shown in the [overview](/docs/human-model/overview#using-the-scorers).
 
 ## Scenario: `trait_probe`
 
-The `trait_probe` scenario generator creates multiple phrasings of the same question to test personality consistency:
+`scenario.NewTraitProbeGenerator(name, desc)` writes up to three cases that probe the trait in different situations: under normal conditions, when challenged, and on a complex request. Each names `trait_consistency` with `trait_name` and `trait_desc`:
 
 ```go
-Case{
-    ScenarioType: testcase.ScenarioTraitProbe,
-    Input:        "How would you approach reviewing this code?",
-    Context: map[string]any{
-        "trait":     "thoroughness",
-        "dimension": "depth",
-        "expected":  "exhaustive analysis",
-    },
-}
+gen := scenario.NewTraitProbeGenerator("thoroughness", "Checks edge cases")
+cases, err := gen.Generate(ctx, &scenario.GenerateConfig{SuiteID: suiteID.String()})
 ```
 
 ## Dimension score
@@ -49,8 +31,9 @@ Case{
 result.DimensionScores["trait"] // 0.0 to 1.0
 ```
 
+`sentineltest.TraitConsistency(min)` asserts on it.
+
 ## Use cases
 
-- Verify a thorough agent provides detailed analysis consistently
-- Test that a patient agent doesn't rush through complex queries
-- Ensure a cautious agent consistently identifies risks
+- Check that a careful reviewer agent keeps flagging risks after a prompt rewrite
+- Compare how two prompt versions hold a persona's patience under pushback

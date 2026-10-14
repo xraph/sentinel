@@ -1,166 +1,144 @@
 ---
 title: HTTP API Reference
-description: Complete reference for all Sentinel REST endpoints — suites, cases, runs, baselines, red team, prompts, scenarios, and reports.
+description: The REST routes in the api package, which of them work today, and what they take and return.
 ---
 
-All endpoints are under `/sentinel` and return JSON. Authentication and tenant resolution depend on your Forge middleware configuration.
+The `api` package holds Forge handlers for suites, cases, runs, baselines, prompt versions, red team, scenarios and reports. The Forge extension mounts them under `base_path` (default `/sentinel`) plus `/v1`, so every path below starts with `/sentinel/v1`. Without the extension, `api.New(eng, router).RegisterRoutes(router)` mounts them on a Forge router, and `Handler()` gives you an `http.Handler`. Authentication is whatever your Forge middleware does.
+
+The API is partial. Against Forge v1.12.7, 18 of the 29 routes fail to register: Forge rejects handlers that return a slice, a map or `any`, and the `api` package discards the registration error. Those routes answer 404 (or 405 when another method shares the path). Of the 11 that do register, `POST /suites/:suiteId/runs` always answers 400. Every successful response also writes its JSON body twice, once from the handler and once from Forge, so a strict JSON client fails to parse it. Use the Go API or the dashboard for anything beyond reading single records.
+
+## Route status
+
+| Method | Path | Status |
+|--------|------|--------|
+| `POST` | `/suites` | Works |
+| `GET` | `/suites/:suiteId` | Works |
+| `PUT` | `/suites/:suiteId` | Works |
+| `GET` | `/suites` | Not registered (405) |
+| `DELETE` | `/suites/:suiteId` | Not registered (405) |
+| `GET` | `/cases/:caseId` | Works |
+| `POST` | `/suites/:suiteId/cases` | Not registered (404) |
+| `GET` | `/suites/:suiteId/cases` | Not registered (404) |
+| `POST` | `/suites/:suiteId/cases/import` | Not registered (404) |
+| `DELETE` | `/cases/:caseId` | Not registered (405) |
+| `POST` | `/suites/:suiteId/runs` | Registered, always 400 (no target) |
+| `GET` | `/suites/:suiteId/runs` | Not registered (405) |
+| `GET` | `/runs/:runId` | Works |
+| `GET` | `/runs/:runId/results` | Not registered (404) |
+| `GET` | `/runs/:runId/stats` | Works |
+| `POST` | `/suites/:suiteId/compare` | Stub, and not registered (404) |
+| `POST` | `/suites/:suiteId/baselines` | Works |
+| `GET` | `/suites/:suiteId/baselines` | Not registered (405) |
+| `GET` | `/baselines/:baselineId` | Works |
+| `POST` | `/suites/:suiteId/runs/with-baseline` | Stub, and not registered (404) |
+| `POST` | `/suites/:suiteId/prompts` | Works |
+| `GET` | `/suites/:suiteId/prompts` | Not registered (405) |
+| `POST` | `/suites/:suiteId/prompts/current` | Not registered (404) |
+| `POST` | `/suites/:suiteId/redteam/generate` | Stub, and not registered (404) |
+| `POST` | `/suites/:suiteId/redteam/run` | Stub, and not registered (404) |
+| `POST` | `/suites/:suiteId/scenarios/generate` | Stub, and not registered (404) |
+| `GET` | `/suites/:suiteId/scenarios` | Not registered (404) |
+| `GET` | `/runs/:runId/report` | Works |
+| `POST` | `/runs/:runId/report/export` | Not registered (404) |
+
+The sections below describe what each handler does, so you know what to expect once the registration problem is fixed. A route marked as a stub would answer 400 even then.
 
 ## Suites
 
-### `POST /sentinel/suites`
+### `POST /suites`
 
-Create a suite.
-
-**Request**
+Create a suite. The app comes from the request context (`sentinel.WithApp`), and an empty `model` gets the engine's `DefaultModel`.
 
 ```json
 {
-  "name": "string (required)",
+  "name": "support-answers",
   "description": "string",
   "system_prompt": "string",
-  "model": "string (default: engine default)",
+  "model": "string",
   "temperature": 0,
-  "persona_ref": "string (optional)",
+  "persona_ref": "string",
   "metadata": {}
 }
 ```
 
-**Response** `201 Created` — Suite object with generated `id`.
+`201 Created` with the suite. A duplicate name in the same app is `400` on the memory store and `500` on the SQL and Mongo stores.
 
----
+### `GET /suites/:suiteId`
 
-### `GET /sentinel/suites`
+`200 OK` with the suite, or `404`.
 
-List suites for the current app.
+### `PUT /suites/:suiteId`
 
-**Query parameters**
+Takes the same body as create and overwrites `name`, `description`, `system_prompt`, `model`, `temperature` and `persona_ref` with what you send, so send them all. `metadata` is replaced only when present. `200 OK` with the suite.
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `limit` | int | Max results (default: 20) |
-| `offset` | int | Pagination offset |
+### `GET /suites` (not registered)
 
-**Response** `200 OK` — array of Suite objects.
+Would list suites for the request's app, with `limit` (default 50, max 1000) and `offset` query parameters.
 
----
+### `DELETE /suites/:suiteId` (not registered)
 
-### `GET /sentinel/suites/:id`
-
-Get a suite by ID.
-
----
-
-### `PUT /sentinel/suites/:id`
-
-Update a suite.
-
----
-
-### `DELETE /sentinel/suites/:id`
-
-Delete a suite and all associated cases, runs, and baselines.
-
----
+Would delete the suite. The SQL stores cascade to its cases, runs, results, baselines and prompt versions. `204 No Content`.
 
 ## Cases
 
-### `POST /sentinel/suites/:suiteId/cases`
+### `GET /cases/:caseId`
 
-Create a test case in a suite.
+`200 OK` with the case, or `404`.
 
-**Request**
+### `POST /suites/:suiteId/cases` (not registered)
+
+Would create cases in a batch. `scenario_type` defaults to `standard`.
 
 ```json
 {
-  "name": "string (required)",
-  "input": "string (required)",
-  "expected": "string",
-  "scenario_type": "standard",
-  "scorers": [{"name": "contains", "config": {"substring": "hello"}}],
-  "tags": ["tag1"],
-  "context": {},
-  "metadata": {}
+  "cases": [
+    {
+      "name": "refund-window",
+      "input": "How long do I have to ask for a refund?",
+      "expected": "30 days",
+      "scenario_type": "standard",
+      "scorers": [{"name": "contains", "config": {"substring": "30 days"}}],
+      "tags": ["refunds"],
+      "context": {},
+      "metadata": {}
+    }
+  ]
 }
 ```
 
----
+### `POST /suites/:suiteId/cases/import` (not registered)
 
-### `GET /sentinel/suites/:suiteId/cases`
+Would import cases through `engine.ImportCases`. The data goes in a JSON body, not as a raw file:
 
-List cases for a suite.
+```json
+{ "format": "jsonl", "data": "{\"name\":\"a\",\"input\":\"hi\"}\n" }
+```
 
----
+`format` is `json`, `csv` or `jsonl`. Every row needs a name and an input, or nothing is written. `201 Created` with `{"imported": n}`.
 
-### `POST /sentinel/suites/:suiteId/cases/import`
+### `GET /suites/:suiteId/cases`, `DELETE /cases/:caseId` (not registered)
 
-Bulk import cases from JSON, CSV, or JSONL format.
-
-**Request** — raw file body with `Content-Type` header indicating format.
-
----
-
-### `PUT /sentinel/cases/:id`
-
-Update a case.
-
----
-
-### `DELETE /sentinel/cases/:id`
-
-Delete a case.
-
----
+Would list a suite's cases, and delete one case (`204`).
 
 ## Runs
 
-### `POST /sentinel/suites/:suiteId/run`
+### `POST /suites/:suiteId/runs`
 
-Execute an evaluation run.
-
-**Request**
+Registered, but the handler builds a `RunConfig` with no target and no scorers, so `RunEval` refuses it and you always get:
 
 ```json
-{
-  "model": "string (optional override)",
-  "temperature": 0,
-  "target_tenant_id": "string (optional)"
-}
+{"code":400,"error":"sentinel: no target configured"}
 ```
 
-**Response** `201 Created` — Run object with `state: "running"`.
+The body fields (`model`, `persona_ref`, `scorers`, `tags`, `concurrency`) are read but can't make it work. Start runs with `eng.RunEval` or `eng.StartRun` from Go, or from the dashboard, which starts runs against targets you registered with `WithTarget`.
 
----
+### `GET /runs/:runId`
 
-### `GET /sentinel/runs`
+`200 OK` with the run, or `404`.
 
-List runs with optional filters.
+### `GET /runs/:runId/stats`
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `suite_id` | string | Filter by suite |
-| `state` | string | Filter by state |
-| `limit` | int | Max results |
-| `offset` | int | Pagination offset |
-
----
-
-### `GET /sentinel/runs/:id`
-
-Get a specific run.
-
----
-
-### `GET /sentinel/runs/:id/results`
-
-List all results for a run.
-
----
-
-### `GET /sentinel/runs/:id/stats`
-
-Get aggregate statistics for a run.
-
-**Response** `200 OK`
+`200 OK` with the run's aggregates:
 
 ```json
 {
@@ -177,126 +155,74 @@ Get aggregate statistics for a run.
 }
 ```
 
----
+### `GET /suites/:suiteId/runs`, `GET /runs/:runId/results` (not registered)
+
+Would list a suite's runs (`state`, `limit`, `offset` query parameters) and a run's results.
+
+### `POST /suites/:suiteId/compare` (stub, not registered)
+
+The handler always answers 400 ("model comparison must be configured programmatically with target adapters"). Use `comparison.Compare` from Go.
 
 ## Baselines
 
-### `POST /sentinel/baselines/:suiteId`
+### `POST /suites/:suiteId/baselines`
 
-Save a baseline from a run.
-
----
-
-### `GET /sentinel/baselines/:suiteId`
-
-Get the latest baseline for a suite.
-
----
-
-### `GET /sentinel/baselines/:suiteId/baselines`
-
-List all baselines for a suite.
-
----
-
-## Red Team
-
-### `POST /sentinel/redteam/:suiteId/generate`
-
-Generate adversarial test cases for a suite.
-
----
-
-### `POST /sentinel/redteam/:suiteId/run`
-
-Run adversarial evaluation against the suite's target.
-
----
-
-## Prompt Versions
-
-### `POST /sentinel/prompts/:suiteId`
-
-Create a new prompt version.
-
-**Request**
+Save a stored run as the suite's current baseline. The handler copies the run's pass rate, average score, dimension scores and per-case results.
 
 ```json
-{
-  "system_prompt": "string (required)",
-  "changelog": "string"
-}
+{ "run_id": "erun_01h455vb...", "name": "v1" }
 ```
 
----
+`201 Created` with the baseline. A bad `run_id` is `400`, an unknown one `404`.
 
-### `GET /sentinel/prompts/:suiteId`
+### `GET /baselines/:baselineId`
 
-List all prompt versions for a suite.
+`200 OK` with the baseline, or `404`.
 
----
+### `GET /suites/:suiteId/baselines` (not registered)
 
-### `PUT /sentinel/prompts/:suiteId/current`
+Would list the suite's baselines.
 
-Set the current active prompt version.
+### `POST /suites/:suiteId/runs/with-baseline` (stub, not registered)
 
----
+The handler always answers 400. Every completed run is compared with the current baseline anyway.
 
-## Scenarios
+## Prompt versions
 
-### `POST /sentinel/scenarios/:suiteId/generate`
+### `POST /suites/:suiteId/prompts`
 
-Auto-generate test cases for a specific evaluation dimension.
-
-**Request**
+Create the suite's next prompt version. The engine numbers it.
 
 ```json
-{
-  "scenario_type": "skill_challenge",
-  "count": 10
-}
+{ "system_prompt": "You are the support assistant for Acme.", "label": "shorter answers" }
 ```
 
----
+`label` is stored as the version's `changelog`. The new version isn't made current, and the route that would do that isn't registered, so call `eng.SetCurrentPromptVersion` from Go. `201 Created` with the version.
 
-### `GET /sentinel/scenarios/:suiteId`
+### `GET /suites/:suiteId/prompts`, `POST /suites/:suiteId/prompts/current` (not registered)
 
-List generated scenarios.
+Would list versions, and make one current with `{"version_id": "pver_..."}` (`204`).
 
----
+## Red team and scenarios (stubs, not registered)
+
+`POST /suites/:suiteId/redteam/generate`, `/redteam/run` and `/scenarios/generate` always answer 400 in the handler. Use `eng.GenerateRedTeam` and the `scenario` generators from Go. `GET /suites/:suiteId/scenarios` would list the suite's cases whose scenario type isn't `standard`.
 
 ## Reports
 
-### `GET /sentinel/reports/:runId/report`
+### `GET /runs/:runId/report`
 
-Generate a report for a run.
+`200 OK` with a JSON report: the run, its results, its stats and a generation time.
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `format` | string | `terminal`, `json`, `html`, or `ci` |
+### `POST /runs/:runId/report/export` (not registered)
 
----
+Would render the report with `{"format": "terminal" | "json" | "html" | "ci"}` (default `json`) and return it with a matching content type.
 
-### `GET /sentinel/reports/:runId/report/export`
+## Errors
 
-Export a report in the specified format.
+Errors use Forge's error response, a JSON object with `code` and `error`:
 
----
-
-## Error format
-
-All error responses use a consistent JSON envelope:
-
-```json
-{
-  "error": "human-readable message",
-  "code": "ERROR_CODE"
-}
-```
-
-| HTTP status | `code` | Cause |
-|-------------|--------|-------|
-| `400` | `BAD_REQUEST` | Missing required field, empty input, invalid state |
-| `404` | `NOT_FOUND` | Suite, case, run, or baseline not found |
-| `409` | `CONFLICT` | Suite with same name already exists |
-| `500` | `INTERNAL_ERROR` | Store or target failure |
+| HTTP status | Cause |
+|-------------|-------|
+| `400` | An ID that doesn't parse, `ErrSuiteAlreadyExists`, `ErrInvalidState`, `ErrEmptyInput`, `ErrNoTarget`, `ErrNoScorers`, `ErrInvalidInput`, `ErrUnsupportedFormat`, and the stubs |
+| `404` | Suite, case, run, baseline or prompt version not found, and unregistered routes |
+| `500` | Anything else: a store error, or a unique-index violation on the SQL stores |

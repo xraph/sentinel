@@ -1,55 +1,33 @@
 ---
 title: Perception Evaluation
-description: Test what an agent notices — attention focus and detail orientation.
+description: Check that an answer mentions what matters and doesn't dwell on distractors.
 ---
 
-**Perception evaluation** tests whether an agent correctly identifies relevant information, focuses attention on the right aspects of input, and detects important details.
-
-## What it tests
-
-- Does the agent focus on the right aspects of the input?
-- Can it distinguish signal from noise?
-- Does it notice important details others might miss?
-- Is the level of detail orientation appropriate for the task?
+Perception evaluation checks what an agent noticed. Given input with something important buried among noise, does the answer talk about the important part? It works on the answer text alone, so any target will do.
 
 ## Scorer: `perception_focus`
 
-The `perception_focus` scorer evaluates whether the agent identified key elements in the input:
-
 ```go
-testcase.ScorerConfig{
-    Name: "perception_focus",
-    Config: map[string]any{
-        "expected_focus":  []string{"security", "performance"},
-        "signal_keywords": []string{"injection", "XSS", "latency", "bottleneck"},
-        "noise_keywords":  []string{"formatting", "typos", "style"},
-    },
-}
+s := scorer.NewPerceptionFocusScorer(
+	[]string{"SQL injection"},      // required
+	[]string{"formatting", "typo"}, // distractors
+)
 ```
+
+The score is the share of required keywords found in the answer (case-insensitive substring). With none required it starts at 1. Each distractor that appears costs up to 0.3 in total, spread evenly over the distractors you listed, so mentioning all of them takes 0.3 off.
+
+`Details` lists `missing_keywords` and `focused_distractors`.
+
+The scorer isn't in the registry by default. To name it on a case, register a factory as shown in the [overview](/docs/human-model/overview#using-the-scorers).
 
 ## Scenario: `perception_test`
 
-The `perception_test` scenario generator creates test cases with a mixture of signal and noise to test attention:
+`scenario.NewPerceptionGenerator(relevant, distractors)` writes a case that lists the relevant topics and asks for a summary and, when `Count` is 2 or more (the default), a second that names the distractors too and tells the agent to leave them out. Both name `perception_focus` with `required_keywords` and `ignored_keywords`:
 
 ```go
-Case{
-    ScenarioType: testcase.ScenarioPerceptionTest,
-    Input:        "Review this code. It has some formatting issues, a typo in a comment, and a potential SQL injection in the user input handler.",
-    Context: map[string]any{
-        "signal": []string{"SQL injection"},
-        "noise":  []string{"formatting", "typo"},
-        "expected_focus": "security",
-    },
-}
+gen := scenario.NewPerceptionGenerator([]string{"SQL injection"}, []string{"formatting", "typo"})
+cases, err := gen.Generate(ctx, &scenario.GenerateConfig{SuiteID: suiteID.String()})
 ```
-
-## Perception parameters
-
-| Parameter | Range | Description |
-|-----------|-------|-------------|
-| `AttentionFilters` | keyword/pattern list | What the agent should watch for |
-| `ContextWindow` | 0.0 - 1.0 | How much surrounding context to consider |
-| `DetailOrientation` | 0.0 - 1.0 | High-level overview vs fine-grained analysis |
 
 ## Dimension score
 
@@ -57,8 +35,9 @@ Case{
 result.DimensionScores["perception"] // 0.0 to 1.0
 ```
 
+`sentineltest` has no perception assertion. Check `res.Stats.DimensionScores["perception"]` yourself, or write an `AssertCheck`.
+
 ## Use cases
 
-- Verify a security-focused agent prioritizes vulnerabilities over style issues
-- Test that a data analyst agent notices anomalies in datasets
-- Ensure a code reviewer catches subtle logic errors amid formatting noise
+- Check that a security reviewer leads with the vulnerability, not the style nits
+- Make sure a triage agent picks the outage out of a noisy incident report

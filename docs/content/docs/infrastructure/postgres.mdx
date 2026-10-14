@@ -1,9 +1,9 @@
 ---
 title: PostgreSQL Store
-description: Production-ready persistence with PostgreSQL, grove ORM, and programmatic migrations.
+description: Production persistence with PostgreSQL, through Grove, with migrations kept in Go.
 ---
 
-The `store/postgres` package provides a production-ready implementation of the composite `store.Store` interface using PostgreSQL with the [grove](https://github.com/xraph/grove) ORM and the PostgreSQL driver.
+The `store/postgres` package implements the composite `store.Store` on PostgreSQL, through [Grove](https://github.com/xraph/grove) and its `pgdriver`.
 
 ## Setup
 
@@ -11,62 +11,57 @@ The `store/postgres` package provides a production-ready implementation of the c
 import (
     "github.com/xraph/grove"
     "github.com/xraph/grove/drivers/pgdriver"
+
     "github.com/xraph/sentinel/store/postgres"
 )
 
-db, err := grove.Open(pgdriver.Open("postgres://user:pass@localhost:5432/sentinel?sslmode=disable"))
+drv := pgdriver.New()
+if err := drv.Open(ctx, "postgres://user:pass@localhost:5432/sentinel?sslmode=disable"); err != nil {
+    log.Fatal(err)
+}
+db, err := grove.Open(drv)
 if err != nil {
     log.Fatal(err)
 }
 
 pgStore := postgres.New(db)
-
-// Run migrations
 if err := pgStore.Migrate(ctx); err != nil {
     log.Fatal(err)
 }
 ```
 
-## Tables
+The package registers Grove's PostgreSQL migration executor itself, so there's no extra import. In a Forge app with the Grove extension you don't need any of this: the Sentinel extension builds the store from the `*grove.DB` in the container and migrates it on `Start`.
 
-The PostgreSQL store creates the following tables:
+## Tables
 
 | Table | Entity | Key columns |
 |-------|--------|-------------|
-| `sentinel_suites` | Suites | `id`, `app_id`, `name`, `system_prompt`, `model`, `persona_ref`, `metadata` (JSONB) |
-| `sentinel_cases` | Cases | `id`, `suite_id`, `name`, `input`, `expected`, `scenario_type`, `scorers` (JSONB), `tags` (JSONB) |
-| `sentinel_runs` | Runs | `id`, `suite_id`, `app_id`, `model`, `state`, `pass_rate`, `avg_score`, `dimension_scores` (JSONB) |
-| `sentinel_results` | Results | `id`, `run_id`, `case_id`, `status`, `score`, `output`, `scorer_results` (JSONB), `run_trace` (JSONB) |
-| `sentinel_baselines` | Baselines | `id`, `suite_id`, `run_id`, `name`, `results` (JSONB), `dimension_scores` (JSONB), `is_current` |
-| `sentinel_prompt_versions` | Prompt versions | `id`, `suite_id`, `version`, `system_prompt`, `changelog`, `is_current` |
+| `sentinel_suites` | Suites | `id`, `app_id`, `name`, `system_prompt`, `model`, `persona_ref`, `metadata` (JSONB), unique `(app_id, name)` |
+| `sentinel_cases` | Cases | `id`, `suite_id`, `name`, `input`, `expected`, `scenario_type`, `scorers`, `tags`, `context`, `metadata` (JSONB) |
+| `sentinel_runs` | Runs | `id`, `suite_id`, `app_id`, `model`, `state`, `pass_rate`, `avg_score`, `config` and `dimension_scores` (JSONB) |
+| `sentinel_results` | Results | `id`, `run_id`, `case_id`, `status`, `score`, `output`, `scorer_results`, `dimension_scores`, `run_trace` (JSONB) |
+| `sentinel_baselines` | Baselines | `id`, `suite_id`, `run_id`, `name`, `results` and `dimension_scores` (JSONB), `is_current` |
+| `sentinel_prompt_versions` | Prompt versions | `id`, `suite_id`, `version`, `system_prompt`, `changelog`, `is_current`, unique `(suite_id, version)` |
 
-## JSONB columns
-
-Complex nested structures are stored as JSONB columns:
-
-- Case scorers and tags → `scorers JSONB`, `tags JSONB`
-- Result scorer outputs and run trace → `scorer_results JSONB`, `run_trace JSONB`
-- Dimension scores → `dimension_scores JSONB`
-- All entities → `metadata JSONB`
+Cases, runs, baselines and prompt versions reference their suite with `ON DELETE CASCADE`, and results reference their run the same way, so deleting a suite removes everything under it.
 
 ## Internals
 
 | Aspect | Detail |
 |--------|--------|
-| Driver | grove ORM + pgdriver |
-| Migrations | grove orchestrator with programmatic migrations |
-| Transactions | PostgreSQL-level transactions |
-| Concurrency | Full MVCC with row-level locking |
+| Driver | Grove with `pgdriver` (pgx) |
+| Migrations | Go strings in `store/postgres/migrations.go`, run by Grove's orchestrator. `store/postgres/migrations/*.sql` isn't loaded by anything |
+| Transactions | `DeleteSuite` and `SetCurrentPromptVersion` run in a transaction. `SaveBaseline` with `IsCurrent` clears the old flag and inserts in two statements without one |
 
 ## Composite store interface
 
-The PostgreSQL store implements all 5 sub-interfaces:
+The PostgreSQL store implements all five sub-interfaces:
 
 ```go
 type Store interface {
     suite.Store         // 6 methods
-    testcase.Store      // 7 methods
-    evalrun.Store       // 5 methods
+    testcase.Store      // 8 methods
+    evalrun.Store       // 10 methods
     baseline.Store      // 5 methods
     promptversion.Store // 5 methods
 
@@ -76,26 +71,26 @@ type Store interface {
 }
 ```
 
-## Embedded migrations
+## Migrations
 
-Migrations are registered programmatically via grove's migration orchestrator and run automatically when `Migrate()` is called. There are 5 migration steps:
+`Migrate` runs five migrations, in the `sentinel` migration group:
 
-1. `create_suites` — Creates `sentinel_suites`
-2. `create_cases` — Creates `sentinel_cases`
-3. `create_runs_and_results` — Creates `sentinel_runs` and `sentinel_results`
-4. `create_baselines` — Creates `sentinel_baselines`
-5. `create_prompt_versions` — Creates `sentinel_prompt_versions`
+1. `create_suites`: `sentinel_suites`
+2. `create_cases`: `sentinel_cases`
+3. `create_runs_and_results`: `sentinel_runs` and `sentinel_results`
+4. `create_baselines`: `sentinel_baselines`
+5. `create_prompt_versions`: `sentinel_prompt_versions`
 
 ## Other store backends
 
 | Backend | Package | Use case |
 |---------|---------|----------|
 | PostgreSQL | `store/postgres` | Production |
-| SQLite | `store/sqlite` | Development, testing, single-machine deployments |
-| MongoDB | `store/mongo` | Document-oriented and horizontally-scalable deployments |
-| Memory | `store/memory` | Unit tests, ephemeral evaluations |
+| SQLite | `store/sqlite` | Development, tests, single-machine deployments |
+| MongoDB | `store/mongo` | Deployments that already run MongoDB |
+| Memory | `store/memory` | Unit tests, throwaway evaluations |
 
-All backends implement the same `store.Store` interface identically.
+All four pass the same conformance suite, `store/storetest`. The PostgreSQL and MongoDB runs of it sit behind the `integration` build tag.
 
 ## Usage with engine
 

@@ -3,52 +3,58 @@ title: Error Handling
 description: Sentinel errors returned by evaluation operations.
 ---
 
-Sentinel defines sentinel errors in the root `sentinel` package. All errors are created with `errors.New` and can be checked with `errors.Is`.
+Sentinel's errors live in the root `sentinel` package. Each is an `errors.New` value with a `sentinel:` prefix, and the engine often wraps them with more context, so check them with `errors.Is`.
 
 ## Store errors
 
-| Error | Description |
-|-------|-------------|
-| `ErrNoStore` | No store was configured on the engine |
-| `ErrStoreClosed` | The store has been closed |
-| `ErrMigrationFailed` | Database migration failed |
+| Error | When you see it |
+|-------|-----------------|
+| `ErrNoStore` | The engine has no store. Every engine call returns it |
+| `ErrStoreClosed` | Declared for closed stores; no backend returns it today |
+| `ErrMigrationFailed` | The MongoDB store wraps a failed migration with it |
 
 ## Not-found errors
 
-| Error | Description |
-|-------|-------------|
-| `ErrSuiteNotFound` | Suite with the given ID does not exist |
-| `ErrCaseNotFound` | Case with the given ID does not exist |
-| `ErrRunNotFound` | Run with the given ID does not exist |
-| `ErrBaselineNotFound` | Baseline with the given ID does not exist |
-| `ErrPromptVersionNotFound` | Prompt version with the given ID does not exist |
+| Error | When you see it |
+|-------|-----------------|
+| `ErrSuiteNotFound` | No suite with that ID, or that app and name |
+| `ErrCaseNotFound` | No case with that ID |
+| `ErrRunNotFound` | No run with that ID |
+| `ErrBaselineNotFound` | No baseline with that ID, or the suite has no current baseline |
+| `ErrPromptVersionNotFound` | No prompt version with that ID, the suite has no current version, or the version belongs to another suite |
 
 ## Conflict errors
 
-| Error | Description |
-|-------|-------------|
-| `ErrSuiteAlreadyExists` | A suite with the same name already exists in this app |
+| Error | When you see it |
+|-------|-----------------|
+| `ErrSuiteAlreadyExists` | The memory store refuses a second suite with the same app and name. The SQL and Mongo stores enforce the same rule with a unique index and return the driver's error wrapped |
+| `ErrPromptVersionExists` | The memory store refuses a duplicate version number |
 
-## State errors
+## State and input errors
 
-| Error | Description |
-|-------|-------------|
-| `ErrInvalidState` | Invalid state transition |
-| `ErrEmptyInput` | Empty input provided |
+| Error | When you see it |
+|-------|-----------------|
+| `ErrInvalidState` | `CancelRun` on a run that isn't running |
+| `ErrRunCancelled` | `RunEval` returns it, wrapped, with the partial result when the run was cancelled by `CancelRun` or by its context |
+| `ErrEmptyInput` | A run of a suite with no cases, or an import with no rows |
+| `ErrInvalidInput` | A bad import row, a red-team request with no types or an unknown type, or a run-level scorer that needs config |
+| `ErrUnsupportedFormat` | An import format other than `json`, `csv` or `jsonl` |
 
 ## Evaluation errors
 
-| Error | Description |
-|-------|-------------|
-| `ErrNoTarget` | No target configured for the evaluation |
-| `ErrNoScorers` | No scorers configured for the case |
+| Error | When you see it |
+|-------|-----------------|
+| `ErrNoTarget` | `RunEval` with a nil `Target` |
+| `ErrNoScorers` | `RunEval` or `StartRun` with no run-level scorers |
+| `ErrUnknownTarget` | `StartRun` with a target name nobody registered |
+| `ErrUnknownScorer` | `StartRun` with a scorer name the registry doesn't have |
 
 ## Error wrapping
 
-Store implementations wrap these sentinel errors with additional context:
+Stores return the not-found sentinel itself for a missing row and wrap everything else:
 
 ```go
-return fmt.Errorf("postgres: get suite %s: %w", suiteID, sentinel.ErrSuiteNotFound)
+return fmt.Errorf("sentinel: get suite: %w", err)
 ```
 
 Check errors using `errors.Is`:
@@ -62,11 +68,10 @@ if errors.Is(err, sentinel.ErrSuiteNotFound) {
 
 ## API error mapping
 
-The HTTP API maps sentinel errors to HTTP status codes:
+The HTTP API maps errors to statuses:
 
-| Sentinel error | HTTP status |
-|----------------|-------------|
-| `ErrSuiteNotFound`, `ErrCaseNotFound`, etc. | `404 Not Found` |
-| `ErrSuiteAlreadyExists` | `409 Conflict` |
-| `ErrInvalidState`, `ErrEmptyInput` | `400 Bad Request` |
-| `ErrNoStore` | `500 Internal Server Error` |
+| Error | HTTP status |
+|-------|-------------|
+| `ErrSuiteNotFound`, `ErrCaseNotFound`, `ErrRunNotFound`, `ErrBaselineNotFound`, `ErrPromptVersionNotFound` | `404 Not Found` |
+| `ErrSuiteAlreadyExists`, `ErrInvalidState`, `ErrEmptyInput`, `ErrNoTarget`, `ErrNoScorers`, `ErrInvalidInput`, `ErrUnsupportedFormat` | `400 Bad Request` |
+| Anything else, including `ErrNoStore` and a SQL unique-index violation | `500 Internal Server Error` |

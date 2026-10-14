@@ -1,9 +1,9 @@
 ---
 title: Baselines & Regression Detection
-description: Track performance over time and detect regressions against known-good baselines.
+description: Save a known-good run as a baseline and get told when a later run falls below it.
 ---
 
-**Baselines** capture the results of a known-good evaluation run. Future runs can be compared against the baseline to detect performance regressions.
+A **baseline** is a snapshot of a run you're happy with. Every later run of the suite that completes is compared against the current baseline, and a drop fires a hook.
 
 ## Baseline
 
@@ -13,7 +13,7 @@ type Baseline struct {
     SuiteID         id.SuiteID
     RunID           id.EvalRunID
     Name            string
-    Results         []BaselineResult
+    Results         []Result // baseline.Result, one per case
     PassRate        float64
     AvgScore        float64
     DimensionScores map[string]float64
@@ -22,12 +22,12 @@ type Baseline struct {
 }
 ```
 
-## BaselineResult
+## baseline.Result
 
-Per-case baseline data for comparison:
+Per-case scores for comparison:
 
 ```go
-type BaselineResult struct {
+type Result struct {
     CaseID          id.CaseID
     CaseName        string
     Score           float64
@@ -38,34 +38,46 @@ type BaselineResult struct {
 
 ## Creating a baseline
 
-Save a known-good run as the current baseline:
+Copy the run's stats and its results:
 
 ```go
 b := &baseline.Baseline{
-    SuiteID:   suiteID,
-    RunID:     runID,
-    Name:      "v2.1-release",
-    PassRate:  0.95,
-    AvgScore:  0.88,
-    IsCurrent: true,
+    SuiteID:         res.Run.SuiteID,
+    RunID:           res.Run.ID,
+    Name:            "v2.1-release",
+    PassRate:        res.Stats.PassRate,
+    AvgScore:        res.Stats.AvgScore,
+    DimensionScores: res.Stats.DimensionScores,
+    IsCurrent:       true,
+}
+for _, r := range res.Results {
+    b.Results = append(b.Results, baseline.Result{
+        CaseID:          r.CaseID,
+        CaseName:        r.CaseName,
+        Score:           r.Score,
+        Status:          string(r.Status),
+        DimensionScores: r.DimensionScores,
+    })
 }
 if err := eng.SaveBaseline(ctx, b); err != nil {
     log.Fatal(err)
 }
 ```
 
-The `IsCurrent` flag marks which baseline is the active reference point. Only one baseline per suite should be current.
+Saving with `IsCurrent: true` clears the flag on the suite's other baselines, so there's one current baseline per suite. `GetLatestBaseline` returns that current one, not simply the newest; with none current it returns `ErrBaselineNotFound`. A baseline without `Results` still compares pass rate, average score and dimensions, but reports every case as new.
+
+The HTTP route `POST /v1/suites/:suiteId/baselines` with `{"run_id": "...", "name": "..."}` does this copy for you from a stored run and makes the new baseline current.
 
 ## Regression detection
 
-Compare a new run against the current baseline to detect performance drops:
+You don't have to ask for it. When a run completes, the engine loads the suite's current baseline and calls `baseline.DetectRegression` with the run's `regression_threshold` (0.05 by default). One absolute threshold covers everything, and lower is always worse:
 
-- **Pass rate regression** — Overall pass rate dropped below the baseline
-- **Score regression** — Average score dropped by more than the configured threshold
-- **Per-case regression** — Individual cases that passed in the baseline now fail
-- **Dimension regression** — Specific dimensions (e.g., skill, trait) degraded
+- Pass rate fell by more than the threshold.
+- Average score fell by more than the threshold.
+- A dimension score fell by more than the threshold, or a dimension the baseline has wasn't measured at all.
+- A case's score fell by more than the threshold.
 
-When a regression is detected, the `OnRegressionDetected` plugin hook fires:
+If any of those hold, `OnRegressionDetected` fires with the worst delta (a negative number). With no current baseline there's nothing to compare, which counts as neither a pass nor a regression. Cancelled and failed runs aren't compared.
 
 ```go
 type RegressionDetected interface {
@@ -73,35 +85,40 @@ type RegressionDetected interface {
 }
 ```
 
-## DimensionScores tracking
-
-Baselines track per-dimension scores alongside overall metrics:
+To check a run yourself, for example to fail a CI job:
 
 ```go
-b.DimensionScores = map[string]float64{
-    "skill":         0.92,
-    "trait":          0.88,
-    "communication": 0.95,
-    "cognition":     0.85,
+b, err := eng.GetLatestBaseline(ctx, suiteID)
+if err != nil {
+    log.Fatal(err)
+}
+rr := baseline.DetectRegression(res.Stats, res.Results, b, 0.05)
+if rr.HasRegression {
+    fmt.Printf("worst drop %.2f, %d cases regressed\n", rr.WorstDelta(), len(rr.RegressedCases))
 }
 ```
 
-This enables regression detection per dimension — catch a drop in skill evaluation even if overall pass rate holds steady.
+`RegressionResult` also lists `MissingCases` (in the baseline, not in the run) and `NewCases` (in the run, not in the baseline). Neither sets `HasRegression`, since the suite changed. `MissingDimensions` does.
+
+`comparison.Diff(current, baseline *evalrun.ResultStats)` gives you plain deltas between two sets of stats, without a verdict.
 
 ## Engine methods
 
 ```go
 eng.SaveBaseline(ctx, baseline)
 eng.GetBaseline(ctx, baselineID)
-eng.GetLatestBaseline(ctx, suiteID)
+eng.GetLatestBaseline(ctx, suiteID) // the current one
 eng.ListBaselines(ctx, suiteID)
 eng.DeleteBaseline(ctx, baselineID)
 ```
 
 ## API routes
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/sentinel/baselines/:suiteId` | Save a baseline |
-| `GET` | `/sentinel/baselines/:suiteId` | Get the latest baseline |
-| `GET` | `/sentinel/baselines/:suiteId/baselines` | List all baselines |
+Under `base_path` plus `/v1` (`/sentinel/v1` by default):
+
+| Method | Path | Status |
+|--------|------|--------|
+| `POST` | `/suites/:suiteId/baselines` | Works. Body: `{"run_id": "erun_...", "name": "v1"}` |
+| `GET` | `/baselines/:baselineId` | Works |
+| `GET` | `/suites/:suiteId/baselines` | Doesn't register against Forge v1.12.7 (405, since `POST` shares the path) |
+| `POST` | `/suites/:suiteId/runs/with-baseline` | A stub that answers 400, and it doesn't register either (404) |

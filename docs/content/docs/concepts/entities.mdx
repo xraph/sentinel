@@ -1,9 +1,9 @@
 ---
 title: Entities
-description: The core data types in Sentinel — Suites, Cases, Runs, Results, Baselines, and more.
+description: The core data types in Sentinel, from suites and cases to runs, results, baselines and prompt versions.
 ---
 
-All Sentinel entities embed the `sentinel.Entity` base type and carry a TypeID identifier.
+Every Sentinel entity carries a TypeID identifier. Suites, cases, runs and results also embed the `sentinel.Entity` base type for their timestamps.
 
 ## Base entity
 
@@ -14,7 +14,7 @@ type Entity struct {
 }
 ```
 
-Every entity struct embeds `sentinel.Entity` to get automatic timestamp tracking.
+`Suite`, `Case`, `Run` and `Result` embed it. `Baseline` and `PromptVersion` have their own `CreatedAt` and no `UpdatedAt`.
 
 ## Entity overview
 
@@ -57,7 +57,7 @@ type Case struct {
 }
 ```
 
-See [The Human Model](/docs/human-model/overview) for the 8 scenario types.
+`ScenarioType` defaults to `standard`. See [The Human Model](/docs/human-model/overview) for the other seven.
 
 ### EvalRun
 
@@ -82,9 +82,11 @@ type Run struct {
     AppID           string
     TargetTenantID  string
     PersonaRef      string
+    Config          map[string]any  // the run's settings: thresholds, target, scorers, model, prompt version
     State           RunState        // running, completed, failed, cancelled
-    DimensionScores map[string]float64
+    Error           string
     CompletedAt     *time.Time
+    DimensionScores map[string]float64
 }
 ```
 
@@ -106,6 +108,7 @@ type Result struct {
     TokensUsed      int
     Cost            float64
     ScorerResults   []ScorerResult
+    Error           string
     DimensionScores map[string]float64
     RunTrace        *RunTrace       // optional agent execution trace
 }
@@ -121,7 +124,7 @@ type Baseline struct {
     SuiteID         id.SuiteID
     RunID           id.EvalRunID
     Name            string
-    Results         []BaselineResult
+    Results         []baseline.Result // per-case scores copied from the run
     PassRate        float64
     AvgScore        float64
     DimensionScores map[string]float64
@@ -132,7 +135,7 @@ type Baseline struct {
 
 ### PromptVersion
 
-A versioned system prompt for tracking iterations and A/B testing:
+A versioned system prompt. `CreatePromptVersion` numbers versions per suite, and a run uses the current version's prompt in place of the suite's:
 
 ```go
 type PromptVersion struct {
@@ -161,7 +164,7 @@ Suite
   │     │     └── RunTrace (optional)
   │     └── DimensionScores
   ├── Baseline[]
-  │     └── BaselineResult[]
+  │     └── baseline.Result[]
   └── PromptVersion[]
 ```
 
@@ -173,7 +176,7 @@ Each entity type defines its own store interface. These are composed into the si
 type Store interface {
     suite.Store         // CreateSuite, GetSuite, GetSuiteByName, ...
     testcase.Store      // CreateCase, CreateCaseBatch, GetCase, ...
-    evalrun.Store       // GetRun, ListRuns, ListResults, ...
+    evalrun.Store       // CreateRun, CancelRun, FinalizeRun, ListResults, ...
     baseline.Store      // SaveBaseline, GetBaseline, GetLatestBaseline, ...
     promptversion.Store // CreatePromptVersion, GetPromptVersion, ...
 

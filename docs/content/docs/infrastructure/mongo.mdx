@@ -1,9 +1,9 @@
 ---
 title: MongoDB Store
-description: MongoDB store for document-oriented and horizontally-scalable deployments.
+description: A MongoDB store for deployments that already run MongoDB.
 ---
 
-The `store/mongo` package implements Sentinel's `store.Store` interface using the grove ORM with the MongoDB driver. It stores suites, cases, runs, results, baselines, and prompt versions as documents, making it a natural fit for deployments that already run MongoDB.
+The `store/mongo` package implements Sentinel's `store.Store` on MongoDB through [Grove](https://github.com/xraph/grove) and its `mongodriver`. Suites, cases, runs, results, baselines and prompt versions are stored as documents.
 
 ## Usage
 
@@ -11,10 +11,15 @@ The `store/mongo` package implements Sentinel's `store.Store` interface using th
 import (
     "github.com/xraph/grove"
     "github.com/xraph/grove/drivers/mongodriver"
+
     "github.com/xraph/sentinel/store/mongo"
 )
 
-db, err := grove.Open(mongodriver.Open("mongodb://localhost:27017", "sentinel"))
+drv := mongodriver.New()
+if err := drv.Open(ctx, "mongodb://localhost:27017/sentinel"); err != nil {
+    log.Fatal(err)
+}
+db, err := grove.Open(drv)
 if err != nil {
     log.Fatal(err)
 }
@@ -29,9 +34,9 @@ eng, err := engine.New(
 )
 ```
 
-## Collections
+The database name comes from the URI path. If your URI has none, pass `mongodriver.WithDatabase("sentinel")` to `Open`.
 
-The MongoDB store uses the following collections:
+## Collections
 
 | Collection | Entity | Key fields |
 |------------|--------|------------|
@@ -46,25 +51,23 @@ The MongoDB store uses the following collections:
 
 | Aspect | Detail |
 |--------|--------|
-| Driver | grove ORM + mongodriver |
-| Migrations | Index creation on collections via mongomigrate |
-| Transactions | MongoDB sessions (replica-set required for multi-doc txns) |
-| JSON fields | Stored natively as BSON documents |
+| Driver | Grove with `mongodriver` |
+| Migrations | Six migrations in `store/mongo/migrations.go` that create each collection and its indexes, run through `mongomigrate` |
+| Transactions | None. Each write is a single-document operation, and run state changes are conditional updates, so a standalone server works |
+| IDs | Stored as strings, through `id.ID`'s BSON marshalers |
 
 ## Indexes
 
 Migrations create the following indexes:
 
-- `sentinel_suites` — unique compound on `(app_id, name)`, plus `app_id` and `created_at`
-- `sentinel_cases` — `suite_id`, compound `(suite_id, scenario_type)`, `created_at`
-- `sentinel_runs` — compound `(suite_id, state)`, `app_id`, `created_at`
-- `sentinel_results` — `run_id`, compound `(run_id, case_id)`, `created_at`
-- `sentinel_baselines` — compound `(suite_id, is_current)`, `created_at`
-- `sentinel_prompt_versions` — unique compound `(suite_id, version)`, compound `(suite_id, is_current)`
+- `sentinel_suites`: unique compound on `(app_id, name)`, plus `app_id` and `created_at`
+- `sentinel_cases`: `suite_id`, compound `(suite_id, scenario_type)`, `created_at`
+- `sentinel_runs`: compound `(suite_id, state)`, `app_id`, `created_at`
+- `sentinel_results`: `run_id`, compound `(run_id, case_id)`, `created_at`
+- `sentinel_baselines`: compound `(suite_id, is_current)`, `created_at`
+- `sentinel_prompt_versions`: unique compound `(suite_id, version)`, compound `(suite_id, is_current)`
 
 ## When to use
 
-- Document-oriented workloads where MongoDB is the primary data store.
-- Horizontally-scaled environments requiring sharding.
-- Teams already running MongoDB in their infrastructure.
-- Deployments where native BSON document storage simplifies complex nested evaluation data.
+- MongoDB is already your primary data store.
+- You'd rather keep nested evaluation data (traces, scorer results) as documents.

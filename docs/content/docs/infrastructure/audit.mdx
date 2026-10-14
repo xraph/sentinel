@@ -8,22 +8,25 @@ The `audit_hook` package bridges Sentinel lifecycle events to an audit trail bac
 ## Setup
 
 ```go
-import "github.com/xraph/sentinel/audit_hook"
+import audithook "github.com/xraph/sentinel/audit_hook"
 
 // With a Recorder implementation
 auditExt := audithook.New(myRecorder)
 
 // Or with a simple function
-auditExt := audithook.New(audithook.RecorderFunc(func(ctx context.Context, event *audithook.AuditEvent) error {
+auditExt = audithook.New(audithook.RecorderFunc(func(ctx context.Context, event *audithook.AuditEvent) error {
     log.Printf("AUDIT: %s %s %s", event.Action, event.Resource, event.ResourceID)
     return nil
 }))
 
 // Register with engine
-eng, _ := engine.New(
+eng, err := engine.New(
+    engine.WithStore(st),
     engine.WithExtension(auditExt),
 )
 ```
+
+The directory is `audit_hook` and the package name is `audithook`, so name the import. `AuditEvent` mirrors Chronicle's audit event field for field without importing Chronicle, so wiring it to [Chronicle](https://github.com/xraph/chronicle) takes a small `RecorderFunc` that copies the fields across. If `Record` returns an error, the extension logs it (set the logger with `audithook.WithLogger`) and the run carries on.
 
 ## Recorder interface
 
@@ -56,30 +59,31 @@ type AuditEvent struct {
 
 ## Actions
 
-Audit actions for Sentinel lifecycle events:
+| Action | Severity | Outcome |
+|--------|----------|---------|
+| `sentinel.eval.run.started` | info | success |
+| `sentinel.eval.run.completed` | info | success |
+| `sentinel.eval.run.failed` | critical | failure |
+| `sentinel.case.completed` | info | success |
+| `sentinel.case.failed` | critical | failure |
+| `sentinel.regression.detected` | warning | failure |
+| `sentinel.baseline.saved` | info | success |
+| `sentinel.persona.eval.started` | info | success |
+| `sentinel.persona.eval.completed` | info | success |
+| `sentinel.prompt.version.created` | info | success |
+| `sentinel.comparison.completed` | info | success |
+| `sentinel.redteam.started` | info | success |
+| `sentinel.redteam.completed` | info | success |
 
-| Action | Description |
-|--------|-------------|
-| `sentinel.eval.run.started` | Evaluation run initiated |
-| `sentinel.eval.run.completed` | Run completed successfully |
-| `sentinel.eval.run.failed` | Run failed |
-| `sentinel.case.started` | Case evaluation started |
-| `sentinel.case.completed` | Case evaluation completed |
-| `sentinel.case.failed` | Case evaluation failed |
-| `sentinel.baseline.saved` | Baseline saved |
-| `sentinel.regression.detected` | Regression detected |
-| `sentinel.redteam.started` | Red team evaluation started |
-| `sentinel.redteam.completed` | Red team evaluation completed |
-| `sentinel.prompt_version.created` | Prompt version created |
-| `sentinel.comparison.completed` | Multi-model comparison completed |
+Each has an `audithook.Action...` constant. The two red-team actions never occur today, because their hooks aren't fired. There's no case-started action.
 
 ## Severity levels
 
 | Level | Usage |
 |-------|-------|
 | `info` | Normal operations (run started, case completed) |
-| `warning` | Regressions detected |
-| `critical` | Failures (run failed, case failed) |
+| `warning` | Regression detected |
+| `critical` | Run failed, case target error |
 
 ## Filtering
 

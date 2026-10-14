@@ -1,58 +1,44 @@
 ---
 title: Skill Evaluation
-description: Test what an agent can do — tool selection, proficiency, and correctness.
+description: Check which tools an agent used, against the ones it should and shouldn't have.
 ---
 
-**Skill evaluation** tests whether an agent can perform its job by selecting the right tools, using them proficiently, and producing correct results.
-
-## What it tests
-
-- Does the agent select the appropriate tool for the task?
-- Does it use the tool correctly (proper arguments, error handling)?
-- Does it achieve the desired outcome?
-- Does proficiency match the expected level?
+Skill evaluation checks whether an agent reached for the right tools. It reads the tool calls in the run trace, so the target has to return one (see [Traces](/docs/human-model/overview#traces)).
 
 ## Scorer: `skill_usage`
 
-The `skill_usage` scorer evaluates tool selection and usage by analyzing the agent's run trace:
-
 ```go
-testcase.ScorerConfig{
-    Name: "skill_usage",
-    Config: map[string]any{
-        "expected_tools":  []string{"read_file", "search_code"},
-        "proficiency_min": 0.7,
-    },
-}
+s := scorer.NewSkillUsageScorer(
+	[]string{"search_orders", "issue_refund"}, // expected
+	[]string{"delete_account"},                // forbidden
+)
 ```
 
-The scorer examines the `RunTrace` to check which tools were called, in what order, and whether the arguments were well-formed.
+The score is the share of expected tools that appear in `Trace.ToolCalls`, matched by `ToolName`. With no expected tools it starts at 1.0. Each forbidden tool that was called takes 0.3 off, down to 0. Order, arguments and tool errors aren't checked. Without a trace the score is 0.
+
+`Details` lists `used_tools`, `missing_tools` and `forbidden_used`, and the reason reads like `used 1/2 expected tools; missing: issue_refund`.
+
+The scorer isn't in the registry by default. To name it on a case, register a factory as shown in the [overview](/docs/human-model/overview#using-the-scorers).
 
 ## Scenario: `skill_challenge`
 
-The `skill_challenge` scenario generator creates test cases that require the agent to select and use specific tools:
+`scenario.NewSkillChallengeGenerator(tools)` writes one case per tool, up to `Count` (default 3). Each asks the agent to use that tool, names `skill_usage` with `expected_tools` set to that one tool, and puts `target_tool` and `difficulty` in its `Context`:
 
 ```go
-Case{
-    ScenarioType: testcase.ScenarioSkillChallenge,
-    Input:        "Find all security vulnerabilities in the auth module",
-    Context: map[string]any{
-        "available_tools": []string{"read_file", "search_code", "run_tests"},
-        "expected_tools":  []string{"search_code", "read_file"},
-    },
-}
+gen := scenario.NewSkillChallengeGenerator([]string{"search_code", "read_file", "run_tests"})
+cases, err := gen.Generate(ctx, &scenario.GenerateConfig{SuiteID: suiteID.String(), Difficulty: "medium"})
 ```
 
 ## Dimension score
-
-The skill dimension contributes to the `DimensionScores` map on both `Result` and `Run`:
 
 ```go
 result.DimensionScores["skill"] // 0.0 to 1.0
 ```
 
+`sentineltest.SkillProficiency(min)` asserts on it.
+
 ## Use cases
 
-- Verify a code review agent uses `search_code` before `read_file`
-- Test that a data analyst agent selects the right database query tools
-- Ensure a customer support agent escalates correctly when tools fail
+- Check that a support agent looks the order up before it issues a refund tool call
+- Make sure an agent never calls a destructive tool in a read-only scenario
+- Catch a prompt change that stops the agent using its search tool

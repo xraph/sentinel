@@ -1,59 +1,70 @@
 ---
 title: Observability
-description: Built-in metrics extension with lifecycle counters.
+description: Built-in metrics plugin that counts lifecycle events.
 ---
 
-The `observability` package provides a `MetricsExtension` that records counters for all evaluation lifecycle events using the `go-utils` MetricFactory.
+The `observability` package provides `MetricsExtension`, a plugin that increments a counter for each lifecycle event, through a go-utils `MetricFactory`.
 
 ## Setup
 
 ```go
-import "github.com/xraph/sentinel/observability"
+import (
+    "github.com/xraph/go-utils/metrics"
 
-// Using default metrics collector
+    "github.com/xraph/sentinel/observability"
+)
+
+// A default collector named "sentinel/observability"
 metricsExt := observability.NewMetricsExtension()
 
-// Or with a custom factory
+// Or your own factory
 factory := metrics.NewMetricsCollector("my-app")
-metricsExt := observability.NewMetricsExtensionWithFactory(factory)
+metricsExt = observability.NewMetricsExtensionWithFactory(factory)
 
-// Register with engine
 eng, err := engine.New(
+    engine.WithStore(st),
     engine.WithExtension(metricsExt),
 )
 ```
 
+In a Forge app, pass `app.Metrics()` as the factory so the counters show up in Forge's metrics. The [Forge guide](/docs/guides/forge-extension#adding-metrics) shows how.
+
 ## Counters
 
-The extension records counters for evaluation lifecycle events:
-
-| Counter name | Hook | Description |
-|-------------|------|-------------|
-| `sentinel.eval.run.started` | `OnEvalRunStarted` | Evaluation runs initiated |
-| `sentinel.eval.run.completed` | `OnEvalRunCompleted` | Runs completed successfully |
+| Counter name | Hook | Counts |
+|--------------|------|--------|
+| `sentinel.eval.run.started` | `OnEvalRunStarted` | Runs started |
+| `sentinel.eval.run.completed` | `OnEvalRunCompleted` | Runs that completed |
 | `sentinel.eval.run.failed` | `OnEvalRunFailed` | Runs that failed |
-| `sentinel.case.started` | `OnCaseStarted` | Case evaluations initiated |
-| `sentinel.case.completed` | `OnCaseCompleted` | Case evaluations completed |
-| `sentinel.case.failed` | `OnCaseFailed` | Case evaluations failed |
-| `sentinel.regression.detected` | `OnRegressionDetected` | Regressions detected |
+| `sentinel.case.completed` | `OnCaseCompleted` | Cases scored |
+| `sentinel.case.failed` | `OnCaseFailed` | Cases whose target returned an error |
+| `sentinel.regression.detected` | `OnRegressionDetected` | Regressions against a baseline |
 | `sentinel.baseline.saved` | `OnBaselineSaved` | Baselines saved |
-| `sentinel.redteam.started` | `OnRedTeamStarted` | Red team evaluations started |
-| `sentinel.redteam.completed` | `OnRedTeamCompleted` | Red team evaluations completed |
+| `sentinel.persona.eval.started` | `OnPersonaEvalStarted` | Runs with a `PersonaRef` started |
+| `sentinel.persona.eval.completed` | `OnPersonaEvalCompleted` | Runs with a `PersonaRef` completed |
+| `sentinel.comparison.completed` | `OnComparisonCompleted` | `comparison.Compare` calls |
+| `sentinel.redteam.started` | `OnRedTeamStarted` | Always 0 today: the hook never fires |
+| `sentinel.redteam.completed` | `OnRedTeamCompleted` | Always 0 today |
+| `sentinel.redteam.bypass` | `OnRedTeamCompleted` | Always 0 today |
+
+There's no case-started counter. The counters carry no labels, so they count across every suite and app.
 
 ## Interface compliance
 
-The `MetricsExtension` implements the relevant hook interfaces plus the base `plugin.Extension`:
-
 ```go
-var _ plugin.Extension        = (*MetricsExtension)(nil)
-var _ plugin.EvalRunStarted   = (*MetricsExtension)(nil)
-var _ plugin.EvalRunCompleted = (*MetricsExtension)(nil)
-var _ plugin.EvalRunFailed    = (*MetricsExtension)(nil)
-var _ plugin.CaseStarted      = (*MetricsExtension)(nil)
-var _ plugin.CaseCompleted     = (*MetricsExtension)(nil)
-var _ plugin.CaseFailed        = (*MetricsExtension)(nil)
-var _ plugin.RegressionDetected = (*MetricsExtension)(nil)
-var _ plugin.BaselineSaved      = (*MetricsExtension)(nil)
-var _ plugin.RedTeamStarted     = (*MetricsExtension)(nil)
-var _ plugin.RedTeamCompleted   = (*MetricsExtension)(nil)
+var (
+    _ plugin.Extension            = (*MetricsExtension)(nil)
+    _ plugin.EvalRunStarted       = (*MetricsExtension)(nil)
+    _ plugin.EvalRunCompleted     = (*MetricsExtension)(nil)
+    _ plugin.EvalRunFailed        = (*MetricsExtension)(nil)
+    _ plugin.CaseCompleted        = (*MetricsExtension)(nil)
+    _ plugin.CaseFailed           = (*MetricsExtension)(nil)
+    _ plugin.RegressionDetected   = (*MetricsExtension)(nil)
+    _ plugin.BaselineSaved        = (*MetricsExtension)(nil)
+    _ plugin.RedTeamStarted       = (*MetricsExtension)(nil)
+    _ plugin.RedTeamCompleted     = (*MetricsExtension)(nil)
+    _ plugin.PersonaEvalStarted   = (*MetricsExtension)(nil)
+    _ plugin.PersonaEvalCompleted = (*MetricsExtension)(nil)
+    _ plugin.ComparisonCompleted  = (*MetricsExtension)(nil)
+)
 ```

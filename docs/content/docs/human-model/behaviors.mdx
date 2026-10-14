@@ -1,48 +1,34 @@
 ---
 title: Behavior Evaluation
-description: Test how an agent reacts — condition-triggered action patterns.
+description: Check that a trigger in the input led to the right tool calls and wording.
 ---
 
-**Behavior evaluation** tests whether an agent correctly executes condition-triggered action patterns — the "habits" and "reflexes" that should fire in specific contexts.
-
-## What it tests
-
-- Does the agent recognize trigger conditions?
-- Does it execute the correct action when triggered?
-- Is the trigger-action pattern reliable across variations?
-- Does priority ordering work when multiple behaviors could fire?
+Behavior evaluation checks that a condition in the input got the reaction it should: an angry customer gets escalated, a security report gets a ticket. It reads the tool calls in the run trace and the answer text, so the target has to return a trace (see [Traces](/docs/human-model/overview#traces)).
 
 ## Scorer: `behavior_trigger`
 
-The `behavior_trigger` scorer evaluates whether the expected behavior was activated:
-
 ```go
-testcase.ScorerConfig{
-    Name: "behavior_trigger",
-    Config: map[string]any{
-        "trigger_type":   "on_input",
-        "trigger_pattern": "security|vulnerability|CVE",
-        "expected_action": "inject_prompt",
-        "action_value":    "security-focused analysis",
-    },
-}
+s := scorer.NewBehaviorTriggerScorer(
+	"escalate-angry-customer",
+	[]string{"create_ticket"},              // expected tool calls
+	[]string{"escalat", "senior", "sorry"}, // trigger keywords in the output
+)
 ```
+
+The score is the share of expected actions found among the trace's tool names. If you gave trigger keywords and none appears in the answer (case-insensitive substring), that share is halved. With no expected actions, the score is 1 when a keyword appears and 0 otherwise. Without a trace the score is 0.
+
+The scorer isn't in the registry by default. To name it on a case, register a factory as shown in the [overview](/docs/human-model/overview#using-the-scorers).
 
 ## Scenario: `behavior_trigger`
 
-The `behavior_trigger` scenario generator creates test cases with specific trigger conditions:
+`scenario.NewBehaviorTriggerGenerator(name, condition, actions)` writes a case that states the condition directly and, when `Count` is 2 or more (the default), a second that only hints at it ("a situation that might relate to ..."). Both name `behavior_trigger` with `behavior_name` and `expected_actions`:
 
 ```go
-Case{
-    ScenarioType: testcase.ScenarioBehaviorTrigger,
-    Input:        "I found a potential SQL injection in the login form",
-    Context: map[string]any{
-        "behavior":       "security-alert",
-        "trigger":        "on_input",
-        "expected_action": "escalate and detail security implications",
-    },
-}
+gen := scenario.NewBehaviorTriggerGenerator("security-alert", "the user mentions a vulnerability", []string{"create_ticket"})
+cases, err := gen.Generate(ctx, &scenario.GenerateConfig{SuiteID: suiteID.String()})
 ```
+
+The generated config has no trigger keywords, so a factory built from it scores on actions alone.
 
 ## Dimension score
 
@@ -50,8 +36,9 @@ Case{
 result.DimensionScores["behavior"] // 0.0 to 1.0
 ```
 
+`sentineltest.BehaviorTriggerRate(min)` asserts on it.
+
 ## Use cases
 
-- Verify a code review agent activates security analysis when security keywords appear
-- Test that a support agent escalates when detecting frustrated customers
-- Ensure a data agent switches to careful mode when handling PII
+- Check that a support agent opens a ticket when a customer reports a security issue
+- Make sure an agent escalates frustrated customers instead of looping on canned answers

@@ -37,8 +37,8 @@ Convenience constructors: `id.NewSuiteID()`, `id.NewCaseID()`, `id.NewEvalRunID(
 
 ```go
 parsed, err := id.Parse("suite_01h455vb4pex5vsknk084sn02q")
-parsed, err := id.ParseWithPrefix("suite_01h455vb...", id.PrefixSuite)  // validates prefix
-parsed, err := id.ParseSuiteID("suite_01h455vb...")                     // convenience
+parsed, err = id.ParseWithPrefix("suite_01h455vb...", id.PrefixSuite) // validates prefix
+parsed, err = id.ParseSuiteID("suite_01h455vb...")                    // the same, for suites
 ```
 
 ### Nil ID
@@ -56,7 +56,9 @@ id.Nil.IsNil() // true
 
 ### JSON serialization
 
-`id.ID` implements `TextMarshaler` and `TextUnmarshaler`. Nil IDs serialize as empty strings.
+`id.ID` implements `TextMarshaler` and `TextUnmarshaler`. Nil IDs serialize as empty strings. It also implements the BSON value marshalers, so the MongoDB store keeps IDs as strings too.
+
+The typed names (`id.SuiteID`, `id.CaseID`, `id.EvalRunID` and the rest) are aliases of `id.ID`, so the compiler won't stop you passing a case ID where a suite ID belongs. `ParseSuiteID` and friends check the prefix at parse time.
 
 ## Prefix reference
 

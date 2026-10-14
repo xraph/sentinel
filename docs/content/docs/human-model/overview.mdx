@@ -1,96 +1,129 @@
 ---
 title: The Human Model
-description: How Sentinel evaluates AI agents as compositions of human-like dimensions.
+description: Scorers and case generators for judging an agent the way you'd judge a person.
 ---
 
-Sentinel takes a fundamentally different approach to AI evaluation. Instead of only testing input/output accuracy, you evaluate agents across the same dimensions that make humans unique.
-
-## Philosophy
-
-People are not defined by a single metric. They are evaluated across:
-
-- **Skills** they have learned (can they do the job?)
-- **Personality traits** that shape how they work (who are they?)
-- **Behavioral habits** that emerge from experience (how do they react?)
-- **Thinking patterns** that guide their reasoning (how do they think?)
-- **Communication preferences** that define their voice (how do they talk?)
-- **Perceptual filters** that determine what they notice (what do they see?)
-
-Sentinel makes each of these a first-class evaluation dimension.
+Plain evals check whether an answer is right. For an agent you usually care about more than that: did it reach for the right tools, did it stay in character, did a trigger get the right reaction, did it talk to the user the right way. Sentinel has a scorer for each of those, plus scenario generators that write cases aimed at one dimension at a time.
 
 ## The seven dimensions
 
-| Dimension | Package | Scorer | Scenario | Description |
-|-----------|---------|--------|----------|-------------|
-| [Skill](/docs/human-model/skills) | `scorer` | `skill_usage` | `skill_challenge` | Tool selection, proficiency, correctness |
-| [Trait](/docs/human-model/traits) | `scorer` | `trait_consistency` | `trait_probe` | Personality consistency across interactions |
-| [Behavior](/docs/human-model/behaviors) | `scorer` | `behavior_trigger` | `behavior_trigger` | Condition-triggered action patterns |
-| [Cognitive](/docs/human-model/cognitive) | `scorer` | `cognitive_phase` | `cognitive_stress` | Phase transitions, depth, focus |
-| [Communication](/docs/human-model/communication) | `scorer` | `communication_style` | `comms_adaptation` | Tone, formality, verbosity, technical level |
-| [Perception](/docs/human-model/perception) | `scorer` | `perception_focus` | `perception_test` | Attention filters and detail orientation |
-| [Persona](/docs/human-model/personas) | `scorer` | `persona_coherence` | `persona_coherence` | End-to-end identity coherence |
+| Dimension | Scorer | Constructor | Reads | Scenario type |
+|-----------|--------|-------------|-------|---------------|
+| [Skill](/docs/human-model/skills) | `skill_usage` | `NewSkillUsageScorer(expected, forbidden)` | trace tool calls | `skill_challenge` |
+| [Trait](/docs/human-model/traits) | `trait_consistency` | `NewTraitConsistencyScorer(client, model, name, desc)` | output, via an LLM | `trait_probe` |
+| [Behavior](/docs/human-model/behaviors) | `behavior_trigger` | `NewBehaviorTriggerScorer(name, actions, keywords)` | trace tool calls and output | `behavior_trigger` |
+| [Cognition](/docs/human-model/cognitive) | `cognitive_phase` | `NewCognitivePhaseScorer(phases)` | trace step types | `cognitive_stress` |
+| [Communication](/docs/human-model/communication) | `communication_style` | `NewCommunicationStyleScorer(client, model, tone, format)` | output, via an LLM | `comms_adaptation` |
+| [Perception](/docs/human-model/perception) | `perception_focus` | `NewPerceptionFocusScorer(required, ignored)` | output keywords | `perception_test` |
+| [Persona](/docs/human-model/personas) | `persona_coherence` | `NewPersonaCoherenceScorer(client, model, desc)` | output, via an LLM | `persona_coherence` |
 
-## How it works
+All seven constructors are in the `scorer` package. Each scorer reports its dimension (`skill`, `trait`, `behavior`, `cognition`, `communication`, `perception`, `persona`) on its output.
 
-```
-                    ┌─────────────────┐
-                    │  Test Scenario   │
-                    │                  │
-                    │  type: skill     │
-                    │  input: "..."    │
-                    │  expected: "..." │
-                    └────────┬─────────┘
-                             │
-                    ┌────────▼─────────┐
-                    │  Target           │
-                    │  (LLM or Agent)   │
-                    │                   │
-                    │  persona: "..."   │
-                    └────────┬─────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-     ┌────────▼──┐  ┌───────▼───┐  ┌──────▼──────┐
-     │  Output   │  │ Run Trace │  │ Tool Calls  │
-     │  (text)   │  │  (steps)  │  │  (actions)  │
-     └────────┬──┘  └───────┬───┘  └──────┬──────┘
-              │              │              │
-     ┌────────▼──────────────▼──────────────▼──────┐
-     │           Multi-Dimensional Scoring           │
-     │                                                │
-     │  Skill: 0.92  │  Trait: 0.88  │  Comms: 0.95  │
-     │  Behavior: 1.0 │  Cognition: 0.85             │
-     └────────────────────────────────────────────────┘
-```
+## Traces
 
-## Scenario types
-
-Each dimension has a corresponding scenario type that generates targeted test cases:
+The skill, behavior and cognition scorers read the run trace, `evalrun.RunTrace`, with its `ToolCalls` and `Steps`. Only a target that returns one gives them anything to read: `target.NewAgentTarget` passes through whatever trace your `AgentClient` returns, and a target you write can fill `Output.Trace` itself. `FromFunc` and `NewLLMTarget` return no trace, and these three scorers score 0 without one ("no execution trace available").
 
 ```go
-const (
-    ScenarioStandard         = "standard"          // Traditional input/output
-    ScenarioSkillChallenge   = "skill_challenge"   // Tool selection & proficiency
-    ScenarioTraitProbe       = "trait_probe"        // Personality consistency
-    ScenarioBehaviorTrigger  = "behavior_trigger"   // Condition-action patterns
-    ScenarioCognitiveStress  = "cognitive_stress"   // Thinking strategy transitions
-    ScenarioCommsAdaptation  = "comms_adaptation"   // Communication style
-    ScenarioPerceptionTest   = "perception_test"    // Attention & focus
-    ScenarioPersonaCoherence = "persona_coherence"  // End-to-end identity
+type agentClient struct{}
+
+func (agentClient) Run(ctx context.Context, agentID, personaRef, input string) (*target.AgentResponse, error) {
+	// Call your agent, then report what it did.
+	return &target.AgentResponse{}, nil
+}
+
+bot := target.NewAgentTarget(agentClient{}, "code-reviewer", "senior-engineer")
+```
+
+## Using the scorers
+
+Pass them to a run as values, like any scorer:
+
+```go
+res, err := eng.RunEval(ctx, &engine.RunConfig{
+	SuiteID: suiteID,
+	Target:  bot,
+	Scorers: []scorer.Scorer{
+		scorer.NewSkillUsageScorer([]string{"search_code", "read_file"}, nil),
+		scorer.NewCognitivePhaseScorer([]string{"analysis", "planning", "execution"}),
+	},
+})
+```
+
+Or name them on a case. None of the seven is in the engine's registry by default, so a case that names one ends as `error` until you register a factory that reads the case's config:
+
+```go
+eng, err := engine.New(
+	engine.WithStore(st),
+	engine.WithScorer(scorer.Descriptor{Name: "skill_usage", Dimension: "skill"},
+		func(cfg map[string]any) (scorer.Scorer, error) {
+			return scorer.NewSkillUsageScorer(stringList(cfg, "expected_tools"), stringList(cfg, "forbidden_tools")), nil
+		}),
 )
 ```
 
-## Backward compatibility
+`stringList` is yours to write. Config that came from JSON holds `[]any`, and config built in Go holds `[]string`, so handle both. The scenario generators write configs with these keys, which is what your factories have to read:
 
-Traditional LLM evals (input/output with standard scorers) still work exactly as before. The persona-aware testing is an additional layer — use it when testing AI agents with defined personas, skip it when testing raw LLM outputs.
+| Scorer name | Config keys the generators write |
+|-------------|----------------------------------|
+| `skill_usage` | `expected_tools` |
+| `trait_consistency` | `trait_name`, `trait_desc` |
+| `behavior_trigger` | `behavior_name`, `expected_actions` |
+| `cognitive_phase` | `expected_phases` |
+| `communication_style` | `expected_tone`, `expected_format` |
+| `perception_focus` | `required_keywords`, `ignored_keywords` |
+
+## Scenario generators
+
+The `scenario` package has six generators, one per dimension except persona. Each returns cases you store with `CreateCaseBatch`:
+
+```go
+gen := scenario.NewSkillChallengeGenerator([]string{"search_code", "read_file", "run_tests"})
+cases, err := gen.Generate(ctx, &scenario.GenerateConfig{SuiteID: suiteID.String(), Difficulty: "medium"})
+if err != nil {
+	log.Fatal(err)
+}
+if err := eng.CreateCaseBatch(ctx, cases); err != nil {
+	log.Fatal(err)
+}
+```
+
+| Generator | Constructor | Cases |
+|-----------|-------------|-------|
+| Skill challenge | `NewSkillChallengeGenerator(tools)` | one per tool, up to `Count` (default 3) |
+| Trait probe | `NewTraitProbeGenerator(name, desc)` | up to 3 contexts (normal, challenged, complex) |
+| Behavior trigger | `NewBehaviorTriggerGenerator(name, condition, actions)` | a direct trigger, plus a subtle one when `Count` is 2 or more (default 2) |
+| Cognitive stress | `NewCognitiveStressGenerator(phases)` | up to 3 (simple, moderate, complex) |
+| Comms adaptation | `NewCommsAdaptationGenerator(audiences)` | one per `scenario.Audience`, up to `Count` |
+| Perception | `NewPerceptionGenerator(relevant, distractors)` | a focus case, plus a distractor case when `Count` is 2 or more (default 2) |
+
+The templates are fixed strings; nothing here calls a model. `GenerateConfig.PersonaDesc` and `Extra` aren't read by any of them. There's no persona coherence generator, although the `persona_coherence` scenario type exists. The HTTP route for scenario generation is a stub (see the [HTTP API reference](/docs/api-reference/http-api)).
+
+## Scenario types
+
+```go
+const (
+    ScenarioStandard         ScenarioType = "standard"          // Traditional input/output
+    ScenarioSkillChallenge   ScenarioType = "skill_challenge"   // Tool selection & proficiency
+    ScenarioTraitProbe       ScenarioType = "trait_probe"       // Personality consistency
+    ScenarioBehaviorTrigger  ScenarioType = "behavior_trigger"  // Condition-action patterns
+    ScenarioCognitiveStress  ScenarioType = "cognitive_stress"  // Thinking strategy transitions
+    ScenarioCommsAdaptation  ScenarioType = "comms_adaptation"  // Communication style
+    ScenarioPerceptionTest   ScenarioType = "perception_test"   // Attention & focus
+    ScenarioPersonaCoherence ScenarioType = "persona_coherence" // End-to-end identity
+)
+```
+
+The type is a label on the case. The engine doesn't pick scorers from it.
 
 ## DimensionScores
 
-Both `Run` and `Result` entities carry a `DimensionScores` field that maps dimension names to scores:
+`Result.DimensionScores` averages, per dimension, the scores of the scorers that reported one. The run's `DimensionScores` aggregates those across results, and baselines compare them:
 
 ```go
 DimensionScores map[string]float64
-// e.g., {"skill": 0.92, "trait": 0.88, "communication": 0.95}
+// e.g. {"skill": 0.92, "trait": 0.88, "communication": 0.95}
 ```
 
-These scores are aggregated from persona-aware scorers and provide a holistic view of agent performance.
+Dimension scores also count toward the case's overall score, which is the average of every scorer. `sentineltest` has assertions for six of the dimensions: `SkillProficiency`, `TraitConsistency`, `BehaviorTriggerRate`, `CognitivePhaseCompliance`, `CommunicationMatch` and `PersonaCoherence`.
+
+Each scorer also sets its own `Passed` at 0.7, which is recorded in its `ScorerResult`. The case's pass or fail comes from the average and `PassThreshold`.

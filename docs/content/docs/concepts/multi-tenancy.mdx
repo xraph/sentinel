@@ -1,69 +1,56 @@
 ---
 title: Multi-Tenancy
-description: How Sentinel scopes suites, cases, runs, and all entities to app and tenant contexts.
+description: How the app ID on a context labels suites and runs, what filters by it, and what doesn't.
 ---
 
-Every Sentinel entity is scoped to an **app** (logical application boundary) and optionally to a **tenant** (user/organization boundary). This scoping is enforced at the store layer — cross-app access is structurally impossible.
+Suites and runs carry an `AppID`. You set it through the context, and list calls can filter by it. That's the extent of it today: Sentinel labels and filters by app, it doesn't enforce isolation. If one process serves several apps or customers, keep the checks in your own code.
 
-## Context injection
-
-Scope identifiers are injected into the Go context using helper functions from the root `sentinel` package:
+## Context helpers
 
 ```go
 import "github.com/xraph/sentinel"
 
-ctx = sentinel.WithTenant(ctx, "org-123")
 ctx = sentinel.WithApp(ctx, "myapp")
-```
+ctx = sentinel.WithTenant(ctx, "org-123")
 
-## Extraction
-
-Retrieve scope values from any context:
-
-```go
-tenantID := sentinel.TenantFromContext(ctx) // "org-123"
 appID    := sentinel.AppFromContext(ctx)    // "myapp"
+tenantID := sentinel.TenantFromContext(ctx) // "org-123"
 ```
 
-Both functions return an empty string if no value is set.
+Both readers return an empty string when nothing is set.
 
-## AppID vs TenantID
+## What reads the app
 
-| Scope | Purpose | Required | Example |
-|-------|---------|----------|---------|
-| **AppID** | Logical application boundary. All domain entities (suites, cases, baselines, prompt versions) carry an `AppID` field. | Yes | `"myapp"`, `"staging"` |
-| **TenantID** | User or organization boundary. Used for execution entities (runs, results) to isolate per-user data. | Optional | `"org-123"`, `"user-456"` |
+| Where | What it does with the app |
+|-------|---------------------------|
+| `engine.CreateSuite` | Stamps `AppID` from the context when the suite doesn't have one |
+| Runs | Take the suite's `AppID` when they're created |
+| `suite.ListFilter{AppID}`, `evalrun.ListFilter{AppID}` | Filter lists. An empty `AppID` matches every app |
+| `GetSuiteByName(ctx, appID, name)` | Looks up a name within one app. Names are unique per app |
+| HTTP API | `POST /v1/suites` stamps the app from the request context, and `GET /v1/suites` filters by it |
+| Dashboard | Uses the principal's `app_id` claim, else `dashboard_app_id`, and refuses every request when both are empty |
 
-## Store enforcement
+Cases, baselines and prompt versions have no app of their own. They belong to a suite.
 
-The store enforces app scoping on every query:
+## What doesn't
 
-- **Suite** — `GetSuiteByName` and `ListSuites` filter by `app_id`
-- **Case** — all queries scoped through the parent suite's app
-- **Run** — queries filter by `app_id` and optionally by `target_tenant_id`
-- **Baseline** — scoped through the parent suite's app
-- **Cross-scope access** — returns `ErrNotFound` even if the entity exists under a different app
+Lookups by ID (`GetSuite`, `GetRun`, `GetCase`, `GetBaseline` and the rest) ignore the context, so anyone holding an ID can read the entity whatever app it belongs to. The same goes for the HTTP routes that take an ID. `TenantFromContext` isn't called anywhere in Sentinel, and `Run.TargetTenantID` exists on the model but nothing sets it.
 
-## API integration
-
-When using the Forge extension, the API layer extracts the app ID from the request context (typically set by Forge middleware) and passes it to all engine operations. This means:
-
-- Each API request is automatically scoped to the caller's app
-- Suites in app A cannot see or modify suites in app B
-- Run history is isolated per tenant within each app
-
-## Example: multi-tenant setup
+## Example
 
 ```go
-// App A creates a suite
 ctxA := sentinel.WithApp(context.Background(), "app-a")
-eng.CreateSuite(ctxA, suiteA)
+_ = eng.CreateSuite(ctxA, suiteA) // suiteA.AppID == "app-a"
 
-// App B creates a different suite
 ctxB := sentinel.WithApp(context.Background(), "app-b")
-eng.CreateSuite(ctxB, suiteB)
+_ = eng.CreateSuite(ctxB, suiteB) // suiteB.AppID == "app-b"
 
-// App A cannot see App B's suites
-suites, _ := eng.ListSuites(ctxA, &suite.ListFilter{AppID: "app-b"})
-// suites is empty — app isolation enforced
+onlyA, _ := eng.ListSuites(ctxA, &suite.ListFilter{AppID: "app-a"})
+everything, _ := eng.ListSuites(ctxA, &suite.ListFilter{}) // empty AppID: every app
 ```
+
+`ListSuites` filters on the `AppID` in the filter you pass, not on the context.
+
+## In a Forge app
+
+Set the app on each request with a middleware, from your own auth rather than a header the caller controls. The [Forge guide](/docs/guides/forge-extension#setting-the-app-on-requests) has an example.

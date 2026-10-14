@@ -3,7 +3,7 @@ title: Plugin System
 description: Lifecycle hooks for metrics, audit trails, and custom processing.
 ---
 
-Sentinel uses an opt-in plugin system where extensions subscribe to lifecycle events by implementing specific interfaces. The base interface requires only a `Name()` method — all hooks are optional.
+Sentinel uses an opt-in plugin system: a plugin subscribes to lifecycle events by implementing specific interfaces. The base interface requires only a `Name()` method, and every hook is optional.
 
 ## Base interface
 
@@ -15,29 +15,29 @@ type Extension interface {
 
 ## Lifecycle hooks
 
-There are 16 hook interfaces organized by category. Extensions implement only the hooks they need.
+There are 15 hook interfaces. A plugin implements only the hooks it needs. Two of them, `RedTeamStarted` and `RedTeamCompleted`, are declared but never fired.
 
 ### Eval lifecycle
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
 | `EvalRunStarted` | `OnEvalRunStarted(ctx, suiteID, runID, model)` | Evaluation run begins |
-| `EvalRunCompleted` | `OnEvalRunCompleted(ctx, suiteID, runID, passRate, elapsed)` | Run finishes successfully |
-| `EvalRunFailed` | `OnEvalRunFailed(ctx, suiteID, runID, err)` | Run fails with error |
+| `EvalRunCompleted` | `OnEvalRunCompleted(ctx, suiteID, runID, passRate, elapsed)` | Run ends `completed` |
+| `EvalRunFailed` | `OnEvalRunFailed(ctx, suiteID, runID, err)` | Run ends `failed` (results couldn't be stored or read). A cancelled run fires neither |
 
 ### Case lifecycle
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
 | `CaseStarted` | `OnCaseStarted(ctx, runID, caseID)` | Case evaluation begins |
-| `CaseCompleted` | `OnCaseCompleted(ctx, runID, caseID, score, elapsed)` | Case evaluation finishes |
-| `CaseFailed` | `OnCaseFailed(ctx, runID, caseID, err)` | Case evaluation fails |
+| `CaseCompleted` | `OnCaseCompleted(ctx, runID, caseID, score, elapsed)` | Case was scored, whatever its status |
+| `CaseFailed` | `OnCaseFailed(ctx, runID, caseID, err)` | The target returned an error. Scorer errors don't fire it |
 
 ### Regression
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `RegressionDetected` | `OnRegressionDetected(ctx, suiteID, baselineID, delta)` | Performance regression found |
+| `RegressionDetected` | `OnRegressionDetected(ctx, suiteID, baselineID, delta)` | A completed run fell below the current baseline. `delta` is the worst drop, a negative number |
 
 ### Baseline
 
@@ -49,15 +49,15 @@ There are 16 hook interfaces organized by category. Extensions implement only th
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `RedTeamStarted` | `OnRedTeamStarted(ctx, suiteID, attackCount)` | Red team evaluation begins |
-| `RedTeamCompleted` | `OnRedTeamCompleted(ctx, suiteID, bypassCount, elapsed)` | Red team evaluation finishes |
+| `RedTeamStarted` | `OnRedTeamStarted(ctx, suiteID, attackCount)` | Never fired yet |
+| `RedTeamCompleted` | `OnRedTeamCompleted(ctx, suiteID, bypassCount, elapsed)` | Never fired yet |
 
 ### Persona evaluation
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `PersonaEvalStarted` | `OnPersonaEvalStarted(ctx, runID, personaName)` | Persona-aware evaluation begins |
-| `PersonaEvalCompleted` | `OnPersonaEvalCompleted(ctx, runID, personaName, dimensions)` | Persona-aware evaluation finishes |
+| `PersonaEvalStarted` | `OnPersonaEvalStarted(ctx, runID, personaName)` | A run with a `PersonaRef` begins |
+| `PersonaEvalCompleted` | `OnPersonaEvalCompleted(ctx, runID, personaName, dimensions)` | A run with a `PersonaRef` completes |
 
 ### Prompt versioning
 
@@ -69,39 +69,28 @@ There are 16 hook interfaces organized by category. Extensions implement only th
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `ComparisonCompleted` | `OnComparisonCompleted(ctx, suiteID, models, elapsed)` | Multi-model comparison finishes |
+| `ComparisonCompleted` | `OnComparisonCompleted(ctx, suiteID, models, elapsed)` | `comparison.Compare` finishes |
 
 ### Shutdown
 
 | Interface | Method | When it fires |
 |-----------|--------|---------------|
-| `Shutdown` | `OnShutdown(ctx)` | Graceful shutdown |
+| `Shutdown` | `OnShutdown(ctx)` | `engine.Stop`, before the store closes |
 
 ## Registry
 
-The `plugin.Registry` type-caches extensions at registration time:
+You register plugins with `engine.WithExtension` (or `extension.WithExtension` in a Forge app). The engine keeps them in a `plugin.Registry`, which sorts each plugin into the hooks it implements at registration, so an event only calls the plugins that implement it. `eng.Extensions()` returns the registry.
 
-```go
-registry := plugin.NewRegistry(logger)
-registry.Register(metricsExt)
-registry.Register(auditExt)
-```
-
-When events are emitted, only extensions implementing the relevant hook are called:
-
-```go
-registry.EmitEvalRunStarted(ctx, suiteID, runID, model)
-// Only calls extensions that implement EvalRunStarted
-```
+Hooks run synchronously, in registration order, on the goroutine that raised the event. Case hooks run on the case's worker, so a slow hook slows the run.
 
 ## Error handling
 
-Hook errors are logged but **never propagated**. Hooks must not block the evaluation pipeline.
+A hook's error is logged and otherwise ignored. It never stops the run.
 
 ## Built-in extensions
 
-- **`observability.MetricsExtension`** — Counters for all lifecycle events
-- **`audithook.Extension`** — Bridges events to an audit trail backend
+- `observability.MetricsExtension`: counters for lifecycle events
+- `audithook.Extension`: turns lifecycle events into audit records
 
 ## Writing a custom extension
 
@@ -113,11 +102,14 @@ type SlackNotifier struct {
 func (s *SlackNotifier) Name() string { return "slack-notifier" }
 
 func (s *SlackNotifier) OnRegressionDetected(ctx context.Context, suiteID id.SuiteID, baselineID id.BaselineID, delta float64) error {
-    return postToSlack(s.webhookURL, fmt.Sprintf("Regression detected in suite %s: %.1f%% drop", suiteID, delta*100))
+    return postToSlack(s.webhookURL, fmt.Sprintf("Regression in suite %s: fell %.2f below baseline", suiteID, -delta))
 }
 
 // Register:
-eng, _ := engine.New(
+eng, err := engine.New(
+    engine.WithStore(st),
     engine.WithExtension(&SlackNotifier{webhookURL: "https://hooks.slack.com/..."}),
 )
 ```
+
+`postToSlack` is yours. See [Custom Plugin](/docs/guides/custom-plugin) for a fuller example.

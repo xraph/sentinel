@@ -1,15 +1,9 @@
 ---
 title: Forge Extension
-description: Mount Sentinel into a Forge application as a first-class extension with automatic route registration and migrations.
+description: Run Sentinel inside a Forge application, with its engine in the container, the HTTP API mounted and the dashboard contract registered.
 ---
 
-Sentinel ships a ready-made Forge extension in the `extension` package. It wires the engine, HTTP API, and lifecycle management into Forge's extension system.
-
-## Installation
-
-```go
-import "github.com/xraph/sentinel/extension"
-```
+The `extension` package adapts the engine as a `forge.Extension`. It loads `extensions.sentinel` from your config, picks a store, builds the engine, provides `*engine.Engine` in the DI container, mounts the HTTP API and registers the contract the Sentinel dashboard plugin reads.
 
 ## Registering the extension
 
@@ -17,70 +11,81 @@ import "github.com/xraph/sentinel/extension"
 package main
 
 import (
-    "github.com/xraph/forge"
-    "github.com/xraph/sentinel/extension"
+	"context"
+	"log"
+
+	"github.com/xraph/forge"
+
+	sentinelext "github.com/xraph/sentinel/extension"
+	"github.com/xraph/sentinel/target"
 )
 
 func main() {
-    app := forge.New()
+	bot := target.FromFunc("support-bot", func(_ context.Context, input string) (string, error) {
+		return "You can ask for a refund within 30 days.", nil
+	})
 
-    sentinelExt := extension.New(
-        extension.WithGroveDatabase(""), // resolve default grove.DB from DI
-    )
+	app := forge.NewApp(forge.AppConfig{
+		Name:        "evals",
+		HTTPAddress: ":8080",
+		Extensions: []forge.Extension{
+			sentinelext.New(
+				sentinelext.WithTarget("support-bot", "The support assistant in staging", bot),
+			),
+		},
+	})
 
-    app.RegisterExtension(sentinelExt)
-    app.Run()
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-Or with an explicit store:
+`app.RegisterExtension(ext)` works too, if you'd rather build the extension after the app.
+
+That example has no store of its own. The extension takes one from a `*grove.DB` in the container, which the Grove extension provides. If nothing provides one, the engine has no store, `Health` reports `sentinel: no store configured`, and every call returns `sentinel.ErrNoStore`. There's no in-memory fallback. To pass a store yourself:
 
 ```go
-sentinelExt := extension.New(
-    extension.WithStore(pgstore.New(db)),
+sentinelext.New(
+	sentinelext.WithStore(memory.New()),
 )
 ```
 
 ## What the extension does
 
-| Lifecycle event | Behaviour |
-|----------------|-----------|
-| `Register` | Creates the engine from the provided options |
-| `Start` | Runs `store.Migrate` (unless disabled) |
-| `RegisterRoutes` | Mounts all Sentinel HTTP endpoints under the base path |
-| `Stop` | Calls `engine.Stop` -- emits `OnShutdown` to all plugins |
+| Phase | What happens |
+|-------|--------------|
+| `Register` | Loads config, resolves the store, builds the engine from the merged config plus your engine options, mounts the HTTP API under `base_path` (default `/sentinel`) unless routes are disabled, and provides `*engine.Engine` in the container |
+| `Start` | Runs `Migrate` on the store unless migrations are disabled, then `engine.Start` |
+| `Health` | Pings the store |
+| `Stop` | Calls `engine.Stop`: cancels runs this process started with `StartRun`, waits up to `shutdown_timeout` for them to record it, fires `OnShutdown`, then closes the store |
+
+It also implements Forge's dashboard contract contributor hook, so the dashboard plugin finds it without any wiring from you (see [Dashboard](#dashboard)).
 
 ## Extension options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `WithStore(s)` | `store.Store` | -- | Composite store (auto-resolved from grove if not set) |
-| `WithExtension(x)` | `plugin.Extension` | -- | Lifecycle hook plugin (repeatable) |
-| `WithEngineOption(opt)` | `engine.Option` | -- | Pass engine option directly |
-| `WithConfig(cfg)` | `Config` | defaults | Full config struct |
-| `WithDisableRoutes()` | -- | `false` | Skip HTTP route registration |
-| `WithDisableMigrate()` | -- | `false` | Skip migrations on Start |
-| `WithBasePath(path)` | `string` | `""` | URL prefix for all sentinel routes |
-| `WithGroveDatabase(name)` | `string` | `""` | Name of the grove.DB to resolve from DI |
-| `WithRequireConfig(b)` | `bool` | `false` | Require config in YAML files |
-| `WithTarget(name, description, t)` | `string, string, target.Target` | -- | Register a named target, so the dashboard can start runs against it (repeatable) |
-| `WithScorer(d, f)` | `scorer.Descriptor, scorer.Factory` | -- | Register a scorer the dashboard can offer, such as an LLM scorer that needs your client (repeatable) |
+| `WithStore(s)` | `store.Store` | none | The store to use. A grove database in the container overrides it, see [Store resolution](#store-resolution) |
+| `WithGroveDatabase(name)` | `string` | `""` | Resolve the named `*grove.DB` from the container. An empty name means the default one |
+| `WithExtension(x)` | `plugin.Extension` | none | A lifecycle hook plugin (repeatable) |
+| `WithTarget(name, description, t)` | `string, string, target.Target` | none | Register a named target, so the dashboard can start runs against it (repeatable) |
+| `WithScorer(d, f)` | `scorer.Descriptor, scorer.Factory` | none | Register a scorer by name, such as an LLM scorer that needs your client (repeatable) |
+| `WithEngineOption(opt)` | `engine.Option` | none | Pass any engine option through |
+| `WithConfig(cfg)` | `extension.Config` | defaults | Replace the whole config struct |
+| `WithBasePath(path)` | `string` | `/sentinel` | URL prefix for the HTTP API |
+| `WithDisableRoutes()` | none | off | Don't mount the HTTP API |
+| `WithDisableMigrate()` | none | off | Don't run migrations on `Start` |
+| `WithRequireConfig(b)` | `bool` | `false` | Fail `Register` when the config file has no sentinel block |
 
-## File-based configuration (YAML)
+## Configuration
 
-When running in a Forge application, the Sentinel extension automatically loads configuration from YAML config files. The extension looks for config under the following keys (in order):
-
-1. `extensions.sentinel` -- standard Forge extension config namespace
-2. `sentinel` -- top-level shorthand
-
-### Example YAML config
+The extension reads `extensions.sentinel`, and falls back to a top-level `sentinel` key:
 
 ```yaml
-# forge.yaml
+# config.yaml
 extensions:
   sentinel:
-    disable_routes: false
-    disable_migrate: false
     base_path: "/sentinel"
     default_model: "smart"
     temperature: 0
@@ -90,49 +95,64 @@ extensions:
     shutdown_timeout: "30s"
     grove_database: ""
     dashboard_app_id: "app_yourapp"
+    disable_routes: false
+    disable_migrate: false
 ```
 
-Or using the top-level shorthand:
-
-```yaml
-# forge.yaml
-sentinel:
-  default_model: "gpt-4o"
-  pass_threshold: 0.8
-  concurrency: 8
-```
-
-### Config fields
-
-| YAML Key | Type | Default | Description |
+| YAML key | Type | Default | Description |
 |----------|------|---------|-------------|
-| `disable_routes` | `bool` | `false` | Skip HTTP route registration |
-| `disable_migrate` | `bool` | `false` | Skip migrations on Start |
-| `base_path` | `string` | `""` | URL prefix for all routes |
-| `default_model` | `string` | `"smart"` | LLM model identifier |
-| `temperature` | `float64` | `0` | LLM sampling temperature |
-| `pass_threshold` | `float64` | `0.7` | Minimum score to pass a test case |
+| `base_path` | `string` | `/sentinel` | URL prefix for the HTTP API. Empty means `/sentinel` |
+| `default_model` | `string` | `"smart"` | The model for suites that don't set one. Sentinel passes it to your client as is |
+| `temperature` | `float64` | `0` | Temperature for suites that don't set one |
+| `pass_threshold` | `float64` | `0.7` | Minimum average score for a case to pass |
 | `regression_threshold` | `float64` | `0.05` | How far a metric may fall below the current baseline before a run counts as regressed |
-| `concurrency` | `int` | `4` | Parallel evaluation workers |
-| `shutdown_timeout` | `duration` | `"30s"` | Max graceful shutdown wait time |
-| `grove_database` | `string` | `""` | Named grove.DB to resolve from DI |
-| `dashboard_app_id` | `string` | none | The app the dashboard reads and writes when the principal has no `app_id` claim. With neither, every dashboard request is refused. |
+| `concurrency` | `int` | `4` | Cases evaluated in parallel |
+| `shutdown_timeout` | `duration` | `"30s"` | How long `Stop` waits for in-flight runs |
+| `grove_database` | `string` | `""` | A named `*grove.DB` from the container. Setting it turns on grove resolution |
+| `dashboard_app_id` | `string` | none | The app the dashboard reads and writes when the principal has no `app_id` claim. With neither, every dashboard request is refused |
+| `disable_routes` | `bool` | `false` | Don't mount the HTTP API |
+| `disable_migrate` | `bool` | `false` | Don't run migrations on `Start` |
 
-### Merge behaviour
+When a config block exists, its values win, then your programmatic options fill what it left empty, then the defaults. Programmatic `WithDisableRoutes` and `WithDisableMigrate` always win when set. A zero `pass_threshold`, `regression_threshold`, `concurrency` or `shutdown_timeout` counts as unset. `temperature` is the exception: with a config block present, its value is used even when it's 0, and a programmatic temperature is ignored.
 
-File-based configuration is merged with programmatic options. Programmatic boolean flags (`DisableRoutes`, `DisableMigrate`) always win when set to `true`. For other fields, YAML values take precedence, then programmatic values, then defaults.
-
-A zero `pass_threshold` or `regression_threshold` counts as unset, so it falls back to the next source and then to the default. If you want any drop at all to count as a regression, set `regression_threshold` to a very small value such as `0.0001`.
-
-### Requiring configuration
-
-If your deployment requires YAML config to be present, use `WithRequireConfig`:
+To insist on a config block:
 
 ```go
-ext := extension.New(
-    extension.WithRequireConfig(true), // error if no YAML config found
+sentinelext.New(
+	sentinelext.WithRequireConfig(true),
 )
 ```
+
+## Store resolution
+
+The extension decides on a store during `Register`:
+
+1. If `WithGroveDatabase` was called or `grove_database` is set, it resolves that `*grove.DB` (the default one for an empty name) and fails `Register` if it isn't there.
+2. Otherwise, if the container has a default `*grove.DB`, it uses that.
+3. Otherwise it uses the store you passed with `WithStore`, if any.
+
+In the first two cases it builds the store from the driver name: `pg` gives `store/postgres`, `sqlite` gives `store/sqlite` and `mongo` gives `store/mongo`. Any other driver fails `Register`. Note the order: a grove database found in steps 1 or 2 replaces a store you passed with `WithStore`, so don't combine the two.
+
+```go
+sentinelext.New(
+	sentinelext.WithGroveDatabase("evals"), // a named grove.DB
+)
+```
+
+For a SQLite database you build yourself, remember the migration executor import described on the [SQLite page](/docs/infrastructure/sqlite).
+
+## Using the engine elsewhere
+
+The engine is in the container once `Register` has run:
+
+```go
+eng, err := forge.Inject[*engine.Engine](app.Container())
+if err != nil {
+	log.Fatal(err)
+}
+```
+
+The extension value also has `Engine()`, which returns nil before `Register`.
 
 ## Dashboard
 
@@ -151,90 +171,48 @@ The dashboard takes the app from the signed-in principal's `app_id` claim first.
 To start runs from the dashboard, register at least one target. Scorers that need your application's LLM client go in the same way:
 
 ```go
-ext := extension.New(
-    extension.WithTarget("support-bot", "The support assistant under test", myTarget),
-    extension.WithScorer(scorer.Descriptor{
-        Name:      "judge",
-        Dimension: "persona",
-        UsesLLM:   true,
-    }, judgeFactory),
+ext := sentinelext.New(
+	sentinelext.WithTarget("support-bot", "The support assistant under test", myTarget),
+	sentinelext.WithScorer(scorer.Descriptor{
+		Name:      "judge",
+		Dimension: "persona",
+		UsesLLM:   true,
+	}, judgeFactory),
 )
 ```
 
 With no target registered, the dashboard says so and points you at its Setup page instead of offering a Start button.
 
-## Accessing the engine from other extensions
+## The HTTP API
 
-After `Register` is called by Forge, `sentinelExt.Engine()` returns the fully initialised engine:
+The routes mount under `base_path` plus `/v1`, so `/sentinel/v1/...` by default. Not all of them work yet: some are stubs and, against Forge v1.12.7, most of the list and command routes fail to register at all. The [HTTP API reference](/docs/api-reference/http-api) lists which ones you can call. Start runs from Go or from the dashboard.
 
-```go
-eng := sentinelExt.Engine()
-// use eng.CreateSuite, eng.ListRuns, etc. from another extension
-```
+## Setting the app on requests
 
-## Tenant middleware
-
-In a Forge app, tenant scope is typically set by middleware. Implement a Forge middleware that calls `sentinel.WithTenant` and `sentinel.WithApp`:
+The API reads the app from the request context in two places: `POST /v1/suites` stamps it on the new suite, and `GET /v1/suites` filters by it. Nothing else in the API reads it. To set it, add a Forge middleware before `app.Run`:
 
 ```go
-func tenantMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        tenantID := r.Header.Get("X-Tenant-ID")
-        appID := r.Header.Get("X-App-ID")
-        ctx := sentinel.WithTenant(r.Context(), tenantID)
-        ctx = sentinel.WithApp(ctx, appID)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
-}
-
-router.Use(tenantMiddleware)
+app.Router().Use(func(next forge.Handler) forge.Handler {
+	return func(c forge.Context) error {
+		// Take the app from your own auth, not from a header the caller controls.
+		appID := c.Header("X-App-ID")
+		c.WithContext(sentinel.WithApp(c.Context(), appID))
+		return next(c)
+	}
+})
 ```
-
-## Grove database integration
-
-When your Forge app uses the [Grove extension](https://github.com/xraph/grove) to manage database connections, Sentinel can automatically resolve a `grove.DB` from the DI container and construct the correct store backend based on the driver type.
-
-### Using the default grove database
-
-If the Grove extension registers a single database (or a default in multi-DB mode), use `WithGroveDatabase` with an empty name:
-
-```go
-ext := extension.New(
-    extension.WithGroveDatabase(""),
-)
-```
-
-### Using a named grove database
-
-In multi-database setups, reference a specific database by name:
-
-```go
-ext := extension.New(
-    extension.WithGroveDatabase("sentinel"),
-)
-```
-
-This resolves the grove.DB named `"sentinel"` from the DI container and auto-constructs the matching store. The driver type is detected automatically -- you do not need to import individual store packages.
-
-### Store resolution order
-
-The extension resolves its store in this order:
-
-1. **Explicit store** -- if `WithStore(s)` was called, it is used directly and grove is ignored.
-2. **Grove database** -- if `WithGroveDatabase(name)` was called, the named or default `grove.DB` is resolved from DI.
-3. **In-memory fallback** -- if neither is configured, an in-memory store is used.
 
 ## Adding metrics
 
-Register the observability extension alongside the Sentinel engine extension:
+The observability plugin takes Forge's metrics as its factory. Build the extension after the app so you can pass `app.Metrics()`:
 
 ```go
-import "github.com/xraph/sentinel/observability"
+app := forge.NewApp(forge.AppConfig{Name: "evals"})
 
-metricsExt := observability.NewMetricsExtensionWithFactory(fapp.Metrics())
-
-sentinelExt := extension.New(
-    extension.WithStore(store),
-    extension.WithExtension(metricsExt),
+ext := sentinelext.New(
+	sentinelext.WithExtension(observability.NewMetricsExtensionWithFactory(app.Metrics())),
 )
+if err := app.RegisterExtension(ext); err != nil {
+	log.Fatal(err)
+}
 ```

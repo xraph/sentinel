@@ -251,7 +251,20 @@ extensions:
 
 The [Forge dashboard](https://github.com/xraph/forge-dashboard) reads and writes the app named by `dashboard_app_id` when the signed-in user carries no app claim. It has no default, and with neither set every dashboard request is refused, because an empty app ID would match every app. Other options: `WithStore`, `WithGroveDatabase`, `WithScorer`, `WithEngineOption`, `WithExtension`, `WithConfig`, `WithBasePath`, `WithDisableRoutes`, `WithDisableMigrate` and `WithRequireConfig`.
 
-The REST API under `/sentinel/v1` covers suites, cases (with import), prompt versions, baselines, runs and results, reports, red-team generation and scenario generation. Two routes aren't finished: `POST /v1/suites/:suiteId/runs` doesn't pass a target to the engine yet, so it returns an error, and `POST /v1/suites/:suiteId/compare` always answers 400. Start runs from Go or from the dashboard for now.
+The REST API mounts under `/sentinel/v1`, but on Forge v1.12.7 only 11 of the 29 routes in `api/` register. Forge rejects a handler that returns a slice, a map or `any` ("unsupported handler signature"), and `api` throws the registration error away, so those routes answer 404 (or 405 when another method shares the path). These are the ones you can call:
+
+| Method | Path under `/sentinel/v1` |
+| --- | --- |
+| `POST` | `/suites` |
+| `GET`, `PUT` | `/suites/:suiteId` |
+| `GET` | `/cases/:caseId` |
+| `POST` | `/suites/:suiteId/baselines` |
+| `GET` | `/baselines/:baselineId` |
+| `POST` | `/suites/:suiteId/prompts` |
+| `POST` | `/suites/:suiteId/runs` |
+| `GET` | `/runs/:runId`, `/runs/:runId/stats`, `/runs/:runId/report` |
+
+Everything else is missing: listing suites, cases, runs, results, baselines, prompt versions and scenarios, deleting a suite or a case, creating and importing cases, setting the current prompt, exporting a report, red-team and scenario generation, run-with-baseline and model comparison (so `POST /suites/:suiteId/compare` is a 404). The one run route that does register doesn't pass a target to the engine yet, so `POST /suites/:suiteId/runs` answers 400 with `sentinel: no target configured`. Start runs from Go or from the dashboard for now.
 
 ## Lifecycle hooks
 

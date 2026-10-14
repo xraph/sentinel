@@ -1,171 +1,209 @@
 ---
 title: Getting Started
-description: Install Sentinel and run your first evaluation in under five minutes.
+description: Install Sentinel, run your first evaluation and save a baseline, with no model and no API key.
 ---
 
 ## Prerequisites
 
-- Go 1.24 or later
+- Go 1.26 or later
 - A Go module (`go mod init`)
 
 ## Install
 
 ```bash
-go get github.com/xraph/sentinel
+go get github.com/xraph/sentinel@latest
 ```
 
-## Step 1: Create the engine
+## Your first evaluation
 
-The Sentinel engine is the central coordinator. It needs a store for persistence:
+This program builds an engine on the in-memory store, creates a suite with two cases, runs it against a plain Go function and saves the run as a baseline. It doesn't call a model, so you can run it as is. Save it as `main.go`:
 
 ```go
 package main
 
 import (
-    "context"
-    "log"
+	"context"
+	"fmt"
+	"log"
+	"strings"
 
-    "github.com/xraph/sentinel/engine"
-    "github.com/xraph/sentinel/store/memory"
+	"github.com/xraph/sentinel"
+	"github.com/xraph/sentinel/baseline"
+	"github.com/xraph/sentinel/engine"
+	"github.com/xraph/sentinel/scorer"
+	"github.com/xraph/sentinel/store/memory"
+	"github.com/xraph/sentinel/suite"
+	"github.com/xraph/sentinel/target"
+	"github.com/xraph/sentinel/testcase"
 )
 
 func main() {
-    ctx := context.Background()
+	// Suites created under this context belong to the "support" app.
+	ctx := sentinel.WithApp(context.Background(), "support")
 
-    // Use the in-memory store for development.
-    memStore := memory.New()
+	// 1. The engine, on the in-memory store.
+	eng, err := engine.New(engine.WithStore(memory.New()))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Build the Sentinel engine.
-    eng, err := engine.New(
-        engine.WithStore(memStore),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    if err := eng.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    _ = eng
+	// 2. A suite and its cases.
+	s := &suite.Suite{
+		Name:         "refund-questions",
+		SystemPrompt: "You are the support assistant for Acme.",
+	}
+	if err := eng.CreateSuite(ctx, s); err != nil {
+		log.Fatal(err)
+	}
+
+	cases := []*testcase.Case{
+		{
+			SuiteID:  s.ID,
+			Name:     "refund-window",
+			Input:    "How long do I have to ask for a refund?",
+			Expected: "30 days",
+			// Built-in scorers by name. contains falls back to Expected
+			// when you give it no substring.
+			Scorers: []testcase.ScorerConfig{{Name: "contains"}},
+		},
+		{
+			SuiteID: s.ID,
+			Name:    "shipping-cost",
+			Input:   "How much is shipping to Canada?",
+			Scorers: []testcase.ScorerConfig{
+				{Name: "contains", Config: map[string]any{"substring": "$15", "case_insensitive": true}},
+			},
+		},
+	}
+	if err := eng.CreateCaseBatch(ctx, cases); err != nil {
+		log.Fatal(err)
+	}
+
+	// 3. The thing under test. Swap this for target.NewLLMTarget or your own agent.
+	bot := target.FromFunc("support-bot", func(_ context.Context, input string) (string, error) {
+		if strings.Contains(input, "refund") {
+			return "You can ask for a refund within 30 days of purchase.", nil
+		}
+		return "Let me check that for you.", nil
+	})
+
+	// 4. Run it. These scorers apply to every case, on top of each case's own.
+	res, err := eng.RunEval(ctx, &engine.RunConfig{
+		SuiteID: s.ID,
+		Target:  bot,
+		Scorers: []scorer.Scorer{&scorer.LengthScorer{MaxTokens: 60}},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("passed %d of %d, average score %.2f\n",
+		res.Stats.Passed, res.Stats.TotalCases, res.Stats.AvgScore)
+	for _, r := range res.Results {
+		fmt.Printf("  %-14s %-5s %.2f\n", r.CaseName, r.Status, r.Score)
+	}
+
+	// 5. Keep this run as the suite's baseline.
+	b := &baseline.Baseline{
+		SuiteID:         s.ID,
+		RunID:           res.Run.ID,
+		Name:            "first-run",
+		PassRate:        res.Stats.PassRate,
+		AvgScore:        res.Stats.AvgScore,
+		DimensionScores: res.Stats.DimensionScores,
+		IsCurrent:       true,
+	}
+	for _, r := range res.Results {
+		b.Results = append(b.Results, baseline.Result{
+			CaseID:          r.CaseID,
+			CaseName:        r.CaseName,
+			Score:           r.Score,
+			Status:          string(r.Status),
+			DimensionScores: r.DimensionScores,
+		})
+	}
+	if err := eng.SaveBaseline(ctx, b); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("saved baseline", b.Name)
 }
 ```
 
-For production, use PostgreSQL or SQLite:
+Run it:
+
+```bash
+go mod tidy
+go run .
+```
+
+```text
+passed 1 of 2, average score 0.75
+  shipping-cost  fail  0.50
+  refund-window  pass  1.00
+saved baseline first-run
+```
+
+Cases run concurrently, so your order may differ.
+
+## What just happened
+
+Each case is scored by the run's scorers plus its own. The case's score is the average of all of them, and it passes when that average reaches `PassThreshold` (0.7 by default). The shipping case fails its `contains` check and passes the length check, so it lands on 0.50 and fails. If a scorer returns an error, or a case names a scorer the engine doesn't know, the case is marked `error` and never counts as a pass.
+
+`RunEval` is synchronous. It stores every result as the case finishes, finalises the run and hands you the run, the results and the aggregate stats. For a run that keeps going after the call returns, use `StartRun` with a target you registered by name (see [Eval runs](/docs/execution/runs)).
+
+The baseline copies the run's per-case scores into `Results`. That's what lets Sentinel tell you which cases dropped, not only that the pass rate did. From now on, every completed run of this suite is compared against the current baseline automatically, and a drop larger than `RegressionThreshold` (0.05) fires the `OnRegressionDetected` hook. See [Baselines](/docs/execution/checkpoints).
+
+## Built-in scorers you can name on a case
+
+A case's `Scorers` are resolved by name from the engine's scorer registry. Out of the box it has the deterministic ones: `exact`, `contains`, `not_contains`, `regex` (needs `pattern`), `json_valid`, `json_schema`, `length` (needs `min` or `max`), `latency` (needs `max_ms`) and `cost` (needs `max_cost`).
+
+The model-graded and persona scorers (`llm_judge`, `factual`, `trait_consistency` and the rest) aren't registered by default, because only your application holds an LLM client. Pass them to `RunEval` as values, or register a factory with `engine.WithScorer` so cases can name them. A case that names an unregistered scorer ends as `error`.
+
+## Testing a real model
+
+`target.NewLLMTarget` takes a `target.LLMClient`, a one-method interface you implement over whichever SDK you use. The model-graded scorers take a `scorer.LLMClient`, which has the same shape but returns a string. Here `myLLM` stands in for your own client:
 
 ```go
-import "github.com/xraph/sentinel/store/postgres"
+// llmClient adapts your SDK for targets.
+type llmClient struct{ c myLLM }
 
-pgStore := postgres.New(db) // your *bun.DB
-if err := pgStore.Migrate(ctx); err != nil {
-    log.Fatal(err)
+func (l llmClient) Complete(ctx context.Context, model, system, user string, temperature float64) (*target.LLMResponse, error) {
+	text, tokens, cost, err := l.c.Chat(ctx, model, system, user, temperature)
+	if err != nil {
+		return nil, err
+	}
+	return &target.LLMResponse{Output: text, Tokens: tokens, Cost: cost}, nil
+}
+
+// judgeClient adapts it for model-graded scorers.
+type judgeClient struct{ c myLLM }
+
+func (j judgeClient) Complete(ctx context.Context, model, system, user string, temperature float64) (string, error) {
+	text, _, _, err := j.c.Chat(ctx, model, system, user, temperature)
+	return text, err
 }
 ```
-
-## Step 2: Set up a scoped context
-
-Sentinel extracts the app ID from the context and stamps it onto every entity:
 
 ```go
-import "github.com/xraph/sentinel"
+bot := target.NewLLMTarget(llmClient{}, "gpt-4o", "You are the support assistant for Acme.", 0)
+judge := scorer.NewLLMJudgeScorer(judgeClient{}, "gpt-4o-mini", "Answers the question politely and correctly")
 
-ctx = sentinel.WithTenant(ctx, "tenant-1")
-ctx = sentinel.WithApp(ctx, "myapp")
+res, err := eng.RunEval(ctx, &engine.RunConfig{
+	SuiteID: suiteID,
+	Target:  bot,
+	Scorers: []scorer.Scorer{judge},
+})
 ```
 
-`WithApp` is required. All operations are automatically scoped — cross-app access is structurally impossible.
+During a run the engine passes the suite's prompt (or its current prompt version), the run's model and its temperature to the target through the context, and `LLMTarget` uses them in place of what you constructed it with. The run's model is `RunConfig.Model`, else the suite's `Model`, and a suite created without one gets `DefaultModel` (`"smart"`). So set the model on the suite or the run config: the `"gpt-4o"` above only applies when the target is called outside a run. Sentinel doesn't interpret `"smart"` itself, it hands the string to your client.
 
-## Step 3: Create a suite
+## Keeping results
 
-A suite groups related test cases together with a shared system prompt and model:
-
-```go
-import "github.com/xraph/sentinel/suite"
-
-s := &suite.Suite{
-    Name:         "customer-support-eval",
-    Description:  "Evaluate the customer support agent",
-    SystemPrompt: "You are a helpful customer support assistant.",
-    Model:        "gpt-4o",
-    Temperature:  0,
-}
-if err := eng.CreateSuite(ctx, s); err != nil {
-    log.Fatal(err)
-}
-```
-
-## Step 4: Add test cases
-
-Test cases define individual evaluations with input, expected output, and scorers:
-
-```go
-import "github.com/xraph/sentinel/testcase"
-
-cases := []*testcase.Case{
-    {
-        SuiteID:      s.ID,
-        Name:         "greeting",
-        Input:        "Hello, I need help with my order",
-        Expected:     "professional greeting with offer to help",
-        ScenarioType: testcase.ScenarioStandard,
-        Scorers: []testcase.ScorerConfig{
-            {Name: "contains", Config: map[string]any{"substring": "help"}},
-            {Name: "llm_judge", Config: map[string]any{"criteria": "professional and helpful"}},
-        },
-    },
-    {
-        SuiteID:      s.ID,
-        Name:         "refund-policy",
-        Input:        "What is your refund policy?",
-        Expected:     "accurate refund policy information",
-        ScenarioType: testcase.ScenarioStandard,
-        Scorers: []testcase.ScorerConfig{
-            {Name: "contains", Config: map[string]any{"substring": "refund"}},
-            {Name: "factual", Config: map[string]any{}},
-        },
-    },
-}
-if err := eng.CreateCaseBatch(ctx, cases); err != nil {
-    log.Fatal(err)
-}
-```
-
-## Step 5: Query results
-
-After running an evaluation (via the HTTP API or the runner), query the results:
-
-```go
-// List runs for a suite
-runs, _ := eng.ListRunsBySuite(ctx, s.ID)
-
-// Get results for a specific run
-results, _ := eng.ListResults(ctx, runs[0].ID)
-
-// Get aggregate statistics
-stats, _ := eng.GetResultStats(ctx, runs[0].ID)
-```
-
-## Step 6: Save a baseline
-
-Capture a known-good run as a baseline for regression detection:
-
-```go
-import "github.com/xraph/sentinel/baseline"
-
-b := &baseline.Baseline{
-    SuiteID:   s.ID,
-    RunID:     runs[0].ID,
-    Name:      "v1-baseline",
-    PassRate:  stats.PassRate,
-    AvgScore:  stats.AvgScore,
-    IsCurrent: true,
-}
-if err := eng.SaveBaseline(ctx, b); err != nil {
-    log.Fatal(err)
-}
-```
+The in-memory store forgets everything when the process exits. For anything you want to keep, use [SQLite](/docs/infrastructure/sqlite), [PostgreSQL](/docs/infrastructure/postgres) or [MongoDB](/docs/infrastructure/mongo), and call `Migrate` once before first use.
 
 ## Next steps
 
-- [Architecture](/docs/architecture) — Understand how the packages fit together
-- [The Human Model](/docs/human-model/overview) — Deep dive into persona-aware evaluation dimensions
-- [Forge Extension](/docs/guides/forge-extension) — Wire Sentinel into a Forge application
-- [PostgreSQL Store](/docs/infrastructure/postgres) — Production persistence setup
+- [End-to-end pipeline](/docs/guides/full-example): SQLite, two runs, a regression and a report
+- [Architecture](/docs/architecture): how the packages fit together
+- [The Human Model](/docs/human-model/overview): scoring agents on skills, traits and the rest
+- [Forge Extension](/docs/guides/forge-extension): run Sentinel inside a Forge app

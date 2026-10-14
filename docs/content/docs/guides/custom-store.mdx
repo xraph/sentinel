@@ -3,7 +3,7 @@ title: Custom Store
 description: Implement a custom storage backend by satisfying the composite store.Store interface.
 ---
 
-Every Sentinel storage backend is a Go interface. This guide shows how to implement a custom store.
+Sentinel talks to storage through one Go interface, `store.Store`. This guide shows what a custom backend has to implement.
 
 ## The composite interface
 
@@ -55,13 +55,17 @@ type Store interface {
 }
 ```
 
+`ImportCases` is never called; `engine.ImportCases` parses and writes cases itself. It stays on the interface so existing stores keep compiling, and a stub that returns an error is fine.
+
 ### evalrun.Store
 
 ```go
 type Store interface {
-    CreateRun(ctx context.Context, r *Run) error
+    CreateRun(ctx context.Context, run *Run) error
     GetRun(ctx context.Context, runID id.EvalRunID) (*Run, error)
-    UpdateRun(ctx context.Context, r *Run) error
+    UpdateRun(ctx context.Context, run *Run) error
+    CancelRun(ctx context.Context, runID id.EvalRunID, at time.Time) (bool, error)
+    FinalizeRun(ctx context.Context, runID id.EvalRunID, f *Finalization) (RunState, error)
     ListRuns(ctx context.Context, filter *ListFilter) ([]*Run, error)
     ListRunsBySuite(ctx context.Context, suiteID id.SuiteID) ([]*Run, error)
     CreateResult(ctx context.Context, result *Result) error
@@ -71,7 +75,16 @@ type Store interface {
 }
 ```
 
+`CancelRun` and `FinalizeRun` carry the run's state machine, and the condition has to be part of the write so two replicas can't race:
+
+- `CancelRun` sets the state to `cancelled` only if it's still `running`. It returns `false` with no error when the run exists but isn't running.
+- `FinalizeRun` writes the counters, dimension scores, completion time and error, but changes the state only if it's still `running`. It returns the state the store holds afterwards, so a cancel that arrived first wins.
+
+`GetResultStats` computes the aggregates from the stored results: `PassRate` is passed over total, so errors count against it.
+
 ### baseline.Store
+
+`SaveBaseline` with `IsCurrent` set must clear the flag on the suite's other baselines, and `GetLatestBaseline` returns the current one (or `sentinel.ErrBaselineNotFound`).
 
 ```go
 type Store interface {
@@ -95,26 +108,44 @@ type Store interface {
 }
 ```
 
-## Compile-time check
+## Contract details
 
-Use a compile-time assertion to verify your implementation satisfies all interfaces:
+- Return the root package's not-found errors (`sentinel.ErrSuiteNotFound`, `sentinel.ErrRunNotFound` and so on) for a missing row, unwrapped or wrapped with `%w`. The engine and the HTTP API check them with `errors.Is`.
+- An empty `AppID` in a list filter matches every app.
+- Suite names are unique per app, and prompt version numbers are unique per suite.
+- `Migrate` is called once before first use and may be called again on every start, so make it idempotent.
+
+## Compile-time check
 
 ```go
 var _ store.Store = (*MyStore)(nil)
 ```
 
+## Conformance suite
+
+`store/storetest` is the suite every built-in backend passes. Run it against yours:
+
+```go
+func TestConformance(t *testing.T) {
+    storetest.Run(t, func(t *testing.T) store.Store {
+        t.Helper()
+        s := NewMyStore() // a fresh, migrated, empty store per subtest
+        return s
+    })
+}
+```
+
 ## Registering with the engine
 
 ```go
-eng, _ := engine.New(engine.WithStore(&MyStore{}))
+eng, err := engine.New(engine.WithStore(&MyStore{}))
 ```
 
 ## Reference implementations
 
-Study the existing implementations:
-
-| Backend | Package | Lines | Notes |
-|---------|---------|-------|-------|
-| Memory | `store/memory` | ~557 | Hash maps with RWMutex, simplest reference |
-| SQLite | `store/sqlite` | ~511 | Bun ORM, creates tables on Migrate() |
-| PostgreSQL | `store/postgres` | ~567 | Bun ORM, embedded SQL migrations |
+| Backend | Package | Notes |
+|---------|---------|-------|
+| Memory | `store/memory` | Maps behind an RWMutex, the simplest reference |
+| SQLite | `store/sqlite` | Grove with `sqlitedriver`, migrations in Go |
+| PostgreSQL | `store/postgres` | Grove with `pgdriver`, migrations in Go |
+| MongoDB | `store/mongo` | Grove with `mongodriver`, conditional updates instead of transactions |

@@ -1,57 +1,30 @@
 ---
 title: Cognitive Evaluation
-description: Test how an agent thinks — phase transitions, depth, and reasoning strategy.
+description: Check that an agent's trace steps go through the phases you expect, in order.
 ---
 
-**Cognitive evaluation** tests whether an agent follows appropriate thinking strategies, transitions between cognitive phases correctly, and maintains the right depth and focus.
-
-## What it tests
-
-- Does the agent transition between thinking phases appropriately?
-- Does depth of analysis match expectations (shallow vs. deep)?
-- Does focus remain appropriate (broad vs. narrow)?
-- Does the agent self-reflect when needed?
+Cognitive evaluation checks how an agent worked through a problem: did it analyse before it planned, and plan before it acted. It reads the steps in the run trace, so the target has to return one (see [Traces](/docs/human-model/overview#traces)).
 
 ## Scorer: `cognitive_phase`
 
-The `cognitive_phase` scorer evaluates the agent's reasoning strategy transitions by analyzing the run trace:
-
 ```go
-testcase.ScorerConfig{
-    Name: "cognitive_phase",
-    Config: map[string]any{
-        "expected_phases": []string{"analytical", "reflective", "methodical"},
-        "depth_min":       0.7,
-        "focus_min":       0.5,
-    },
-}
+s := scorer.NewCognitivePhaseScorer([]string{"analysis", "planning", "execution", "verification"})
 ```
+
+The scorer walks `Trace.Steps` in order and matches each step's `Type` against the next expected phase, exactly and case-sensitively. The score is how many phases it matched, divided by the number expected. Extra steps in between don't hurt. With no expected phases the score is 1. Without a trace it's 0.
+
+Phase names are whatever your agent writes into `StepTrace.Type`. Sentinel has no fixed list.
+
+The scorer isn't in the registry by default. To name it on a case, register a factory as shown in the [overview](/docs/human-model/overview#using-the-scorers).
 
 ## Scenario: `cognitive_stress`
 
-The `cognitive_stress` scenario generator creates test cases that require the agent to shift thinking strategies:
+`scenario.NewCognitiveStressGenerator(phases)` writes up to three cases at rising difficulty (a simple question, a multi-step budget problem, a system design problem). Each names `cognitive_phase` with `expected_phases` and puts `stress_level` in its `Context`:
 
 ```go
-Case{
-    ScenarioType: testcase.ScenarioCognitiveStress,
-    Input:        "This function has both a performance bug and a security issue. Fix the critical one first, then address the other.",
-    Context: map[string]any{
-        "expected_phases": []string{"analytical", "methodical"},
-        "depth_required":  "deep",
-    },
-}
+gen := scenario.NewCognitiveStressGenerator([]string{"analysis", "planning", "execution"})
+cases, err := gen.Generate(ctx, &scenario.GenerateConfig{SuiteID: suiteID.String()})
 ```
-
-## Cognitive strategies
-
-| Strategy | Description |
-|----------|-------------|
-| `analytical` | Structured, step-by-step analysis |
-| `creative` | Exploratory, lateral thinking |
-| `methodical` | Systematic, exhaustive approach |
-| `reactive` | Quick response, minimal deliberation |
-| `reflective` | Self-evaluating, iterative refinement |
-| `collaborative` | Seeks input, considers multiple perspectives |
 
 ## Dimension score
 
@@ -59,8 +32,9 @@ Case{
 result.DimensionScores["cognition"] // 0.0 to 1.0
 ```
 
+`sentineltest.CognitivePhaseCompliance(min)` asserts on it.
+
 ## Use cases
 
-- Verify a code reviewer starts with analysis, then reflects on findings, then methodically addresses issues
-- Test that an agent switches from broad exploration to focused investigation when it finds a lead
-- Ensure deep analysis for complex tasks, quick responses for simple ones
+- Check that a reviewer agent analyses before it starts suggesting fixes
+- Catch an agent that skips verification after a prompt change
