@@ -202,9 +202,19 @@ app.Router().Use(func(next forge.Handler) forge.Handler {
 })
 ```
 
-## Adding metrics
+## Traces and metrics
 
-The observability plugin takes Forge's metrics as its factory. Build the extension after the app so you can pass `app.Metrics()`:
+You don't need to add anything for these. `Register` hands the engine `app.Metrics()`, so run, case, target and scorer series show up on `/_/metrics` as `forge_sentinel_*`, and the engine's spans go to the tracer provider `forge.New` installed. A run started from the dashboard gets a trace of its own, linked to the request that started it. [Observability](/docs/infrastructure/observability) lists every span and metric.
+
+To send the metrics somewhere else, pass your own sink through and it wins over Forge's:
+
+```go
+ext := sentinelext.New(
+	sentinelext.WithEngineOption(engine.WithMetrics(myMetrics)),
+)
+```
+
+The older observability plugin still works if you want its unlabelled lifecycle counters too. Build the extension after the app so you can pass `app.Metrics()`:
 
 ```go
 app := forge.NewApp(forge.AppConfig{Name: "evals"})

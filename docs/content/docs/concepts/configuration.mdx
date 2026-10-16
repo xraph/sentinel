@@ -48,6 +48,7 @@ A struct literal with only a few fields leaves the rest at zero, and the engine 
 | `engine.WithConfig(cfg)` | Replaces the configuration |
 | `engine.WithExtension(ext)` | Registers a plugin (lifecycle hooks) |
 | `engine.WithLogger(l)` | Sets the logger, a go-utils `log.Logger`. The default is a no-op logger |
+| `engine.WithMetrics(m)` | Records run, case, target and scorer metrics on a go-utils `metrics.Metrics`. The default records none. The Forge extension passes `app.Metrics()` for you, see [Observability](/docs/infrastructure/observability) |
 | `engine.WithTarget(name, description, t)` | Registers a target by name, for `StartRun` and the dashboard |
 | `engine.WithScorer(d, f)` | Registers a scorer factory by name, so cases and `StartRun` can use it |
 
@@ -92,7 +93,7 @@ ext := extension.New(
 | `WithTarget(name, description, t)` | `string, string, target.Target` | none | Register a named target, so the dashboard can start runs against it (repeatable) |
 | `WithScorer(d, f)` | `scorer.Descriptor, scorer.Factory` | none | Register a scorer the dashboard can offer, such as an LLM scorer that needs your client (repeatable) |
 
-The extension builds the engine with `engine.WithConfig` from its own merged config first, then applies your `WithEngineOption` values, so an `engine.WithConfig` you pass through still wins.
+The extension builds the engine with `engine.WithConfig` from its own merged config and `engine.WithMetrics(app.Metrics())` first, then applies your `WithEngineOption` values, so an `engine.WithConfig` or `engine.WithMetrics` you pass through still wins.
 
 ## Dashboard
 

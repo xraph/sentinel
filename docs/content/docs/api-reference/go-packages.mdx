@@ -33,7 +33,9 @@ The coordinator.
 | Export | Description |
 |--------|-------------|
 | `New(...Option) (*Engine, error)` | Create an engine |
-| `WithStore`, `WithConfig`, `WithExtension`, `WithLogger`, `WithTarget`, `WithScorer` | Options |
+| `WithStore`, `WithConfig`, `WithExtension`, `WithLogger`, `WithMetrics`, `WithTarget`, `WithScorer` | Options |
+| `InstrumentationName` | The tracer name on every span sentinel starts |
+| `MetricRunDuration`, `MetricRunsInFlight`, `MetricCasesEvaluated`, `MetricTargetDuration`, `MetricTargetTokens`, `MetricScorerDuration`, `MetricRegressions` | Metric names, before Forge adds its `forge_` prefix |
 | `RunConfig`, `RunResult`, `StartConfig`, `RegisteredTarget` | Run inputs and outputs |
 | `Engine.RunEval(ctx, *RunConfig)` | Run a suite synchronously with target and scorer values |
 | `Engine.StartRun(ctx, *StartConfig)` | Start a run by registered names and return at once |

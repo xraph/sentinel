@@ -89,7 +89,7 @@ A hook's error is logged and otherwise ignored. It never stops the run.
 
 ## Built-in extensions
 
-- `observability.MetricsExtension`: counters for lifecycle events
+- `observability.MetricsExtension`: unlabelled counters for lifecycle events. The engine records labelled metrics and spans without it, see [Observability](/docs/infrastructure/observability)
 - `audithook.Extension`: turns lifecycle events into audit records
 
 ## Writing a custom extension
