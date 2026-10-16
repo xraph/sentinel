@@ -10,6 +10,8 @@ import (
 	"time"
 
 	log "github.com/xraph/go-utils/log"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/baseline"
@@ -77,7 +79,7 @@ func (e *Engine) RunEval(ctx context.Context, cfg *RunConfig) (*RunResult, error
 	if err != nil {
 		return nil, err
 	}
-	return e.executeRun(ctx, plan)
+	return e.executeRun(ctx, plan, modeSync)
 }
 
 // StartRun validates a run, creates it and returns at once. Evaluation
@@ -113,10 +115,17 @@ func (e *Engine) StartRun(ctx context.Context, cfg *StartConfig) (*evalrun.Run, 
 		return nil, err
 	}
 	started := *plan.run
+	// The run outlives the request that started it, so it gets a trace of
+	// its own instead of hanging off a request span that has already ended.
+	// A link points back at that request when it was traced.
+	spanOpts := []trace.SpanStartOption{trace.WithNewRoot()}
+	if link := trace.LinkFromContext(ctx); link.SpanContext.IsValid() {
+		spanOpts = append(spanOpts, trace.WithLinks(link))
+	}
 	e.runs.Add(1)
 	go func() {
 		defer e.runs.Done()
-		_, err := e.executeRun(e.baseCtx, plan)
+		_, err := e.executeRun(e.baseCtx, plan, modeAsync, spanOpts...)
 		switch {
 		case err == nil:
 		case errors.Is(err, sentinel.ErrRunCancelled):
@@ -234,9 +243,52 @@ func (e *Engine) planRun(ctx context.Context, suiteID id.SuiteID, model, persona
 	return &runPlan{run: run, cases: cases, target: tgt, scorers: scorers, concurrency: concurrency}, nil
 }
 
-// executeRun evaluates the plan's cases, storing each result as it
+// executeRun evaluates a plan inside an "evaluate run" span. spanOpts make
+// the span a new root for StartRun.
+func (e *Engine) executeRun(ctx context.Context, p *runPlan, mode string, spanOpts ...trace.SpanStartOption) (*RunResult, error) {
+	run := p.run
+	opts := make([]trace.SpanStartOption, 0, len(spanOpts)+1)
+	opts = append(opts, spanOpts...)
+	opts = append(opts, trace.WithAttributes(
+		attribute.String("sentinel.run.id", run.ID.String()),
+		attribute.String("sentinel.suite.id", run.SuiteID.String()),
+		attribute.String("sentinel.run.mode", mode),
+		attribute.String("sentinel.target.kind", targetKind(p.target)),
+		attribute.Int("sentinel.run.cases", len(p.cases)),
+		attribute.Int("sentinel.run.scorers", len(p.scorers)),
+		attribute.Int("sentinel.run.concurrency", p.concurrency),
+	))
+	ctx, span := tracer().Start(ctx, "evaluate run", opts...)
+	defer span.End()
+
+	res, err := e.evaluateRun(ctx, p)
+
+	// A run whose final state could not be written did not complete, so it
+	// counts as failed.
+	state := evalrun.StateFailed
+	if res != nil {
+		state = res.Run.State
+	}
+	span.SetAttributes(attribute.String("sentinel.run.state", string(state)))
+	switch {
+	case res == nil:
+		markError(span, "finalize error", err)
+	case state == evalrun.StateFailed:
+		markError(span, "run failed", err)
+	}
+	if res != nil && res.Stats != nil {
+		span.SetAttributes(
+			attribute.Int("sentinel.run.passed", res.Stats.Passed),
+			attribute.Int("sentinel.run.failed", res.Stats.Failed),
+			attribute.Int("sentinel.run.errored", res.Stats.Errored),
+		)
+	}
+	return res, err
+}
+
+// evaluateRun evaluates the plan's cases, storing each result as it
 // finishes, and stops scheduling when the run is cancelled or ctx ends.
-func (e *Engine) executeRun(ctx context.Context, p *runPlan) (*RunResult, error) {
+func (e *Engine) evaluateRun(ctx context.Context, p *runPlan) (*RunResult, error) {
 	run := p.run
 	// Writes must land even after ctx is cancelled: a run stopped by
 	// shutdown still records what it did.
@@ -256,9 +308,13 @@ func (e *Engine) executeRun(ctx context.Context, p *runPlan) (*RunResult, error)
 		go func(tc *testcase.Case) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			result := e.evaluateCase(callCtx, run.ID, tc, p.target, p.scorers)
-			if err := e.store.CreateResult(writeCtx, result); err != nil {
+			result, span := e.evaluateCase(callCtx, run.ID, tc, p.target, p.scorers)
+			defer span.End()
+			// The write goes under the case's span, so its database span
+			// sits with the case it stores.
+			if err := e.store.CreateResult(trace.ContextWithSpan(writeCtx, span), result); err != nil {
 				unwritten.Add(1)
+				markError(span, "store error", err)
 				e.logger.Warn("sentinel: store result",
 					log.String("run_id", run.ID.String()), log.String("case_id", tc.ID.String()), log.String("error", err.Error()))
 			}
@@ -311,7 +367,13 @@ func (e *Engine) checkRegression(ctx context.Context, run *evalrun.Run, stats *e
 		threshold = *v
 	}
 	rr := baseline.DetectRegression(stats, results, b, threshold)
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(attribute.Bool("sentinel.run.regressed", rr.HasRegression))
 	if rr.HasRegression {
+		span.AddEvent("regression detected", trace.WithAttributes(
+			attribute.String("sentinel.baseline.id", b.ID.String()),
+			attribute.Float64("sentinel.regression.worst_delta", rr.WorstDelta()),
+		))
 		e.extensions.EmitRegressionDetected(ctx, run.SuiteID, b.ID, rr.WorstDelta())
 	}
 }
@@ -379,14 +441,17 @@ func (e *Engine) finishRun(ctx context.Context, p *runPlan, unwritten int64, cau
 	return res, nil
 }
 
-// evaluateCase invokes the target and runs all scorers for a single test case.
+// evaluateCase invokes the target and runs all scorers for a single test
+// case, inside an "evaluate case" span. It returns that span still open, so
+// the caller stores the result under it and then ends it.
 func (e *Engine) evaluateCase(
 	ctx context.Context,
 	runID id.EvalRunID,
 	tc *testcase.Case,
 	tgt target.Target,
 	scorers []scorer.Scorer,
-) *evalrun.Result {
+) (*evalrun.Result, trace.Span) {
+	ctx, span := tracer().Start(ctx, "evaluate case", trace.WithAttributes(attribute.String("sentinel.case.id", tc.ID.String())))
 	e.extensions.EmitCaseStarted(ctx, runID, tc.ID)
 	start := time.Now()
 
@@ -402,13 +467,17 @@ func (e *Engine) evaluateCase(
 	}
 
 	// Invoke the target.
-	output, err := tgt.Call(ctx, tc.Input)
+	output, err := e.callTarget(ctx, tgt, tc.Input)
 	if err != nil {
 		result.Status = evalrun.StatusError
 		result.Error = err.Error()
 		result.LatencyMs = int(time.Since(start).Milliseconds())
+		span.SetAttributes(attribute.String("sentinel.case.status", string(result.Status)))
+		if ctx.Err() == nil {
+			markError(span, "target error", err)
+		}
 		e.extensions.EmitCaseFailed(ctx, runID, tc.ID, err)
-		return result
+		return result, span
 	}
 
 	result.Output = output.Output
@@ -439,12 +508,16 @@ func (e *Engine) evaluateCase(
 	// visibly unscored instead of silently scored by fewer scorers.
 	all := append([]scorer.Scorer(nil), scorers...)
 	var scorerErrs []string
+	var firstScorerErr error
 	var scorerResults []evalrun.ScorerResult
 	for _, cfg := range tc.Scorers {
-		s, err := e.scorers.Get(cfg.Name, cfg.Config)
-		if err != nil {
-			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", cfg.Name, err))
-			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: cfg.Name, Reason: evalrun.ScorerErrorPrefix + err.Error()})
+		s, getErr := e.scorers.Get(cfg.Name, cfg.Config)
+		if getErr != nil {
+			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", cfg.Name, getErr))
+			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: cfg.Name, Reason: evalrun.ScorerErrorPrefix + getErr.Error()})
+			if firstScorerErr == nil {
+				firstScorerErr = getErr
+			}
 			continue
 		}
 		all = append(all, s)
@@ -455,10 +528,13 @@ func (e *Engine) evaluateCase(
 	dimensionScores := make(map[string]float64)
 	dimensionCounts := make(map[string]int)
 	for _, s := range all {
-		so, err := s.Score(ctx, input)
-		if err != nil {
-			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", s.Name(), err))
-			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: s.Name(), Reason: evalrun.ScorerErrorPrefix + err.Error()})
+		so, scoreErr := e.score(ctx, s, input)
+		if scoreErr != nil {
+			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", s.Name(), scoreErr))
+			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: s.Name(), Reason: evalrun.ScorerErrorPrefix + scoreErr.Error()})
+			if firstScorerErr == nil {
+				firstScorerErr = scoreErr
+			}
 			continue
 		}
 		scorerResults = append(scorerResults, evalrun.ScorerResult{
@@ -491,9 +567,61 @@ func (e *Engine) evaluateCase(
 	default:
 		result.Status = evalrun.StatusFail
 	}
+	span.SetAttributes(
+		attribute.String("sentinel.case.status", string(result.Status)),
+		attribute.Float64("sentinel.case.score", result.Score),
+	)
+	if firstScorerErr != nil && ctx.Err() == nil {
+		markError(span, "scorer error", firstScorerErr)
+	}
 
 	elapsed := time.Since(start)
 	e.extensions.EmitCaseCompleted(ctx, runID, tc.ID, result.Score, elapsed)
 
-	return result
+	return result, span
+}
+
+// callTarget calls the system under test inside a "call target" span. The
+// call itself belongs to the application (an LLMClient, an AgentClient, a
+// function), so a traced transport there nests its own spans under this one.
+func (e *Engine) callTarget(ctx context.Context, tgt target.Target, input string) (*target.Output, error) {
+	kind := targetKind(tgt)
+	ctx, span := tracer().Start(ctx, "call target", trace.WithAttributes(attribute.String("sentinel.target.kind", kind)))
+	defer span.End()
+	out, err := tgt.Call(ctx, input)
+	result := callResult(ctx, err)
+	tokens := 0
+	if err == nil && out != nil {
+		tokens = out.Tokens
+	}
+	span.SetAttributes(attribute.String("sentinel.target.result", result))
+	if tokens > 0 {
+		span.SetAttributes(attribute.Int("sentinel.target.tokens", tokens))
+	}
+	if result == resultError {
+		markError(span, "target error", err)
+	}
+	return out, err
+}
+
+// score runs one scorer inside a "score output" span. The scorer is named
+// by its kind, never by its Name: an application's scorer names are its
+// own.
+func (e *Engine) score(ctx context.Context, s scorer.Scorer, in *scorer.Input) (*scorer.Output, error) {
+	kind := scorerKind(s)
+	ctx, span := tracer().Start(ctx, "score output", trace.WithAttributes(attribute.String("sentinel.scorer.kind", kind)))
+	defer span.End()
+	out, err := s.Score(ctx, in)
+	result := callResult(ctx, err)
+	span.SetAttributes(attribute.String("sentinel.scorer.result", result))
+	switch {
+	case result == resultError:
+		markError(span, "scorer error", err)
+	case err == nil && out != nil:
+		span.SetAttributes(
+			attribute.Float64("sentinel.scorer.score", out.Score),
+			attribute.Bool("sentinel.scorer.passed", out.Passed),
+		)
+	}
+	return out, err
 }
