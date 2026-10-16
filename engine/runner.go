@@ -243,8 +243,8 @@ func (e *Engine) planRun(ctx context.Context, suiteID id.SuiteID, model, persona
 	return &runPlan{run: run, cases: cases, target: tgt, scorers: scorers, concurrency: concurrency}, nil
 }
 
-// executeRun evaluates a plan inside an "evaluate run" span. spanOpts make
-// the span a new root for StartRun.
+// executeRun evaluates a plan inside an "evaluate run" span and records the
+// run's metrics. spanOpts make the span a new root for StartRun.
 func (e *Engine) executeRun(ctx context.Context, p *runPlan, mode string, spanOpts ...trace.SpanStartOption) (*RunResult, error) {
 	run := p.run
 	opts := make([]trace.SpanStartOption, 0, len(spanOpts)+1)
@@ -260,6 +260,8 @@ func (e *Engine) executeRun(ctx context.Context, p *runPlan, mode string, spanOp
 	))
 	ctx, span := tracer().Start(ctx, "evaluate run", opts...)
 	defer span.End()
+	start := time.Now()
+	e.metrics.runStarted()
 
 	res, err := e.evaluateRun(ctx, p)
 
@@ -269,6 +271,7 @@ func (e *Engine) executeRun(ctx context.Context, p *runPlan, mode string, spanOp
 	if res != nil {
 		state = res.Run.State
 	}
+	e.metrics.runFinished(mode, string(state), time.Since(start))
 	span.SetAttributes(attribute.String("sentinel.run.state", string(state)))
 	switch {
 	case res == nil:
@@ -310,6 +313,7 @@ func (e *Engine) evaluateRun(ctx context.Context, p *runPlan) (*RunResult, error
 			defer func() { <-sem }()
 			result, span := e.evaluateCase(callCtx, run.ID, tc, p.target, p.scorers)
 			defer span.End()
+			e.metrics.caseEvaluated(string(result.Status))
 			// The write goes under the case's span, so its database span
 			// sits with the case it stores.
 			if err := e.store.CreateResult(trace.ContextWithSpan(writeCtx, span), result); err != nil {
@@ -370,6 +374,7 @@ func (e *Engine) checkRegression(ctx context.Context, run *evalrun.Run, stats *e
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.Bool("sentinel.run.regressed", rr.HasRegression))
 	if rr.HasRegression {
+		e.metrics.regressionDetected()
 		span.AddEvent("regression detected", trace.WithAttributes(
 			attribute.String("sentinel.baseline.id", b.ID.String()),
 			attribute.Float64("sentinel.regression.worst_delta", rr.WorstDelta()),
@@ -588,12 +593,14 @@ func (e *Engine) callTarget(ctx context.Context, tgt target.Target, input string
 	kind := targetKind(tgt)
 	ctx, span := tracer().Start(ctx, "call target", trace.WithAttributes(attribute.String("sentinel.target.kind", kind)))
 	defer span.End()
+	start := time.Now()
 	out, err := tgt.Call(ctx, input)
 	result := callResult(ctx, err)
 	tokens := 0
 	if err == nil && out != nil {
 		tokens = out.Tokens
 	}
+	e.metrics.targetCalled(kind, result, time.Since(start), tokens)
 	span.SetAttributes(attribute.String("sentinel.target.result", result))
 	if tokens > 0 {
 		span.SetAttributes(attribute.Int("sentinel.target.tokens", tokens))
@@ -611,8 +618,10 @@ func (e *Engine) score(ctx context.Context, s scorer.Scorer, in *scorer.Input) (
 	kind := scorerKind(s)
 	ctx, span := tracer().Start(ctx, "score output", trace.WithAttributes(attribute.String("sentinel.scorer.kind", kind)))
 	defer span.End()
+	start := time.Now()
 	out, err := s.Score(ctx, in)
 	result := callResult(ctx, err)
+	e.metrics.scored(kind, result, time.Since(start))
 	span.SetAttributes(attribute.String("sentinel.scorer.result", result))
 	switch {
 	case result == resultError:

@@ -23,7 +23,7 @@ func contractExtension(t *testing.T, cfg Config) (*Extension, *dispatcher.Dispat
 	t.Helper()
 	e := New(WithStore(memory.New()), WithConfig(cfg))
 	e.config = e.mergeWithDefaults(e.config)
-	eng, err := e.newEngine(nil)
+	eng, err := e.newEngine(nil, nil)
 	if err != nil {
 		t.Fatalf("newEngine: %v", err)
 	}

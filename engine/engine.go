@@ -9,6 +9,7 @@ import (
 	"time"
 
 	log "github.com/xraph/go-utils/log"
+	gometrics "github.com/xraph/go-utils/metrics"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/baseline"
@@ -38,6 +39,9 @@ type Engine struct {
 	baseCtx    context.Context    // runs started with StartRun evaluate on this
 	cancelBase context.CancelFunc // Stop cancels it
 	runs       sync.WaitGroup     // StartRun goroutines still evaluating
+
+	metricsSink gometrics.Metrics // set by WithMetrics, nil for none
+	metrics     *runMetrics       // built from metricsSink in New
 }
 
 // RegisteredTarget is a target an application named, so a run can be
@@ -86,6 +90,8 @@ func New(opts ...Option) (*Engine, error) {
 			return nil, fmt.Errorf("sentinel: apply option: %w", err)
 		}
 	}
+
+	e.metrics = newRunMetrics(e.metricsSink)
 
 	e.scorers = scorer.NewRegistry()
 	for _, p := range e.pendingScorers {
