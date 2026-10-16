@@ -479,3 +479,26 @@ func saveBaseline(t *testing.T, e *engine.Engine, res *engine.RunResult) *baseli
 	}
 	return b
 }
+
+func TestCompareMarksARunThatCouldNotStart(t *testing.T) {
+	rec, _ := recordSpans(t)
+	e := newEngine(t)
+	s := seedSuite(t, e, "p") // no cases, so the run is refused
+	echo := target.FromFunc("echo", func(_ context.Context, in string) (string, error) { return in, nil })
+
+	if _, err := comparison.Compare(bg(), e, &comparison.CompareConfig{SuiteID: s.ID, Targets: []target.Target{echo},
+		Scorers: []scorer.Scorer{okScorer("s", 1, "")}}); !errors.Is(err, sentinel.ErrEmptyInput) {
+		t.Fatalf("Compare on an empty suite: %v", err)
+	}
+	got := sentinelSpans(rec)["compare targets"]
+	if len(got) != 1 {
+		t.Fatalf("want one compare span, got %d", len(got))
+	}
+	if st := got[0].Status(); st.Code != codes.Error || st.Description != "run error" {
+		t.Fatalf("compare span status = %+v", st)
+	}
+	ev := got[0].Events()
+	if len(ev) != 1 || ev[0].Name != "exception" || len(ev[0].Attributes) != 1 || ev[0].Attributes[0].Key != "exception.type" {
+		t.Fatalf("exception event must carry only exception.type: %+v", ev)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/engine"
 	"github.com/xraph/sentinel/id"
 	"github.com/xraph/sentinel/scorer"
@@ -73,9 +74,10 @@ func Compare(ctx context.Context, eng *engine.Engine, cfg *CompareConfig) (*Comp
 
 		result, err := eng.RunEval(ctx, runCfg)
 		if err != nil {
-			// A caller that gave up cancelled the comparison; anything
-			// else failed it. Only the error's type goes on the span.
-			if ctx.Err() == nil {
+			// A cancelled run (CancelRun, or a caller that gave up) is not
+			// a failure; anything else is. Only the error's type goes on
+			// the span.
+			if ctx.Err() == nil && !errors.Is(err, sentinel.ErrRunCancelled) {
 				span.SetStatus(codes.Error, "run error")
 				span.AddEvent("exception", trace.WithAttributes(attribute.String("exception.type", innermostType(err))))
 			}
