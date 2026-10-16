@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	log "github.com/xraph/go-utils/log"
+	gometrics "github.com/xraph/go-utils/metrics"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/plugin"
@@ -29,6 +30,21 @@ func WithStore(s store.Store) Option {
 func WithLogger(l log.Logger) Option {
 	return func(e *Engine) error {
 		e.logger = l
+		return nil
+	}
+}
+
+// WithMetrics records the engine's metrics on m: run, case, target and
+// scorer timings, tokens, runs in flight and regressions. In a Forge app pass
+// app.Metrics(), and the series land on /_/metrics with the forge_ prefix.
+// sentinel's Forge extension does this for you. A nil m records nothing,
+// which is the default.
+//
+// Spans need no option: the engine starts them on the global tracer
+// provider, which forge.New installs.
+func WithMetrics(m gometrics.Metrics) Option {
+	return func(e *Engine) error {
+		e.metricsSink = m
 		return nil
 	}
 }

@@ -72,7 +72,7 @@ For govulncheck, use CI's Go. CI always resolves the newest 1.26 patch, and an o
 |---|---|
 | `sentinel.go`, `config.go`, `errors.go`, `scope.go`, `entity.go`, `id.go` | Package docs, `Config`/`DefaultConfig`, sentinel errors, `WithTenant`/`WithApp` and their readers, the `Entity` timestamps, the `ID` re-export |
 | `id/` | TypeID-based `id.ID` with a prefix per entity (`suite`, `tcase`, `erun`, `eres`, `base`, `rteam`, `pver`) |
-| `engine/` | `engine.Engine`, the coordinator: runs, scoring, regression checks, red team, imports |
+| `engine/` | `engine.Engine`, the coordinator: runs, scoring, regression checks, red team, imports. `telemetry.go` and `metrics.go` hold its spans and metrics, and `internal/telemetry` the error helper every span shares |
 | `suite/`, `testcase/`, `evalrun/`, `baseline/`, `promptversion/` | Domain models, each with its own `Store` interface |
 | `store/store.go` | `store.Store`, which embeds those five and adds `Migrate`, `Ping`, `Close` |
 | `store/memory`, `store/sqlite`, `store/postgres`, `store/mongo` | The backends. The grove ones keep their migrations as Go in `migrations.go` |
@@ -81,7 +81,7 @@ For govulncheck, use CI's Go. CI always resolves the newest 1.26 patch, and an o
 | `target/` | The `Target` interface plus LLM, agent and function targets |
 | `redteam/`, `scenario/`, `dataset/`, `comparison/`, `report/` | Adversarial case generators, persona scenario generators, loading and sampling cases, side-by-side model comparison, and report writers (terminal, JSON, HTML, CI) |
 | `plugin/` | Lifecycle hook interfaces (the base one is `plugin.Extension`) and the registry |
-| `audit_hook/` (package `audithook`), `observability/` | Plugins for an audit trail and for metrics |
+| `audit_hook/` (package `audithook`), `observability/` | Plugins for an audit trail and for unlabelled lifecycle counters |
 | `api/` | Forge HTTP handlers, mounted under `BasePath` (default `/sentinel`) |
 | `extension/` | The Forge extension, its `Config` and `ExtOption`s |
 | `extension/contract/` | The `sentinel` dashboard contributor: `manifest.yaml` and `handlers_*.go` |
@@ -102,6 +102,8 @@ IDs come from the `id` package, never from string building.
 Options come in two shapes. `engine.New(opts...)` takes `type Option func(*Engine) error` and returns `(*Engine, error)`. `extension.New(opts...)` takes `type ExtOption func(*Extension)`. The extension reads YAML under `extensions.sentinel`, then `sentinel`, and merges it with the programmatic options. For a store it uses `WithStore`, a named grove DB (`WithGroveDatabase`), or the default `*grove.DB` it finds in the container, picking the backend from the driver name (`pg`, `sqlite`, `mongo`). It provides the `*engine.Engine` with `vessel.Provide`.
 
 Logging goes through `github.com/xraph/go-utils/log`. The engine starts with `log.NewNoopLogger()`, and the extension passes in the Forge logger.
+
+Telemetry lives in the engine. Spans go to the global tracer provider under `engine.InstrumentationName`, and metrics go to whatever `engine.WithMetrics` was given (the extension passes `e.Metrics()`; nil records nothing). Never record through `otel.Meter()`: Forge installs no global MeterProvider, so those series are never exported. Spans and labels take IDs, counts and fixed kinds only. Prompts, inputs, outputs, judge reasons, error text and user-chosen scorer or target names stay off them, which is why `scorerKind` and `targetKind` switch on Go types and never read `Name()`. IDs can go on spans but never on labels. `TestSpansCarryNoContent` in `engine/telemetry_test.go` pins the rule, and `docs/content/docs/infrastructure/observability.mdx` lists every span and metric, so change both with the code.
 
 The dashboard intents are pinned in `TestIntentSet` in `extension/contract/contract_test.go`. If you add or remove one, you change `manifest.yaml`, the handler, that test's `want` map, and `packages/plugin-sentinel` in forge-dashboard, all in step. Every command has to list what it invalidates.
 

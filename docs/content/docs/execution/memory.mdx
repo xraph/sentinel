@@ -51,7 +51,7 @@ The red-team cases live in the suite with the rest, so this runs everything. To 
 
 - `redteam.Report` (bypass counts per type) is a type only. Nothing fills it in.
 - The `RedTeamStarted` and `RedTeamCompleted` plugin hooks are never fired.
-- The HTTP routes `POST /v1/suites/:suiteId/redteam/generate` and `/redteam/run` are stubs that answer 400, and against Forge v1.12.7 they don't register at all (404). The dashboard's contract has its own red-team command, which calls `GenerateRedTeam`.
+- The HTTP routes `POST /v1/suites/:suiteId/redteam/generate` and `/redteam/run` are stubs that answer 400, and against Forge v1.12.9 they don't register at all (404). The dashboard's contract has its own red-team command, which calls `GenerateRedTeam`.
 
 ## Use cases
 

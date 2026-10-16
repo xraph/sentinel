@@ -13,7 +13,7 @@ func TestEngineReceivesConfiguredValues(t *testing.T) {
 	e := New(WithConfig(Config{PassThreshold: 0.9, Concurrency: 2, DefaultModel: "fast", RegressionThreshold: 0.1}))
 	e.config = e.mergeWithDefaults(e.config)
 
-	eng, err := e.newEngine(nil)
+	eng, err := e.newEngine(nil, nil)
 	if err != nil {
 		t.Fatalf("newEngine: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestExtensionRegistersTargetsAndScorers(t *testing.T) {
 		}),
 	)
 	e.config = e.mergeWithDefaults(e.config)
-	eng, err := e.newEngine(nil)
+	eng, err := e.newEngine(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

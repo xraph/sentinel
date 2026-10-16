@@ -1,11 +1,125 @@
 ---
 title: Observability
-description: Built-in metrics plugin that counts lifecycle events.
+description: The spans and metrics the engine records, and the optional lifecycle counter plugin.
 ---
 
-The `observability` package provides `MetricsExtension`, a plugin that increments a counter for each lifecycle event, through a go-utils `MetricFactory`.
+In a Forge app you get traces and metrics without writing anything. The engine starts its spans on the global OpenTelemetry tracer provider, which `forge.New` installs, and the sentinel extension hands the engine `app.Metrics()`, so its series land on `/_/metrics` next to Forge's own.
 
-## Setup
+Outside Forge, spans go to whatever provider you set with `otel.SetTracerProvider`. Metrics need a sink: pass any go-utils `metrics.Metrics` to `engine.WithMetrics`. Without it the engine records no metrics at all.
+
+```go
+import (
+    "github.com/xraph/go-utils/metrics"
+
+    "github.com/xraph/sentinel/engine"
+)
+
+eng, err := engine.New(
+    engine.WithStore(st),
+    engine.WithMetrics(metrics.NewMetricsCollector("evals")),
+)
+```
+
+Forge already traces every HTTP request, and grove already traces every query with a `db.client` span and the `db_client_operation_duration_seconds` histogram. Sentinel doesn't measure either again. Its spans are the parents those query spans hang off.
+
+## Traces
+
+A run is one span with a span per case under it. Each case holds its target call, one span per scorer and the query that stores its result:
+
+```text
+evaluate run
+  evaluate case
+    call target
+    score output        (one per scorer)
+    INSERT ...          (grove, storing the result)
+  evaluate case
+    ...
+  SELECT ...            (grove: run state, stats, baseline)
+```
+
+Where the run span sits depends on how the run started:
+
+- A run you start from the dashboard (`StartRun`) keeps going after the request returns, so its `evaluate run` span is a new root with a link back to the request's span. Follow the link from the run to the click that started it.
+- `RunEval` runs on your context, so its span is a child of whatever span you're in. Call it with no span and it's a root.
+- `comparison.Compare` wraps its runs in a `compare targets` span, so every model you compare shows up in one trace.
+
+Every span has kind `Internal` and the instrumentation scope `github.com/xraph/sentinel` (`engine.InstrumentationName`).
+
+| Span | Attributes |
+|------|------------|
+| `compare targets` | `sentinel.suite.id`, `sentinel.compare.targets` (how many targets) |
+| `evaluate run` | `sentinel.run.id`, `sentinel.suite.id`, `sentinel.run.mode` (`async` for `StartRun`, `sync` for `RunEval`), `sentinel.target.kind`, `sentinel.run.cases`, `sentinel.run.scorers`, `sentinel.run.concurrency`. When it ends: `sentinel.run.state` (`completed`, `failed`, `cancelled`), `sentinel.run.passed`, `sentinel.run.failed`, `sentinel.run.errored`, and `sentinel.run.regressed` when the suite has a baseline to compare with |
+| `evaluate case` | `sentinel.case.id`, `sentinel.case.status` (`pass`, `fail`, `error`, `cancelled`), `sentinel.case.score` |
+| `call target` | `sentinel.target.kind`, `sentinel.target.result` (`ok`, `error`, `cancelled`), `sentinel.target.tokens` when the target reports tokens |
+| `score output` | `sentinel.scorer.kind`, `sentinel.scorer.result` (`ok`, `error`, `cancelled`), and on success `sentinel.scorer.score` and `sentinel.scorer.passed` |
+
+A run that regressed against its baseline gets a `regression detected` event on its span, with `sentinel.baseline.id` and `sentinel.regression.worst_delta`.
+
+`sentinel.target.kind` is `llm` for `target.NewLLMTarget`, `agent` for `target.NewAgentTarget`, `func` for `target.FromFunc` and `custom` for a `Target` you wrote yourself. `sentinel.scorer.kind` is the built-in scorer's name (`exact`, `contains`, `not_contains`, `regex`, `json_valid`, `json_schema`, `length`, `latency`, `cost`, `llm_judge`, `factual`, `hallucination`, `semantic`, `skill_usage`, `trait_consistency`, `behavior_trigger`, `cognitive_phase`, `communication_style`, `perception_focus`, `persona_coherence`) or `custom`. The kind comes from the scorer's Go type, so a `scorer.FromFunc` is always `custom`, whatever you named it.
+
+### What stays off spans
+
+Spans carry IDs, counts, kinds and outcomes. They never carry the suite's prompt, a case's input or expected output, the target's output, a judge's reason or dimension, the model name, the persona, an error's message, or the name you gave a scorer or a target.
+
+When something fails, the span gets an error status with a short fixed description (`target error`, `scorer error`, `store error`, `run failed`, `finalize error`, and `run error` on `compare targets`) and an `exception` event that carries only `exception.type`: `context.Canceled` or `context.DeadlineExceeded` when the error is one of those, otherwise the Go type of the innermost error. The full message is in the stored result and in the log. A case whose target errors is an error on its case span, but the run still completes, so the run span stays clean. A run or call cut short by cancellation (`CancelRun`, shutdown, or your context ending) is not an error. A case that was in flight when that happened reports `cancelled`, though its stored result says `error`.
+
+One status has no exception event: `run aborted`, on a run span whose evaluation never returned, because something inside `RunEval` panicked and your code recovered it. The run still leaves `runs_in_flight` and counts as `failed`.
+
+### How many spans a run makes
+
+Every case adds an `evaluate case`, a `call target`, one `score output` per scorer and, on a grove store, the `INSERT` that stores its result and a `SELECT` on the run span where the runner checks whether someone cancelled the run before it schedules the case. A 500-case run with three scorers is about 3,500 spans in one trace.
+
+Two things follow from that. Forge's sampler is parent based, so the sampling decision is made once, at the root, for the whole run: a dashboard run is sampled or dropped as one trace, and a `RunEval` run follows the decision on your span. And a fast run can end spans faster than the exporter drains them. The OpenTelemetry batch processor Forge uses queues 2048 spans by default and drops what doesn't fit, so raise `OTEL_BSP_MAX_QUEUE_SIZE` if your big suites come back with gaps. The `evaluate run` span ends last, after every case, so a trace view shows the run as open until it finishes, and when the queue is still full at that point it's the span you lose.
+
+### Your model calls
+
+The model and agent clients are yours, so sentinel can only wrap them. The engine passes its span's context into `LLMClient.Complete`, `AgentClient.Run` and every scorer, so if your client sends requests through a traced transport (`forge.HTTPClient()` or `forge.InstrumentTransport`), the provider's HTTP span nests under `call target` or `score output` with no more work.
+
+## Metrics
+
+These are the names a Forge app scrapes. Forge puts its namespace in front of non-semconv names, so the engine's `sentinel_run_duration_seconds` is `forge_sentinel_run_duration_seconds` on `/_/metrics`. With your own registry you get the names without the prefix.
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `forge_sentinel_run_duration_seconds` | histogram | `mode` (`async`, `sync`), `state` (`completed`, `failed`, `cancelled`) |
+| `forge_sentinel_runs_in_flight` | gauge | none |
+| `forge_sentinel_cases_evaluated_total` | counter | `status` (`pass`, `fail`, `error`, `cancelled`) |
+| `forge_sentinel_target_call_duration_seconds` | histogram | `target_kind` (`llm`, `agent`, `func`, `custom`), `result` (`ok`, `error`, `cancelled`) |
+| `forge_sentinel_target_tokens_total` | counter | `target_kind` |
+| `forge_sentinel_scorer_duration_seconds` | histogram | `scorer` (a built-in kind from the list above, or `custom`), `result` (`ok`, `error`, `cancelled`) |
+| `forge_sentinel_regressions_detected_total` | counter | none |
+
+A few notes on reading them:
+
+- The run histogram's `_count` is your run total. There's no separate runs counter. A run whose final state couldn't be written to the store counts as `failed`.
+- `runs_in_flight` counts the runs this process is evaluating, sync and async alike. Each replica reports its own.
+- A case whose target fails is `error` in `cases_evaluated_total` and `error` in `target_call_duration_seconds`. A `fail` is a real verdict: the scorers ran and the score fell under the pass threshold.
+- A case cut short because the run was cancelled or the process was shutting down is `cancelled`, not `error`, so a deploy with runs in flight doesn't push up your error ratio. Its stored result still says `error`.
+- Tokens are whatever your target reports in `target.Output.Tokens`. Function targets report none.
+- Run IDs, suite IDs, apps, models and the names you gave scorers and targets are never labels.
+
+The buckets, in seconds: runs from 1 to 7200, target calls from 0.05 to 300, scorers from 0.0001 (a string check) to 60 (a slow LLM judge).
+
+Some queries to start from:
+
+```text
+# Runs finishing per hour, by final state
+sum by (state) (increase(forge_sentinel_run_duration_seconds_count[1h]))
+
+# p95 target latency by kind
+histogram_quantile(0.95, sum by (le, target_kind) (rate(forge_sentinel_target_call_duration_seconds_bucket[5m])))
+
+# Share of target calls that fail
+sum(rate(forge_sentinel_target_call_duration_seconds_count{result="error"}[5m]))
+  / sum(rate(forge_sentinel_target_call_duration_seconds_count[5m]))
+
+# Slowest scorers
+topk(5, histogram_quantile(0.95, sum by (le, scorer) (rate(forge_sentinel_scorer_duration_seconds_bucket[15m]))))
+```
+
+## The lifecycle counter plugin
+
+The `observability` package is older than the metrics above, and you don't need it to get them. Its `MetricsExtension` is a plugin that increments an unlabelled counter for each lifecycle event, through a go-utils `MetricFactory`. If you register it in a Forge app as well, its dotted counters show up on the scrape beside the `forge_sentinel_*` series, counting some of the same things.
 
 ```go
 import (
@@ -27,10 +141,6 @@ eng, err := engine.New(
 )
 ```
 
-In a Forge app, pass `app.Metrics()` as the factory so the counters show up in Forge's metrics. The [Forge guide](/docs/guides/forge-extension#adding-metrics) shows how.
-
-## Counters
-
 | Counter name | Hook | Counts |
 |--------------|------|--------|
 | `sentinel.eval.run.started` | `OnEvalRunStarted` | Runs started |
@@ -49,7 +159,7 @@ In a Forge app, pass `app.Metrics()` as the factory so the counters show up in F
 
 There's no case-started counter. The counters carry no labels, so they count across every suite and app.
 
-## Interface compliance
+### Interface compliance
 
 ```go
 var (

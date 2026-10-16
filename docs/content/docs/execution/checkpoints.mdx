@@ -120,5 +120,5 @@ Under `base_path` plus `/v1` (`/sentinel/v1` by default):
 |--------|------|--------|
 | `POST` | `/suites/:suiteId/baselines` | Works. Body: `{"run_id": "erun_...", "name": "v1"}` |
 | `GET` | `/baselines/:baselineId` | Works |
-| `GET` | `/suites/:suiteId/baselines` | Doesn't register against Forge v1.12.7 (405, since `POST` shares the path) |
+| `GET` | `/suites/:suiteId/baselines` | Doesn't register against Forge v1.12.9 (405, since `POST` shares the path) |
 | `POST` | `/suites/:suiteId/runs/with-baseline` | A stub that answers 400, and it doesn't register either (404) |
