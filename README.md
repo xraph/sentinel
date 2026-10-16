@@ -251,7 +251,7 @@ extensions:
 
 The [Forge dashboard](https://github.com/xraph/forge-dashboard) reads and writes the app named by `dashboard_app_id` when the signed-in user carries no app claim. It has no default, and with neither set every dashboard request is refused, because an empty app ID would match every app. Other options: `WithStore`, `WithGroveDatabase`, `WithScorer`, `WithEngineOption`, `WithExtension`, `WithConfig`, `WithBasePath`, `WithDisableRoutes`, `WithDisableMigrate` and `WithRequireConfig`.
 
-The REST API mounts under `/sentinel/v1`, but on Forge v1.12.7 only 11 of the 29 routes in `api/` register. Forge rejects a handler that returns a slice, a map or `any` ("unsupported handler signature"), and `api` throws the registration error away, so those routes answer 404 (or 405 when another method shares the path). These are the ones you can call:
+The REST API mounts under `/sentinel/v1`, but on Forge v1.12.9 only 11 of the 29 routes in `api/` register. Forge rejects a handler that returns a slice, a map or `any` ("unsupported handler signature"), and `api` throws the registration error away, so those routes answer 404 (or 405 when another method shares the path). These are the ones you can call:
 
 | Method | Path under `/sentinel/v1` |
 | --- | --- |
