@@ -11,12 +11,14 @@ import (
 
 	log "github.com/xraph/go-utils/log"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/baseline"
 	"github.com/xraph/sentinel/evalrun"
 	"github.com/xraph/sentinel/id"
+	"github.com/xraph/sentinel/internal/telemetry"
 	"github.com/xraph/sentinel/scorer"
 	"github.com/xraph/sentinel/suite"
 	"github.com/xraph/sentinel/target"
@@ -259,32 +261,45 @@ func (e *Engine) executeRun(ctx context.Context, p *runPlan, mode string, spanOp
 		attribute.Int("sentinel.run.concurrency", p.concurrency),
 	))
 	ctx, span := tracer().Start(ctx, "evaluate run", opts...)
-	defer span.End()
 	start := time.Now()
 	e.metrics.runStarted()
 
-	res, err := e.evaluateRun(ctx, p)
-
-	// A run whose final state could not be written did not complete, so it
-	// counts as failed.
+	// The run counts as failed until evaluateRun says otherwise, and the
+	// span and metrics are recorded in a defer. A panic the host recovers,
+	// such as one from a store or a plugin hook inside RunEval, still ends
+	// the span and takes the run back out of runs_in_flight. So does a run
+	// whose final state could not be written: it did not complete.
+	var (
+		res      *RunResult
+		err      error
+		finished bool
+	)
 	state := evalrun.StateFailed
+	defer func() {
+		e.metrics.runFinished(mode, string(state), time.Since(start))
+		span.SetAttributes(attribute.String("sentinel.run.state", string(state)))
+		switch {
+		case !finished:
+			span.SetStatus(codes.Error, "run aborted")
+		case res == nil:
+			telemetry.MarkError(span, "finalize error", err)
+		case state == evalrun.StateFailed:
+			telemetry.MarkError(span, "run failed", err)
+		}
+		if res != nil && res.Stats != nil {
+			span.SetAttributes(
+				attribute.Int("sentinel.run.passed", res.Stats.Passed),
+				attribute.Int("sentinel.run.failed", res.Stats.Failed),
+				attribute.Int("sentinel.run.errored", res.Stats.Errored),
+			)
+		}
+		span.End()
+	}()
+
+	res, err = e.evaluateRun(ctx, p)
+	finished = true
 	if res != nil {
 		state = res.Run.State
-	}
-	e.metrics.runFinished(mode, string(state), time.Since(start))
-	span.SetAttributes(attribute.String("sentinel.run.state", string(state)))
-	switch {
-	case res == nil:
-		markError(span, "finalize error", err)
-	case state == evalrun.StateFailed:
-		markError(span, "run failed", err)
-	}
-	if res != nil && res.Stats != nil {
-		span.SetAttributes(
-			attribute.Int("sentinel.run.passed", res.Stats.Passed),
-			attribute.Int("sentinel.run.failed", res.Stats.Failed),
-			attribute.Int("sentinel.run.errored", res.Stats.Errored),
-		)
 	}
 	return res, err
 }
@@ -313,12 +328,11 @@ func (e *Engine) evaluateRun(ctx context.Context, p *runPlan) (*RunResult, error
 			defer func() { <-sem }()
 			result, span := e.evaluateCase(callCtx, run.ID, tc, p.target, p.scorers)
 			defer span.End()
-			e.metrics.caseEvaluated(string(result.Status))
 			// The write goes under the case's span, so its database span
 			// sits with the case it stores.
 			if err := e.store.CreateResult(trace.ContextWithSpan(writeCtx, span), result); err != nil {
 				unwritten.Add(1)
-				markError(span, "store error", err)
+				telemetry.MarkError(span, "store error", err)
 				e.logger.Warn("sentinel: store result",
 					log.String("run_id", run.ID.String()), log.String("case_id", tc.ID.String()), log.String("error", err.Error()))
 			}
@@ -477,9 +491,12 @@ func (e *Engine) evaluateCase(
 		result.Status = evalrun.StatusError
 		result.Error = err.Error()
 		result.LatencyMs = int(time.Since(start).Milliseconds())
-		span.SetAttributes(attribute.String("sentinel.case.status", string(result.Status)))
-		if ctx.Err() == nil {
-			markError(span, "target error", err)
+		cancelled := ctx.Err() != nil
+		status := caseStatus(result.Status, cancelled)
+		span.SetAttributes(attribute.String("sentinel.case.status", status))
+		e.metrics.caseEvaluated(status)
+		if !cancelled {
+			telemetry.MarkError(span, "target error", err)
 		}
 		e.extensions.EmitCaseFailed(ctx, runID, tc.ID, err)
 		return result, span
@@ -572,12 +589,15 @@ func (e *Engine) evaluateCase(
 	default:
 		result.Status = evalrun.StatusFail
 	}
+	cancelled := ctx.Err() != nil
+	status := caseStatus(result.Status, cancelled)
 	span.SetAttributes(
-		attribute.String("sentinel.case.status", string(result.Status)),
+		attribute.String("sentinel.case.status", status),
 		attribute.Float64("sentinel.case.score", result.Score),
 	)
-	if firstScorerErr != nil && ctx.Err() == nil {
-		markError(span, "scorer error", firstScorerErr)
+	e.metrics.caseEvaluated(status)
+	if firstScorerErr != nil && !cancelled {
+		telemetry.MarkError(span, "scorer error", firstScorerErr)
 	}
 
 	elapsed := time.Since(start)
@@ -606,7 +626,7 @@ func (e *Engine) callTarget(ctx context.Context, tgt target.Target, input string
 		span.SetAttributes(attribute.Int("sentinel.target.tokens", tokens))
 	}
 	if result == resultError {
-		markError(span, "target error", err)
+		telemetry.MarkError(span, "target error", err)
 	}
 	return out, err
 }
@@ -625,7 +645,7 @@ func (e *Engine) score(ctx context.Context, s scorer.Scorer, in *scorer.Input) (
 	span.SetAttributes(attribute.String("sentinel.scorer.result", result))
 	switch {
 	case result == resultError:
-		markError(span, "scorer error", err)
+		telemetry.MarkError(span, "scorer error", err)
 	case err == nil && out != nil:
 		span.SetAttributes(
 			attribute.Float64("sentinel.scorer.score", out.Score),

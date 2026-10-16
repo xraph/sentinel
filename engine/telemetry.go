@@ -2,14 +2,11 @@ package engine
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/xraph/sentinel/evalrun"
 	"github.com/xraph/sentinel/scorer"
 	"github.com/xraph/sentinel/target"
 )
@@ -49,6 +46,20 @@ func callResult(ctx context.Context, err error) string {
 	default:
 		return resultError
 	}
+}
+
+// caseCancelled is the status a case reports when the run's context ended
+// while it was in flight. Its stored result says error, but nothing failed:
+// the run was cancelled or the process was shutting down.
+const caseCancelled = "cancelled"
+
+// caseStatus is the status a case's span and metric report: the stored
+// status, except that an error caused by cancellation is cancelled.
+func caseStatus(stored evalrun.ResultStatus, cancelled bool) string {
+	if stored == evalrun.StatusError && cancelled {
+		return caseCancelled
+	}
+	return string(stored)
 }
 
 // Target kinds. A target the application wrote itself is custom; its Name
@@ -125,32 +136,5 @@ func scorerKind(s scorer.Scorer) string {
 		return "persona_coherence"
 	default:
 		return scorerCustom
-	}
-}
-
-// markError sets an error status with a short, fixed description and adds
-// an exception event that carries only the error's type. The message never
-// goes on the span: a model provider's or a driver's error text can quote
-// the prompt, the output or a connection string.
-func markError(span trace.Span, description string, err error) {
-	span.SetStatus(codes.Error, description)
-	span.AddEvent("exception", trace.WithAttributes(attribute.String("exception.type", errorType(err))))
-}
-
-// errorType names an error for exception.type: the context sentinels by
-// name, anything else by the Go type of the innermost error in its chain.
-func errorType(err error) string {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return "context.Canceled"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "context.DeadlineExceeded"
-	}
-	for {
-		next := errors.Unwrap(err)
-		if next == nil {
-			return fmt.Sprintf("%T", err)
-		}
-		err = next
 	}
 }

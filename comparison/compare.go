@@ -10,12 +10,12 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xraph/sentinel"
 	"github.com/xraph/sentinel/engine"
 	"github.com/xraph/sentinel/id"
+	"github.com/xraph/sentinel/internal/telemetry"
 	"github.com/xraph/sentinel/scorer"
 	"github.com/xraph/sentinel/target"
 )
@@ -78,8 +78,7 @@ func Compare(ctx context.Context, eng *engine.Engine, cfg *CompareConfig) (*Comp
 			// a failure; anything else is. Only the error's type goes on
 			// the span.
 			if ctx.Err() == nil && !errors.Is(err, sentinel.ErrRunCancelled) {
-				span.SetStatus(codes.Error, "run error")
-				span.AddEvent("exception", trace.WithAttributes(attribute.String("exception.type", innermostType(err))))
+				telemetry.MarkError(span, "run error", err)
 			}
 			return nil, fmt.Errorf("sentinel: compare %s: %w", tgt.Name(), err)
 		}
@@ -96,16 +95,4 @@ func Compare(ctx context.Context, eng *engine.Engine, cfg *CompareConfig) (*Comp
 	eng.Extensions().EmitComparisonCompleted(ctx, cfg.SuiteID, models, report.Duration)
 
 	return report, nil
-}
-
-// innermostType is the Go type of the innermost error in err's chain, for
-// exception.type. The message never goes on a span.
-func innermostType(err error) string {
-	for {
-		next := errors.Unwrap(err)
-		if next == nil {
-			return fmt.Sprintf("%T", err)
-		}
-		err = next
-	}
 }

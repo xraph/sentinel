@@ -18,7 +18,11 @@ import (
 	"github.com/xraph/sentinel/baseline"
 	"github.com/xraph/sentinel/comparison"
 	"github.com/xraph/sentinel/engine"
+	"github.com/xraph/sentinel/evalrun"
+	"github.com/xraph/sentinel/id"
 	"github.com/xraph/sentinel/scorer"
+	"github.com/xraph/sentinel/store"
+	"github.com/xraph/sentinel/store/memory"
 	"github.com/xraph/sentinel/target"
 	"github.com/xraph/sentinel/testcase"
 )
@@ -281,8 +285,9 @@ func TestStartRunWithoutARequestSpanHasNoLink(t *testing.T) {
 }
 
 func TestACancelledRunIsNotAnError(t *testing.T) {
+	app := newForgeApp(t)
 	rec, _ := recordSpans(t)
-	e := newEngine(t, engine.WithConfig(configWith(1)))
+	e := newEngine(t, engine.WithConfig(configWith(1)), engine.WithMetrics(app.Metrics()))
 	s := seedSuite(t, e, "p", "a", "b")
 	ctx, cancel := context.WithCancel(bg())
 	entered := make(chan string, 4)
@@ -309,6 +314,103 @@ func TestACancelledRunIsNotAnError(t *testing.T) {
 	}
 	for _, c := range got["call target"] {
 		wantAttr(t, c, "sentinel.target.result", "cancelled")
+	}
+	if len(got["evaluate case"]) != 1 {
+		t.Fatalf("only a was scheduled, got %d case spans", len(got["evaluate case"]))
+	}
+	wantAttr(t, got["evaluate case"][0], "sentinel.case.status", "cancelled")
+
+	// The cut-short case counts as cancelled, not as an error, and the run
+	// leaves runs_in_flight.
+	body := scrape(t, app)
+	if v := valueOf(t, body, "forge_sentinel_runs_in_flight", map[string]string{}); v != 0 {
+		t.Errorf("runs in flight after a cancelled run = %v", v)
+	}
+	if v := valueOf(t, body, "forge_sentinel_run_duration_seconds_count", map[string]string{"mode": "sync", "state": "cancelled"}); v != 1 {
+		t.Errorf("cancelled runs = %v", v)
+	}
+	if v := valueOf(t, body, "forge_sentinel_cases_evaluated_total", map[string]string{"status": "cancelled"}); v != 1 {
+		t.Errorf("cancelled cases = %v", v)
+	}
+	for _, sm := range samples(t, body, "forge_sentinel_cases_evaluated_total") {
+		if sm.labels["status"] == "error" {
+			t.Errorf("a cancelled case was counted as an error: %v", sm)
+		}
+	}
+}
+
+// brokenFinalize is a store whose FinalizeRun fails, or panics.
+type brokenFinalize struct {
+	store.Store
+	panics bool
+}
+
+func (b brokenFinalize) FinalizeRun(context.Context, id.EvalRunID, *evalrun.Finalization) (evalrun.RunState, error) {
+	if b.panics {
+		panic("store exploded")
+	}
+	return "", errors.New("connection reset")
+}
+
+func TestARunThatCannotBeFinalizedLeavesNothingInFlight(t *testing.T) {
+	app := newForgeApp(t)
+	rec, _ := recordSpans(t)
+	e := newEngine(t, engine.WithStore(brokenFinalize{Store: memory.New()}), engine.WithMetrics(app.Metrics()))
+	s := seedSuite(t, e, "p", "a")
+
+	if _, err := e.RunEval(bg(), &engine.RunConfig{SuiteID: s.ID, Target: target.FromFunc("echo", func(_ context.Context, in string) (string, error) { return in, nil }),
+		Scorers: []scorer.Scorer{okScorer("good", 1, "")}}); err == nil {
+		t.Fatal("a run whose state can't be written must return an error")
+	}
+
+	body := scrape(t, app)
+	if v := valueOf(t, body, "forge_sentinel_runs_in_flight", map[string]string{}); v != 0 {
+		t.Errorf("runs in flight = %v", v)
+	}
+	if v := valueOf(t, body, "forge_sentinel_run_duration_seconds_count", map[string]string{"mode": "sync", "state": "failed"}); v != 1 {
+		t.Errorf("failed runs = %v", v)
+	}
+	runs := sentinelSpans(rec)["evaluate run"]
+	if len(runs) != 1 {
+		t.Fatalf("want one run span, got %d", len(runs))
+	}
+	wantAttr(t, runs[0], "sentinel.run.state", "failed")
+	if st := runs[0].Status(); st.Code != codes.Error || st.Description != "finalize error" {
+		t.Errorf("run span status = %+v", st)
+	}
+}
+
+// A panic inside RunEval that the host recovers, as an HTTP server does,
+// still ends the run span and takes the run out of runs_in_flight.
+func TestARecoveredPanicLeavesNothingInFlight(t *testing.T) {
+	app := newForgeApp(t)
+	rec, _ := recordSpans(t)
+	e := newEngine(t, engine.WithStore(brokenFinalize{Store: memory.New(), panics: true}), engine.WithMetrics(app.Metrics()))
+	s := seedSuite(t, e, "p", "a")
+
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("the store's panic should have reached the caller")
+			}
+		}()
+		_, _ = e.RunEval(bg(), &engine.RunConfig{SuiteID: s.ID, Target: target.FromFunc("echo", func(_ context.Context, in string) (string, error) { return in, nil }),
+			Scorers: []scorer.Scorer{okScorer("good", 1, "")}})
+	}()
+
+	body := scrape(t, app)
+	if v := valueOf(t, body, "forge_sentinel_runs_in_flight", map[string]string{}); v != 0 {
+		t.Errorf("runs in flight after a recovered panic = %v", v)
+	}
+	if v := valueOf(t, body, "forge_sentinel_run_duration_seconds_count", map[string]string{"mode": "sync", "state": "failed"}); v != 1 {
+		t.Errorf("failed runs = %v", v)
+	}
+	runs := sentinelSpans(rec)["evaluate run"]
+	if len(runs) != 1 {
+		t.Fatalf("the run span must end even on a panic, got %d", len(runs))
+	}
+	if st := runs[0].Status(); st.Code != codes.Error || st.Description != "run aborted" {
+		t.Errorf("run span status = %+v", st)
 	}
 }
 
