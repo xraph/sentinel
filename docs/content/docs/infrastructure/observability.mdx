@@ -49,7 +49,7 @@ Every span has kind `Internal` and the instrumentation scope `github.com/xraph/s
 |------|------------|
 | `compare targets` | `sentinel.suite.id`, `sentinel.compare.targets` (how many targets) |
 | `evaluate run` | `sentinel.run.id`, `sentinel.suite.id`, `sentinel.run.mode` (`async` for `StartRun`, `sync` for `RunEval`), `sentinel.target.kind`, `sentinel.run.cases`, `sentinel.run.scorers`, `sentinel.run.concurrency`. When it ends: `sentinel.run.state` (`completed`, `failed`, `cancelled`), `sentinel.run.passed`, `sentinel.run.failed`, `sentinel.run.errored`, and `sentinel.run.regressed` when the suite has a baseline to compare with |
-| `evaluate case` | `sentinel.case.id`, `sentinel.case.status` (`pass`, `fail`, `error`), `sentinel.case.score` |
+| `evaluate case` | `sentinel.case.id`, `sentinel.case.status` (`pass`, `fail`, `error`, `cancelled`), `sentinel.case.score` |
 | `call target` | `sentinel.target.kind`, `sentinel.target.result` (`ok`, `error`, `cancelled`), `sentinel.target.tokens` when the target reports tokens |
 | `score output` | `sentinel.scorer.kind`, `sentinel.scorer.result` (`ok`, `error`, `cancelled`), and on success `sentinel.scorer.score` and `sentinel.scorer.passed` |
 
@@ -61,7 +61,15 @@ A run that regressed against its baseline gets a `regression detected` event on 
 
 Spans carry IDs, counts, kinds and outcomes. They never carry the suite's prompt, a case's input or expected output, the target's output, a judge's reason or dimension, the model name, the persona, an error's message, or the name you gave a scorer or a target.
 
-When something fails, the span gets an error status with a short fixed description (`target error`, `scorer error`, `store error`, `run failed`, `finalize error`) and an `exception` event that carries only `exception.type`, the Go type of the innermost error. The full message is in the stored result and in the log. A case whose target errors is an error on its case span, but the run still completes, so the run span stays clean. A run or call cut short by cancellation (`CancelRun`, shutdown, or your context ending) is not an error.
+When something fails, the span gets an error status with a short fixed description (`target error`, `scorer error`, `store error`, `run failed`, `finalize error`, and `run error` on `compare targets`) and an `exception` event that carries only `exception.type`: `context.Canceled` or `context.DeadlineExceeded` when the error is one of those, otherwise the Go type of the innermost error. The full message is in the stored result and in the log. A case whose target errors is an error on its case span, but the run still completes, so the run span stays clean. A run or call cut short by cancellation (`CancelRun`, shutdown, or your context ending) is not an error. A case that was in flight when that happened reports `cancelled`, though its stored result says `error`.
+
+One status has no exception event: `run aborted`, on a run span whose evaluation never returned, because something inside `RunEval` panicked and your code recovered it. The run still leaves `runs_in_flight` and counts as `failed`.
+
+### How many spans a run makes
+
+Every case adds an `evaluate case`, a `call target`, one `score output` per scorer and, on a grove store, the `INSERT` that stores its result and a `SELECT` on the run span where the runner checks whether someone cancelled the run before it schedules the case. A 500-case run with three scorers is about 3,500 spans in one trace.
+
+Two things follow from that. Forge's sampler is parent based, so the sampling decision is made once, at the root, for the whole run: a dashboard run is sampled or dropped as one trace, and a `RunEval` run follows the decision on your span. And a fast run can end spans faster than the exporter drains them. The OpenTelemetry batch processor Forge uses queues 2048 spans by default and drops what doesn't fit, so raise `OTEL_BSP_MAX_QUEUE_SIZE` if your big suites come back with gaps. The `evaluate run` span ends last, after every case, so a trace view shows the run as open until it finishes, and when the queue is still full at that point it's the span you lose.
 
 ### Your model calls
 
@@ -75,7 +83,7 @@ These are the names a Forge app scrapes. Forge puts its namespace in front of no
 |--------|------|--------|
 | `forge_sentinel_run_duration_seconds` | histogram | `mode` (`async`, `sync`), `state` (`completed`, `failed`, `cancelled`) |
 | `forge_sentinel_runs_in_flight` | gauge | none |
-| `forge_sentinel_cases_evaluated_total` | counter | `status` (`pass`, `fail`, `error`) |
+| `forge_sentinel_cases_evaluated_total` | counter | `status` (`pass`, `fail`, `error`, `cancelled`) |
 | `forge_sentinel_target_call_duration_seconds` | histogram | `target_kind` (`llm`, `agent`, `func`, `custom`), `result` (`ok`, `error`, `cancelled`) |
 | `forge_sentinel_target_tokens_total` | counter | `target_kind` |
 | `forge_sentinel_scorer_duration_seconds` | histogram | `scorer` (a built-in kind from the list above, or `custom`), `result` (`ok`, `error`, `cancelled`) |
@@ -86,6 +94,7 @@ A few notes on reading them:
 - The run histogram's `_count` is your run total. There's no separate runs counter. A run whose final state couldn't be written to the store counts as `failed`.
 - `runs_in_flight` counts the runs this process is evaluating, sync and async alike. Each replica reports its own.
 - A case whose target fails is `error` in `cases_evaluated_total` and `error` in `target_call_duration_seconds`. A `fail` is a real verdict: the scorers ran and the score fell under the pass threshold.
+- A case cut short because the run was cancelled or the process was shutting down is `cancelled`, not `error`, so a deploy with runs in flight doesn't push up your error ratio. Its stored result still says `error`.
 - Tokens are whatever your target reports in `target.Output.Tokens`. Function targets report none.
 - Run IDs, suite IDs, apps, models and the names you gave scorers and targets are never labels.
 

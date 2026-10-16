@@ -72,7 +72,7 @@ For govulncheck, use CI's Go. CI always resolves the newest 1.26 patch, and an o
 |---|---|
 | `sentinel.go`, `config.go`, `errors.go`, `scope.go`, `entity.go`, `id.go` | Package docs, `Config`/`DefaultConfig`, sentinel errors, `WithTenant`/`WithApp` and their readers, the `Entity` timestamps, the `ID` re-export |
 | `id/` | TypeID-based `id.ID` with a prefix per entity (`suite`, `tcase`, `erun`, `eres`, `base`, `rteam`, `pver`) |
-| `engine/` | `engine.Engine`, the coordinator: runs, scoring, regression checks, red team, imports. `telemetry.go` and `metrics.go` hold its spans and metrics |
+| `engine/` | `engine.Engine`, the coordinator: runs, scoring, regression checks, red team, imports. `telemetry.go` and `metrics.go` hold its spans and metrics, and `internal/telemetry` the error helper every span shares |
 | `suite/`, `testcase/`, `evalrun/`, `baseline/`, `promptversion/` | Domain models, each with its own `Store` interface |
 | `store/store.go` | `store.Store`, which embeds those five and adds `Migrate`, `Ping`, `Close` |
 | `store/memory`, `store/sqlite`, `store/postgres`, `store/mongo` | The backends. The grove ones keep their migrations as Go in `migrations.go` |
