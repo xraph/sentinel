@@ -9,11 +9,13 @@ var (
 	ErrMigrationFailed = errors.New("sentinel: migration failed")
 
 	// Not found errors.
-	ErrSuiteNotFound         = errors.New("sentinel: suite not found")
-	ErrCaseNotFound          = errors.New("sentinel: case not found")
-	ErrRunNotFound           = errors.New("sentinel: run not found")
-	ErrBaselineNotFound      = errors.New("sentinel: baseline not found")
-	ErrPromptVersionNotFound = errors.New("sentinel: prompt version not found")
+	ErrEvaluationPlanNotFound = errors.New("sentinel: evaluation plan not found")
+	ErrEvaluationPlanExists   = errors.New("sentinel: evaluation plan already exists")
+	ErrSuiteNotFound          = errors.New("sentinel: suite not found")
+	ErrCaseNotFound           = errors.New("sentinel: case not found")
+	ErrRunNotFound            = errors.New("sentinel: run not found")
+	ErrBaselineNotFound       = errors.New("sentinel: baseline not found")
+	ErrPromptVersionNotFound  = errors.New("sentinel: prompt version not found")
 
 	// Conflict errors.
 	ErrSuiteAlreadyExists  = errors.New("sentinel: suite already exists")

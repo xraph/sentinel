@@ -13,6 +13,7 @@ type Factory func(config map[string]any) (Scorer, error)
 // Descriptor says what a registered scorer is, for anyone listing them.
 type Descriptor struct {
 	Name        string
+	Revision    string // immutable implementation revision; required for frozen evaluations
 	Description string
 	Dimension   string // the human-like dimension it reports, empty for none
 	UsesLLM     bool   // true when scoring makes a model call, which costs money
@@ -197,6 +198,29 @@ func (r *Registry) describeBuiltins() {
 		"latency":      "Passes when the target answered within max_ms milliseconds.",
 		"cost":         "Passes when the target reported a cost at or below max_cost.",
 	} {
-		r.descs[name] = Descriptor{Name: name, Description: desc, RequiresConfig: requiresConfig[name]}
+		r.descs[name] = Descriptor{Name: name, Description: desc, RequiresConfig: requiresConfig[name], Revision: "sentinel/builtin/" + name + "/v1"}
 	}
+}
+
+// Revision returns the registered implementation revision for a frozen plan.
+func (r *Registry) Revision(name string) (string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	d, ok := r.descs[name]
+	if !ok || d.Revision == "" {
+		return "", fmt.Errorf("scorer: %q has no implementation revision", name)
+	}
+	return d.Revision, nil
+}
+
+// GetVersioned resolves exactly the implementation a plan captured.
+func (r *Registry) GetVersioned(name, revision string, config map[string]any) (Scorer, error) {
+	r.mu.RLock()
+	factory, ok := r.factories[name]
+	descriptor := r.descs[name]
+	r.mu.RUnlock()
+	if !ok || revision == "" || descriptor.Revision != revision {
+		return nil, fmt.Errorf("scorer: %q revision %q unavailable", name, revision)
+	}
+	return factory(config)
 }

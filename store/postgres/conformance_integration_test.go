@@ -26,9 +26,9 @@ import (
 )
 
 var (
-	pgOnce sync.Once
-	pgDSN  string
-	pgErr  error
+	pgOnce      sync.Once
+	pgDSN       string
+	errPostgres error
 )
 
 // adminDSN is SENTINEL_TEST_DSN when set, otherwise a shared
@@ -48,13 +48,13 @@ func adminDSN(t *testing.T) string {
 			tcpostgres.BasicWaitStrategies(),
 		)
 		if err != nil {
-			pgErr = fmt.Errorf("start postgres container: %w", err)
+			errPostgres = fmt.Errorf("start postgres container: %w", err)
 			return
 		}
-		pgDSN, pgErr = c.ConnectionString(ctx, "sslmode=disable")
+		pgDSN, errPostgres = c.ConnectionString(ctx, "sslmode=disable")
 	})
-	if pgErr != nil {
-		t.Skipf("postgres unavailable: %v", pgErr)
+	if errPostgres != nil {
+		t.Skipf("postgres unavailable: %v", errPostgres)
 	}
 	return pgDSN
 }
@@ -72,8 +72,8 @@ func TestConformance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("admin connect: %v", err)
 		}
-		if _, err := conn.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-			t.Fatalf("create database: %v", err)
+		if _, createErr := conn.Exec(ctx, "CREATE DATABASE "+name); createErr != nil {
+			t.Fatalf("create database: %v", createErr)
 		}
 		_ = conn.Close(ctx)
 
@@ -83,8 +83,8 @@ func TestConformance(t *testing.T) {
 		}
 		u.Path = "/" + name
 		drv := pgdriver.New()
-		if err := drv.Open(ctx, u.String()); err != nil {
-			t.Fatalf("open postgres: %v", err)
+		if openErr := drv.Open(ctx, u.String()); openErr != nil {
+			t.Fatalf("open postgres: %v", openErr)
 		}
 		db, err := grove.Open(drv)
 		if err != nil {

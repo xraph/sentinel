@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/xraph/sentinel/baseline"
+	"github.com/xraph/sentinel/evalplan"
 	"github.com/xraph/sentinel/evalrun"
 	"github.com/xraph/sentinel/promptversion"
 	"github.com/xraph/sentinel/suite"
@@ -17,6 +18,7 @@ import (
 // Implementations (Postgres, SQLite, Memory) satisfy all subsystem stores
 // through a single concrete type.
 type Store interface {
+	evalplan.Store
 	suite.Store
 	testcase.Store
 	evalrun.Store

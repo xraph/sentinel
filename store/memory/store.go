@@ -23,13 +23,14 @@ var _ store.Store = (*Store)(nil)
 
 // Store is an in-memory implementation of the composite Sentinel store.
 type Store struct {
-	mu             sync.RWMutex
-	suites         map[string]*suite.Suite
-	cases          map[string]*testcase.Case
-	runs           map[string]*evalrun.Run
-	results        map[string]*evalrun.Result
-	baselines      map[string]*baseline.Baseline
-	promptVersions map[string]*promptversion.PromptVersion
+	mu              sync.RWMutex
+	evaluationPlans map[string][]byte
+	suites          map[string]*suite.Suite
+	cases           map[string]*testcase.Case
+	runs            map[string]*evalrun.Run
+	results         map[string]*evalrun.Result
+	baselines       map[string]*baseline.Baseline
+	promptVersions  map[string]*promptversion.PromptVersion
 }
 
 // The memory store copies values across its boundary, the way every other
@@ -46,12 +47,13 @@ func clonePV(v *promptversion.PromptVersion) *promptversion.PromptVersion { c :=
 // New creates a new in-memory store.
 func New() *Store {
 	return &Store{
-		suites:         make(map[string]*suite.Suite),
-		cases:          make(map[string]*testcase.Case),
-		runs:           make(map[string]*evalrun.Run),
-		results:        make(map[string]*evalrun.Result),
-		baselines:      make(map[string]*baseline.Baseline),
-		promptVersions: make(map[string]*promptversion.PromptVersion),
+		suites:          make(map[string]*suite.Suite),
+		evaluationPlans: make(map[string][]byte),
+		cases:           make(map[string]*testcase.Case),
+		runs:            make(map[string]*evalrun.Run),
+		results:         make(map[string]*evalrun.Result),
+		baselines:       make(map[string]*baseline.Baseline),
+		promptVersions:  make(map[string]*promptversion.PromptVersion),
 	}
 }
 

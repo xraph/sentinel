@@ -25,7 +25,7 @@ import (
 var (
 	mongoOnce sync.Once
 	mongoURI  string
-	mongoErr  error
+	errMongo  error
 )
 
 func connURI(t *testing.T) string {
@@ -38,13 +38,13 @@ func connURI(t *testing.T) string {
 		defer cancel()
 		c, err := tcmongo.Run(ctx, "mongo:7")
 		if err != nil {
-			mongoErr = fmt.Errorf("start mongo container: %w", err)
+			errMongo = fmt.Errorf("start mongo container: %w", err)
 			return
 		}
-		mongoURI, mongoErr = c.ConnectionString(ctx)
+		mongoURI, errMongo = c.ConnectionString(ctx)
 	})
-	if mongoErr != nil {
-		t.Skipf("mongo unavailable: %v", mongoErr)
+	if errMongo != nil {
+		t.Skipf("mongo unavailable: %v", errMongo)
 	}
 	return mongoURI
 }
