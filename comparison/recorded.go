@@ -306,7 +306,8 @@ func average(values []float64) float64 {
 	return sum / float64(len(values))
 }
 func bootstrap(ctx context.Context, values []float64, seed uint64) *ConfidenceInterval {
-	rng := rand.New(rand.NewPCG(seed, 0x9e3779b97f4a7c15)) //nolint:gosec // Reproducible statistical resampling, not security randomness.
+	// #nosec G404 -- A seeded bootstrap must reproduce its statistical samples.
+	rng := rand.New(rand.NewPCG(seed, 0x9e3779b97f4a7c15))
 	samples := make([]float64, 2000)
 	for i := range samples {
 		if ctx.Err() != nil {
