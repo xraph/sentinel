@@ -36,6 +36,8 @@ func openRecordedSQLite(t *testing.T, path string) *sentinelsqlite.Store {
 
 func TestRecordedWorkerRestartUsesPersistedQueue(t *testing.T) {
 	_, _, ctx, plan, req := recordedFixture(t)
+	req.SourceBindingID = "binding/v1"
+	req.SourceCursor = "0001/source-run"
 	path := filepath.Join(t.TempDir(), "recorded.db")
 	first := openRecordedSQLite(t, path)
 	if err := first.CreateEvaluationPlan(ctx, plan); err != nil {
@@ -49,11 +51,18 @@ func TestRecordedWorkerRestartUsesPersistedQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, cursorErr := first.AdvanceRecordedCursor(ctx, recorded.CursorAdvance{BindingID: req.SourceBindingID, JobID: job.ID}); cursorErr != nil {
+		t.Fatal(cursorErr)
+	}
 	if err = first.Close(); err != nil {
 		t.Fatal(err)
 	}
 	second := openRecordedSQLite(t, path)
 	defer second.Close()
+	cursor, cursorErr := second.GetRecordedCursor(ctx, req.SourceBindingID)
+	if cursorErr != nil || cursor.Position != req.SourceCursor || cursor.JobID != job.ID {
+		t.Fatalf("cursor lost after reopening: %+v %v", cursor, cursorErr)
+	}
 	restarted, err := engine.New(engine.WithStore(second))
 	if err != nil {
 		t.Fatal(err)

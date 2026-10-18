@@ -101,7 +101,7 @@ func (r Request) Validate() error {
 	if r.PlanID.IsNil() || !validDigest(r.PlanDigest) || r.IdempotencyKey == "" || len(r.IdempotencyKey) > 512 || len(r.Cases) == 0 {
 		return fmt.Errorf("%w: invalid recorded request", sentinel.ErrInvalidInput)
 	}
-	if (r.SourceBindingID == "") != (r.SourceCursor == "") {
+	if (r.SourceBindingID == "") != (r.SourceCursor == "") || len(r.SourceBindingID) > 256 || len(r.SourceCursor) > 512 {
 		return fmt.Errorf("%w: binding and cursor must be supplied together", sentinel.ErrInvalidInput)
 	}
 	seen := make(map[string]bool, len(r.Cases))

@@ -12,6 +12,8 @@ import (
 
 // Store owns exactly scoped recorded jobs and atomic revision changes.
 type Store interface {
+	GetRecordedCursor(context.Context, string) (*SourceCursor, error)
+	AdvanceRecordedCursor(context.Context, CursorAdvance) (*SourceCursor, error)
 	CreateRecordedJob(context.Context, *Job) (*Job, error)
 	GetRecordedJob(context.Context, id.ID) (*Job, error)
 	ListRecordedJobs(context.Context, Query) ([]*Job, error)

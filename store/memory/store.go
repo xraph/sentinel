@@ -26,6 +26,7 @@ type Store struct {
 	mu              sync.RWMutex
 	evaluationPlans map[string][]byte
 	recordedJobs    map[string][]byte
+	recordedCursors map[string][]byte
 	suites          map[string]*suite.Suite
 	cases           map[string]*testcase.Case
 	runs            map[string]*evalrun.Run
@@ -51,6 +52,7 @@ func New() *Store {
 		suites:          make(map[string]*suite.Suite),
 		evaluationPlans: make(map[string][]byte),
 		recordedJobs:    make(map[string][]byte),
+		recordedCursors: make(map[string][]byte),
 		cases:           make(map[string]*testcase.Case),
 		runs:            make(map[string]*evalrun.Run),
 		results:         make(map[string]*evalrun.Result),

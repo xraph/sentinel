@@ -21,6 +21,7 @@ type Factory func(t *testing.T) store.Store
 // Run executes every conformance check against the backend newStore builds.
 func Run(t *testing.T, newStore Factory) {
 	t.Run("FrozenEvaluationPlan", func(t *testing.T) { testEvaluationPlan(t, newStore(t)) })
+	t.Run("RecordedCursor", func(t *testing.T) { testRecordedCursor(t, newStore(t)) })
 	t.Run("RecordedJobs", func(t *testing.T) { testRecordedJobs(t, newStore(t)) })
 	t.Run("RecordedCheckpoint", func(t *testing.T) { testRecordedCheckpoint(t, newStore(t)) })
 	t.Run("RecordedConcurrentClaims", func(t *testing.T) { testRecordedConcurrentClaims(t, newStore(t)) })
