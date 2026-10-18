@@ -251,7 +251,7 @@ extensions:
 
 The [Forge dashboard](https://github.com/xraph/forge-dashboard) reads and writes the app named by `dashboard_app_id` when the signed-in user carries no app claim. It has no default, and with neither set every dashboard request is refused, because an empty app ID would match every app. Other options: `WithStore`, `WithGroveDatabase`, `WithScorer`, `WithEngineOption`, `WithExtension`, `WithConfig`, `WithBasePath`, `WithDisableRoutes`, `WithDisableMigrate` and `WithRequireConfig`.
 
-The REST API mounts under `/sentinel/v1`, but on Forge v1.12.7 only 11 of the 29 routes in `api/` register. Forge rejects a handler that returns a slice, a map or `any` ("unsupported handler signature"), and `api` throws the registration error away, so those routes answer 404 (or 405 when another method shares the path). These are the ones you can call:
+The REST API mounts under `/sentinel/v1`, but on Forge v1.12.9 only 11 of the 29 routes in `api/` register. Forge rejects a handler that returns a slice, a map or `any` ("unsupported handler signature"), and `api` throws the registration error away, so those routes answer 404 (or 405 when another method shares the path). These are the ones you can call:
 
 | Method | Path under `/sentinel/v1` |
 | --- | --- |
@@ -268,7 +268,13 @@ Everything else is missing: listing suites, cases, runs, results, baselines, pro
 
 ## Lifecycle hooks
 
-Implement any of the 15 hook interfaces in `plugin` and register the value with `engine.WithExtension`. They cover run start, completion and failure, each case, `OnRegressionDetected`, `OnBaselineSaved`, red-team and persona runs, prompt versions, comparisons and shutdown. `audit_hook` sends them to an audit trail such as [Chronicle](https://github.com/xraph/chronicle), and `observability` turns them into metrics.
+Implement any of the 15 hook interfaces in `plugin` and register the value with `engine.WithExtension`. They cover run start, completion and failure, each case, `OnRegressionDetected`, `OnBaselineSaved`, red-team and persona runs, prompt versions, comparisons and shutdown. `audit_hook` sends them to an audit trail such as [Chronicle](https://github.com/xraph/chronicle), and `observability` turns them into unlabelled counters.
+
+## Traces and metrics
+
+In a Forge app you don't wire anything. Every run gets an `evaluate run` span with an `evaluate case` span per case, and a `call target` and a `score output` span under each case. A run you start from the dashboard is its own trace, linked to the request that started it. `RunEval` nests under whatever span you call it in. The extension hands the engine `app.Metrics()`, so `/_/metrics` shows run and case counts, target and scorer latency, target tokens, runs in flight and regressions as `forge_sentinel_*`.
+
+Spans and labels carry IDs, counts and fixed kinds only. Prompts, outputs, judge reasons, error messages and the names you gave scorers never reach your trace backend or your metrics. Outside Forge, pass a go-utils `metrics.Metrics` to `engine.WithMetrics` for the metrics; spans go to whatever tracer provider you've installed. The [observability page](https://www.xraph.com/docs/sentinel/infrastructure/observability) lists every span, attribute, metric and label.
 
 ## Documentation
 
@@ -278,7 +284,7 @@ Implement any of the 15 hook interfaces in `plugin` and register the value with 
 | Runs and regressions | [Eval runs and results](https://www.xraph.com/docs/sentinel/execution/runs), [baselines and regression detection](https://www.xraph.com/docs/sentinel/execution/checkpoints), [red teaming](https://www.xraph.com/docs/sentinel/execution/memory) |
 | Agent evaluation | [The human model](https://www.xraph.com/docs/sentinel/human-model/overview), [skills](https://www.xraph.com/docs/sentinel/human-model/skills), [persona coherence](https://www.xraph.com/docs/sentinel/human-model/personas) |
 | Storage | [PostgreSQL](https://www.xraph.com/docs/sentinel/infrastructure/postgres), [SQLite](https://www.xraph.com/docs/sentinel/infrastructure/sqlite), [MongoDB](https://www.xraph.com/docs/sentinel/infrastructure/mongo) |
-| Forge, HTTP and plugins | [Forge extension](https://www.xraph.com/docs/sentinel/guides/forge-extension), [HTTP API](https://www.xraph.com/docs/sentinel/api-reference/http-api), [plugin system](https://www.xraph.com/docs/sentinel/infrastructure/plugins), [configuration](https://www.xraph.com/docs/sentinel/concepts/configuration) |
+| Forge, HTTP and plugins | [Forge extension](https://www.xraph.com/docs/sentinel/guides/forge-extension), [HTTP API](https://www.xraph.com/docs/sentinel/api-reference/http-api), [plugin system](https://www.xraph.com/docs/sentinel/infrastructure/plugins), [configuration](https://www.xraph.com/docs/sentinel/concepts/configuration), [observability](https://www.xraph.com/docs/sentinel/infrastructure/observability) |
 
 The Go API is on [pkg.go.dev](https://pkg.go.dev/github.com/xraph/sentinel).
 

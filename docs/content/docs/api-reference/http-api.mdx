@@ -5,7 +5,7 @@ description: The REST routes in the api package, which of them work today, and w
 
 The `api` package holds Forge handlers for suites, cases, runs, baselines, prompt versions, red team, scenarios and reports. The Forge extension mounts them under `base_path` (default `/sentinel`) plus `/v1`, so every path below starts with `/sentinel/v1`. Without the extension, `api.New(eng, router).RegisterRoutes(router)` mounts them on a Forge router, and `Handler()` gives you an `http.Handler`. Authentication is whatever your Forge middleware does.
 
-The API is partial. Against Forge v1.12.7, 18 of the 29 routes fail to register: Forge rejects handlers that return a slice, a map or `any`, and the `api` package discards the registration error. Those routes answer 404 (or 405 when another method shares the path). Of the 11 that do register, `POST /suites/:suiteId/runs` always answers 400. Every successful response also writes its JSON body twice, once from the handler and once from Forge, so a strict JSON client fails to parse it. Use the Go API or the dashboard for anything beyond reading single records.
+The API is partial. Against Forge v1.12.9, 18 of the 29 routes fail to register: Forge rejects handlers that return a slice, a map or `any`, and the `api` package discards the registration error. Those routes answer 404 (or 405 when another method shares the path). Of the 11 that do register, `POST /suites/:suiteId/runs` always answers 400. Every successful response also writes its JSON body twice, once from the handler and once from Forge, so a strict JSON client fails to parse it. Use the Go API or the dashboard for anything beyond reading single records.
 
 ## Route status
 

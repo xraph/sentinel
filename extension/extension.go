@@ -10,6 +10,7 @@ import (
 	dashcontract "github.com/xraph/forge/extensions/dashboard/contract"
 	"github.com/xraph/forge/extensions/dashboard/contract/dispatcher"
 	log "github.com/xraph/go-utils/log"
+	gometrics "github.com/xraph/go-utils/metrics"
 	"github.com/xraph/grove"
 	"github.com/xraph/vessel"
 
@@ -117,7 +118,7 @@ func (e *Extension) init(fapp forge.App) error {
 		)
 	}
 
-	eng, err := e.newEngine(e.Logger())
+	eng, err := e.newEngine(e.Logger(), e.Metrics())
 	if err != nil {
 		return fmt.Errorf("sentinel: create engine: %w", err)
 	}
@@ -465,12 +466,16 @@ func engineConfig(c Config) sentinel.Config {
 	}
 }
 
-// newEngine builds the engine from the merged config, then the options the
-// application passed, so an explicit engine.WithConfig still wins. A nil
-// logger leaves the engine's no-op logger in place.
-func (e *Extension) newEngine(logger log.Logger) (*engine.Engine, error) {
-	opts := make([]engine.Option, 0, len(e.engineOpts)+2)
+// newEngine builds the engine from the merged config and Forge's metrics,
+// then the options the application passed, so an explicit engine.WithConfig
+// or engine.WithMetrics still wins. A nil logger leaves the engine's no-op
+// logger in place; nil metrics record nothing.
+func (e *Extension) newEngine(logger log.Logger, metrics gometrics.Metrics) (*engine.Engine, error) {
+	opts := make([]engine.Option, 0, len(e.engineOpts)+3)
 	opts = append(opts, engine.WithConfig(engineConfig(e.config)))
+	if metrics != nil {
+		opts = append(opts, engine.WithMetrics(metrics))
+	}
 	opts = append(opts, e.engineOpts...)
 	if logger != nil {
 		opts = append(opts, engine.WithLogger(logger))

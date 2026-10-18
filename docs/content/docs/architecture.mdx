@@ -53,7 +53,7 @@ eng, err := engine.New(
 )
 ```
 
-`engine.WithLogger` takes a go-utils `log.Logger`; without it the engine logs nothing. `engine.WithTarget` and `engine.WithScorer` register targets and scorers by name, for runs started by name and for the dashboard. See [Configuration](/docs/concepts/configuration).
+`engine.WithLogger` takes a go-utils `log.Logger`; without it the engine logs nothing. `engine.WithMetrics` takes a go-utils `metrics.Metrics`; without it the engine records no metrics. Spans need no option, see [Observability](/docs/infrastructure/observability). `engine.WithTarget` and `engine.WithScorer` register targets and scorers by name, for runs started by name and for the dashboard. See [Configuration](/docs/concepts/configuration).
 
 ## Evaluation flow
 
@@ -97,7 +97,7 @@ type RegressionDetected interface { /* ... */ }
 The `plugin.Registry` sorts plugins by hook when you register them, so an event only calls the plugins that implement it. Hook errors are logged and never stop the pipeline. See [Plugins](/docs/infrastructure/plugins).
 
 Built-in plugins:
-- `observability.MetricsExtension`: counters for lifecycle events
+- `observability.MetricsExtension`: unlabelled counters for lifecycle events, older than the engine's own metrics
 - `audithook.Extension`: turns lifecycle events into audit records
 
 ## Package index
@@ -127,7 +127,7 @@ Built-in plugins:
 | `store/memory` | `.../store/memory` | In-memory backend |
 | `store/storetest` | `.../store/storetest` | Conformance suite every backend runs |
 | `plugin` | `.../plugin` | Hook interfaces and Registry |
-| `observability` | `.../observability` | Metrics plugin |
+| `observability` | `.../observability` | Lifecycle counter plugin (the engine records its own metrics) |
 | `audit_hook` | `.../audit_hook` | Audit plugin (package name `audithook`) |
 | `api` | `.../api` | Forge HTTP handlers |
 | `extension` | `.../extension` | Forge extension adapter |
