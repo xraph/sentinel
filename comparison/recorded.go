@@ -2,6 +2,7 @@ package comparison
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -128,12 +129,20 @@ func CompareRecorded(ctx context.Context, req RecordedComparisonRequest) (*Recor
 	keys := make([]string, 0, len(baseInputs))
 	inputOwners := make(map[string]id.CaseID)
 	for key, c := range baseInputs {
-		if owner, exists := inputOwners[c.InputDigest]; exists && owner != c.CaseID {
-			return nil, fmt.Errorf("%w: duplicate input under distinct case IDs", sentinel.ErrInvalidInput)
-		}
-		inputOwners[c.InputDigest] = c.CaseID
 		other, exists := candidateInputs[key]
 		definition, inPlan := definitions[c.CaseID]
+		content, encodeErr := json.Marshal(struct {
+			Input   string         `json:"input"`
+			Context map[string]any `json:"context"`
+		}{Input: definition.Case.Input, Context: definition.Case.Context})
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		contentKey := recorded.InputDigest(string(content))
+		if owner, seen := inputOwners[contentKey]; seen && owner != c.CaseID {
+			return nil, fmt.Errorf("%w: duplicate input and frozen context under distinct case IDs", sentinel.ErrInvalidInput)
+		}
+		inputOwners[contentKey] = c.CaseID
 		if !exists || !inPlan || c.InputDigest != other.InputDigest || c.InputDigest != recorded.InputDigest(definition.Case.Input) {
 			return nil, fmt.Errorf("%w: comparison input identities differ", sentinel.ErrInvalidInput)
 		}

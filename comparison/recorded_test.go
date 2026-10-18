@@ -56,6 +56,9 @@ func recordedComparisonFixture(t *testing.T, cases, repetitions int, output stri
 			input = "same question"
 		}
 		tc := &testcase.Case{ID: id.NewCaseID(), SuiteID: su.ID, Input: input, Scorers: []testcase.ScorerConfig{{Name: "quality"}}}
+		if len(duplicateInputs) > 1 && duplicateInputs[1] {
+			tc.Context = map[string]any{"environment_snapshot": fmt.Sprintf("snapshot-%d", index)}
+		}
 		if err := s.CreateCase(ctx, tc); err != nil {
 			t.Fatal(err)
 		}
@@ -185,5 +188,13 @@ func TestRecordedBootstrapUsesSeedForNonuniformEvidence(t *testing.T) {
 	}
 	if first.Interval == nil || first.Interval.Lower >= *first.MeanDelta || first.Interval.Upper <= *first.MeanDelta || reflect.DeepEqual(first.Interval, other.Interval) {
 		t.Fatalf("bootstrap ignored paired variation or seed: %+v %+v", first.Interval, other.Interval)
+	}
+}
+
+func TestRecordedComparisonDistinguishesFrozenTaskContexts(t *testing.T) {
+	ctx, req := recordedComparisonFixture(t, 20, 1, "candidate", false, true, true)
+	result, err := comparison.CompareRecorded(ctx, req)
+	if err != nil || !result.Conclusive || result.CaseCount != 20 {
+		t.Fatalf("distinct frozen environments collapsed: %+v %v", result, err)
 	}
 }
