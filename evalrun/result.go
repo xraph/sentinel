@@ -37,12 +37,14 @@ const (
 
 // ScorerResult captures the output of a single scorer for a case.
 type ScorerResult struct {
-	ScorerName string         `json:"scorer_name"`
-	Score      float64        `json:"score"`
-	Passed     bool           `json:"passed"`
-	Reason     string         `json:"reason"`
-	Dimension  string         `json:"dimension,omitempty"`
-	Details    map[string]any `json:"details,omitempty"`
+	CriterionID string         `json:"criterion_id,omitempty"`
+	Required    bool           `json:"required,omitempty"`
+	ScorerName  string         `json:"scorer_name"`
+	Score       float64        `json:"score"`
+	Passed      bool           `json:"passed"`
+	Reason      string         `json:"reason"`
+	Dimension   string         `json:"dimension,omitempty"`
+	Details     map[string]any `json:"details,omitempty"`
 }
 
 // ScorerErrorPrefix starts the Reason of a scorer that could not judge the

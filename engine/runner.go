@@ -525,70 +525,17 @@ func (e *Engine) evaluateCase(
 		Context:  scorerCtx,
 	}
 
-	// The run's scorers, then the case's own, resolved by name. A case scorer
-	// nobody registered is a scorer error like any other, so the case is
-	// visibly unscored instead of silently scored by fewer scorers.
-	all := append([]scorer.Scorer(nil), scorers...)
-	var scorerErrs []string
-	var firstScorerErr error
-	var scorerResults []evalrun.ScorerResult
+	// Legacy evaluations retain their average-score policy. Frozen evaluations
+	// additionally mark required criteria in the same scoring path.
+	criteria := make([]capturedCriterion, 0, len(scorers)+len(tc.Scorers))
+	for _, s := range scorers {
+		criteria = append(criteria, capturedCriterion{Scorer: s})
+	}
 	for _, cfg := range tc.Scorers {
 		s, getErr := e.scorers.Get(cfg.Name, cfg.Config)
-		if getErr != nil {
-			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", cfg.Name, getErr))
-			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: cfg.Name, Reason: evalrun.ScorerErrorPrefix + getErr.Error()})
-			if firstScorerErr == nil {
-				firstScorerErr = getErr
-			}
-			continue
-		}
-		all = append(all, s)
+		criteria = append(criteria, capturedCriterion{Name: cfg.Name, Scorer: s, Err: getErr})
 	}
-
-	var total float64
-	var scored int
-	dimensionScores := make(map[string]float64)
-	dimensionCounts := make(map[string]int)
-	for _, s := range all {
-		so, scoreErr := e.score(ctx, s, input)
-		if scoreErr != nil {
-			scorerErrs = append(scorerErrs, fmt.Sprintf("scorer %s: %v", s.Name(), scoreErr))
-			scorerResults = append(scorerResults, evalrun.ScorerResult{ScorerName: s.Name(), Reason: evalrun.ScorerErrorPrefix + scoreErr.Error()})
-			if firstScorerErr == nil {
-				firstScorerErr = scoreErr
-			}
-			continue
-		}
-		scorerResults = append(scorerResults, evalrun.ScorerResult{
-			ScorerName: s.Name(), Score: so.Score, Passed: so.Passed, Reason: so.Reason, Dimension: so.Dimension, Details: so.Details,
-		})
-		total += so.Score
-		scored++
-		if so.Dimension != "" {
-			dimensionScores[so.Dimension] += so.Score
-			dimensionCounts[so.Dimension]++
-		}
-	}
-	if scored > 0 {
-		result.Score = total / float64(scored)
-	}
-	for dim, sum := range dimensionScores {
-		dimensionScores[dim] = sum / float64(dimensionCounts[dim])
-	}
-	result.ScorerResults = scorerResults
-	result.DimensionScores = dimensionScores
-
-	// A case any scorer could not judge is an error, never a pass: its score
-	// covers fewer scorers than the run asked for.
-	switch {
-	case len(scorerErrs) > 0:
-		result.Status = evalrun.StatusError
-		result.Error = strings.Join(scorerErrs, "; ")
-	case result.Score >= e.config.PassThreshold:
-		result.Status = evalrun.StatusPass
-	default:
-		result.Status = evalrun.StatusFail
-	}
+	firstScorerErr := e.scoreCapturedCase(ctx, result, input, criteria, e.config.PassThreshold)
 	cancelled := ctx.Err() != nil
 	status := caseStatus(result.Status, cancelled)
 	span.SetAttributes(
