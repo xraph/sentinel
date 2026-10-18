@@ -37,6 +37,7 @@ const (
 
 // ScorerResult captures the output of a single scorer for a case.
 type ScorerResult struct {
+	Usage       *Usage         `json:"usage,omitempty"`
 	CriterionID string         `json:"criterion_id,omitempty"`
 	Required    bool           `json:"required,omitempty"`
 	ScorerName  string         `json:"scorer_name"`

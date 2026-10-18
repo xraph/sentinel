@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/xraph/sentinel"
@@ -14,42 +13,20 @@ import (
 	"github.com/xraph/sentinel/id"
 )
 
-// Quality says whether a usage value came from an authoritative receipt.
-type Quality string
+// Quality identifies measured, estimated or unknown accounting.
+type Quality = evalrun.Quality
+
+// Usage keeps original accounting provenance.
+type Usage = evalrun.Usage
 
 const (
-	// Unknown includes historical records without accounting provenance.
-	Unknown Quality = "unknown"
-	// Known identifies an authoritative measured value, including zero.
-	Known Quality = "known"
-	// Estimated identifies a value inferred from a rate or token estimate.
-	Estimated Quality = "estimated"
+	// Unknown includes historical accounting without provenance.
+	Unknown = evalrun.Unknown
+	// Known identifies measured accounting.
+	Known = evalrun.Known
+	// Estimated identifies inferred accounting.
+	Estimated = evalrun.Estimated
 )
-
-// Usage keeps unknown values distinct from measured zero.
-type Usage struct {
-	Tokens        int64   `json:"tokens"`
-	TokensQuality Quality `json:"tokens_quality,omitempty"`
-	Cost          float64 `json:"cost"`
-	CostQuality   Quality `json:"cost_quality,omitempty"`
-	Currency      string  `json:"currency,omitempty"`
-}
-
-// CostKnown reports whether cost is measured rather than estimated or absent.
-func (u Usage) CostKnown() bool { return u.CostQuality == Known }
-
-func validQuality(q Quality) bool { return q == "" || q == Unknown || q == Known || q == Estimated }
-
-// Validate checks numeric values and accounting provenance.
-func (u Usage) Validate() error {
-	if !validQuality(u.TokensQuality) || !validQuality(u.CostQuality) || u.Tokens < 0 || math.IsNaN(u.Cost) || math.IsInf(u.Cost, 0) || u.Cost < 0 {
-		return fmt.Errorf("%w: invalid captured usage", sentinel.ErrInvalidInput)
-	}
-	if (u.CostQuality == Known || u.CostQuality == Estimated) && u.Currency == "" {
-		return fmt.Errorf("%w: captured cost requires currency", sentinel.ErrInvalidInput)
-	}
-	return nil
-}
 
 // Outcome records how execution ended independently of evaluation status.
 type Outcome string

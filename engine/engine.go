@@ -40,6 +40,9 @@ type Engine struct {
 	cancelBase context.CancelFunc // Stop cancels it
 	runs       sync.WaitGroup     // StartRun goroutines still evaluating
 
+	recordedMu      sync.Mutex
+	recordedWorkers map[string]int
+
 	metricsSink gometrics.Metrics // set by WithMetrics, nil for none
 	metrics     *runMetrics       // built from metricsSink in New
 }

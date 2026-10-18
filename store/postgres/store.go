@@ -466,44 +466,7 @@ func (s *Store) GetResultStats(ctx context.Context, runID id.EvalRunID) (*evalru
 	if err != nil {
 		return nil, err
 	}
-	stats := &evalrun.ResultStats{
-		DimensionScores: make(map[string]float64),
-	}
-	dimCounts := make(map[string]int)
-	var totalScore float64
-	var totalLatency int64
-
-	for _, r := range results {
-		stats.TotalCases++
-		totalScore += r.Score
-		totalLatency += int64(r.LatencyMs)
-		stats.TotalTokens += r.TokensUsed
-		stats.TotalCost += r.Cost
-
-		switch r.Status {
-		case evalrun.StatusPass:
-			stats.Passed++
-		case evalrun.StatusFail:
-			stats.Failed++
-		case evalrun.StatusError:
-			stats.Errored++
-		}
-		for dim, score := range r.DimensionScores {
-			stats.DimensionScores[dim] += score
-			dimCounts[dim]++
-		}
-	}
-	if stats.TotalCases > 0 {
-		stats.PassRate = float64(stats.Passed) / float64(stats.TotalCases)
-		stats.AvgScore = totalScore / float64(stats.TotalCases)
-		stats.AvgLatencyMs = int(totalLatency / int64(stats.TotalCases))
-	}
-	for dim, total := range stats.DimensionScores {
-		if dimCounts[dim] > 0 {
-			stats.DimensionScores[dim] = total / float64(dimCounts[dim])
-		}
-	}
-	return stats, nil
+	return evalrun.Aggregate(results), nil
 }
 
 // ──────────────────────────────────────────────────

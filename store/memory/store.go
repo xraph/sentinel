@@ -443,60 +443,12 @@ func (s *Store) ListResults(_ context.Context, runID id.EvalRunID) ([]*evalrun.R
 	return result, nil
 }
 
-func (s *Store) GetResultStats(_ context.Context, runID id.EvalRunID) (*evalrun.ResultStats, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	rid := runID.String()
-
-	stats := &evalrun.ResultStats{
-		DimensionScores: make(map[string]float64),
+func (s *Store) GetResultStats(ctx context.Context, runID id.EvalRunID) (*evalrun.ResultStats, error) {
+	results, err := s.ListResults(ctx, runID)
+	if err != nil {
+		return nil, err
 	}
-	dimCounts := make(map[string]int)
-	var totalScore float64
-	var totalLatency int64
-	var totalTokens int
-	var totalCost float64
-
-	for _, r := range s.results {
-		if r.RunID.String() != rid {
-			continue
-		}
-		stats.TotalCases++
-		totalScore += r.Score
-		totalLatency += int64(r.LatencyMs)
-		totalTokens += r.TokensUsed
-		totalCost += r.Cost
-
-		switch r.Status {
-		case evalrun.StatusPass:
-			stats.Passed++
-		case evalrun.StatusFail:
-			stats.Failed++
-		case evalrun.StatusError:
-			stats.Errored++
-		}
-
-		for dim, score := range r.DimensionScores {
-			stats.DimensionScores[dim] += score
-			dimCounts[dim]++
-		}
-	}
-
-	if stats.TotalCases > 0 {
-		stats.PassRate = float64(stats.Passed) / float64(stats.TotalCases)
-		stats.AvgScore = totalScore / float64(stats.TotalCases)
-		stats.AvgLatencyMs = int(totalLatency / int64(stats.TotalCases))
-	}
-	stats.TotalTokens = totalTokens
-	stats.TotalCost = totalCost
-
-	for dim, total := range stats.DimensionScores {
-		if dimCounts[dim] > 0 {
-			stats.DimensionScores[dim] = total / float64(dimCounts[dim])
-		}
-	}
-
-	return stats, nil
+	return evalrun.Aggregate(results), nil
 }
 
 // ──────────────────────────────────────────────────

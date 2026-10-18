@@ -19,6 +19,7 @@ import (
 	"github.com/xraph/sentinel/evalrun"
 	"github.com/xraph/sentinel/id"
 	"github.com/xraph/sentinel/internal/telemetry"
+	"github.com/xraph/sentinel/recorded"
 	"github.com/xraph/sentinel/scorer"
 	"github.com/xraph/sentinel/suite"
 	"github.com/xraph/sentinel/target"
@@ -38,9 +39,10 @@ type RunConfig struct {
 
 // RunResult holds the outcome of an evaluation run.
 type RunResult struct {
-	Run     *evalrun.Run
-	Results []*evalrun.Result
-	Stats   *evalrun.ResultStats
+	Recorded *recorded.Job // Non-nil for captured execution evidence, including usage quality.
+	Run      *evalrun.Run
+	Results  []*evalrun.Result
+	Stats    *evalrun.ResultStats
 }
 
 // StartConfig starts a run by the names an application registered with

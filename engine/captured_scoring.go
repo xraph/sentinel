@@ -48,6 +48,16 @@ func (e *Engine) scoreCapturedCase(ctx context.Context, result *evalrun.Result, 
 		if scoreErr == nil && (out == nil || math.IsNaN(out.Score) || math.IsInf(out.Score, 0) || out.Score < 0 || out.Score > 1) {
 			scoreErr = fmt.Errorf("sentinel: scorer %s returned an invalid score", name)
 		}
+		if out != nil && out.Usage != nil {
+			if usageErr := out.Usage.Validate(); usageErr != nil {
+				if scoreErr == nil {
+					scoreErr = usageErr
+				}
+			} else {
+				usage := *out.Usage
+				sr.Usage = &usage
+			}
+		}
 		if scoreErr != nil {
 			sr.Reason = evalrun.ScorerErrorPrefix + scoreErr.Error()
 			failures = append(failures, fmt.Sprintf("scorer %s: %v", name, scoreErr))

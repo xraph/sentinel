@@ -26,6 +26,7 @@ type Input struct {
 
 // Output captures the result of a scoring evaluation.
 type Output struct {
+	Usage     *evalrun.Usage // Optional judge accounting; nil means unknown, not zero.
 	Score     float64        // 0.0 to 1.0
 	Passed    bool           // Score >= threshold
 	Reason    string         // Human-readable explanation
