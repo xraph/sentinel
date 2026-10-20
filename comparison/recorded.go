@@ -55,6 +55,8 @@ type ConfidenceInterval struct {
 
 // RecordedComparison reports evidence without deciding production activation.
 type RecordedComparison struct {
+	BaselineJobs           []RecordedJobRef    `json:"baseline_jobs"`
+	CandidateJobs          []RecordedJobRef    `json:"candidate_jobs"`
 	BaselineID             id.ID               `json:"baseline_id"`
 	CandidateID            id.ID               `json:"candidate_id"`
 	BaselineDigest         string              `json:"baseline_digest"`
@@ -84,41 +86,52 @@ type RecordedComparison struct {
 // It averages repetitions within each case, then resamples 2,000 sets of cases.
 // The nearest-rank 2.5 and 97.5 percentiles form the interval. No target is called.
 func CompareRecorded(ctx context.Context, req RecordedComparisonRequest) (*RecordedComparison, error) {
-	if req.Store == nil || req.BaselineID.IsNil() || req.CandidateID.IsNil() || req.BaselineID == req.CandidateID || req.MinCases < 0 {
+	return CompareRecordedSets(ctx, RecordedSetComparisonRequest{
+		Store: req.Store, BaselineIDs: []id.ID{req.BaselineID}, CandidateIDs: []id.ID{req.CandidateID}, Seed: req.Seed, MinCases: req.MinCases,
+	})
+}
+
+// CompareRecordedSets compares disjoint persisted job sets from one frozen plan.
+// Cases and repetitions must match across arms. Job order and batch size do not
+// change the estimate. The caller remains responsible for selecting its full roster.
+func CompareRecordedSets(ctx context.Context, req RecordedSetComparisonRequest) (*RecordedComparison, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if req.Store == nil || req.MinCases < 0 || len(req.BaselineIDs) == 0 || len(req.CandidateIDs) == 0 {
 		return nil, fmt.Errorf("%w: invalid recorded comparison", sentinel.ErrInvalidInput)
 	}
-	baseline, err := req.Store.GetRecordedJob(ctx, req.BaselineID)
+	seen := make(map[id.ID]bool)
+	for _, ids := range [][]id.ID{req.BaselineIDs, req.CandidateIDs} {
+		for _, jobID := range ids {
+			if jobID.IsNil() || seen[jobID] {
+				return nil, fmt.Errorf("%w: repeated or missing comparison job identity", sentinel.ErrInvalidInput)
+			}
+			seen[jobID] = true
+		}
+	}
+	baseline, err := loadRecordedArm(ctx, req.Store, req.BaselineIDs)
 	if err != nil {
 		return nil, err
 	}
-	candidate, err := req.Store.GetRecordedJob(ctx, req.CandidateID)
+	candidate, err := loadRecordedArm(ctx, req.Store, req.CandidateIDs)
 	if err != nil {
 		return nil, err
 	}
-	if baseline == nil || candidate == nil || baseline.ID != req.BaselineID || candidate.ID != req.CandidateID {
-		return nil, fmt.Errorf("%w: returned evaluation identity mismatch", sentinel.ErrInvalidInput)
-	}
-	if baselineErr := baseline.Validate(ctx); baselineErr != nil {
-		return nil, baselineErr
-	}
-	if candidateErr := candidate.Validate(ctx); candidateErr != nil {
-		return nil, candidateErr
-	}
-	if baseline.Request.PlanID != candidate.Request.PlanID || baseline.Request.PlanDigest != candidate.Request.PlanDigest {
+	if baseline.planID != candidate.planID || baseline.planDigest != candidate.planDigest {
 		return nil, fmt.Errorf("%w: comparison plans differ", sentinel.ErrInvalidInput)
 	}
-	plan, err := req.Store.GetEvaluationPlan(ctx, baseline.Request.PlanID)
+	plan, err := req.Store.GetEvaluationPlan(ctx, baseline.planID)
 	if err != nil {
 		return nil, err
 	}
 	if planErr := plan.Validate(ctx); planErr != nil {
 		return nil, planErr
 	}
-	if plan.ID != baseline.Request.PlanID || plan.Digest != baseline.Request.PlanDigest {
+	if plan.ID != baseline.planID || plan.Digest != baseline.planDigest {
 		return nil, fmt.Errorf("%w: stored comparison plan changed", recorded.ErrConflict)
 	}
-	baseInputs := caseMap(baseline.Request.Cases)
-	candidateInputs := caseMap(candidate.Request.Cases)
+	baseInputs, candidateInputs := baseline.cases, candidate.cases
 	if len(baseInputs) != len(candidateInputs) {
 		return nil, fmt.Errorf("%w: comparison trial sets differ", sentinel.ErrInvalidInput)
 	}
@@ -149,15 +162,22 @@ func CompareRecorded(ctx context.Context, req RecordedComparisonRequest) (*Recor
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	report := &RecordedComparison{BaselineID: baseline.ID, CandidateID: candidate.ID, BaselineDigest: baseline.RequestDigest, CandidateDigest: candidate.RequestDigest, PlanDigest: plan.Digest, Seed: req.Seed, Method: "paired-case-bootstrap-pcg-v1", BootstrapSamples: 2000, RequiredCriteriaPassed: true, CostComparable: true, DimensionDeltas: make(map[string]float64), PairCount: len(keys)}
-	if baseline.State != recorded.JobCompleted || candidate.State != recorded.JobCompleted {
+	report := &RecordedComparison{BaselineJobs: baseline.refs, CandidateJobs: candidate.refs, PlanDigest: plan.Digest, Seed: req.Seed, Method: "paired-case-bootstrap-pcg-v1", BootstrapSamples: 2000, RequiredCriteriaPassed: true, CostComparable: true, DimensionDeltas: make(map[string]float64), PairCount: len(keys)}
+	if len(baseline.refs) == 1 {
+		report.BaselineID = baseline.refs[0].ID
+		report.BaselineDigest = baseline.refs[0].RequestDigest
+	}
+	if len(candidate.refs) == 1 {
+		report.CandidateID = candidate.refs[0].ID
+		report.CandidateDigest = candidate.refs[0].RequestDigest
+	}
+	if !baseline.complete || !candidate.complete {
 		report.CostComparable = false
 		report.RequiredCriteriaPassed = false
-		report.IncompletenessReasons = append(report.IncompletenessReasons, "both evaluations must be completed")
+		report.IncompletenessReasons = append(report.IncompletenessReasons, "every evaluation job must be completed")
 		return report, nil
 	}
-	baseResults := resultMap(baseline.Results)
-	candidateResults := resultMap(candidate.Results)
+	baseResults, candidateResults := baseline.results, candidate.results
 	groups := make(map[id.CaseID][]float64)
 	costs := make(map[id.CaseID][]float64)
 	latency := make(map[id.CaseID][]float64)
@@ -254,20 +274,6 @@ func CompareRecorded(ctx context.Context, req RecordedComparisonRequest) (*Recor
 	return report, nil
 }
 
-func caseMap(cases []recorded.Case) map[string]recorded.Case {
-	out := make(map[string]recorded.Case, len(cases))
-	for _, c := range cases {
-		out[c.Key()] = c
-	}
-	return out
-}
-func resultMap(results []recorded.CaseResult) map[string]*evalrun.Result {
-	out := make(map[string]*evalrun.Result, len(results))
-	for _, r := range results {
-		out[r.Key] = r.Result
-	}
-	return out
-}
 func validateCriteria(definition evalplan.Case, result *evalrun.Result) error {
 	criteria := make(map[string]evalplan.Criterion, len(definition.Criteria))
 	for _, c := range definition.Criteria {
