@@ -327,6 +327,6 @@ The Postgres and MongoDB store tests sit behind the `integration` build tag and 
 
 ## License
 
-See the [Sentinel repository](https://github.com/xraph/sentinel) for license terms.
+MIT. See [LICENSE](LICENSE).
 
 Sentinel is part of the [forgery stack](https://github.com/xraph/forge#the-forgery-stack) built on [Forge](https://github.com/xraph/forge), by [Rex Raphael](https://github.com/juicycleff) and [contributors](https://github.com/xraph/sentinel/graphs/contributors).
