@@ -166,6 +166,37 @@ if err == nil {
 }
 ```
 
+## Comparing captured executions
+
+Use `comparison.CompareRecordedSets` when both arms use one frozen evaluation
+plan. For a task stream with several plans, pass explicit paired groups to
+`comparison.CompareRecordedGroups`:
+
+```go
+report, err := comparison.CompareRecordedGroups(ctx, comparison.RecordedGroupComparisonRequest{
+	Store: eng.Store(),
+	Groups: []comparison.RecordedComparisonGroup{
+		{Plan: firstPlanRef, BaselineIDs: firstBaselineJobs, CandidateIDs: firstCandidateJobs},
+		{Plan: secondPlanRef, BaselineIDs: secondBaselineJobs, CandidateIDs: secondCandidateJobs},
+	},
+	Seed: 42,
+	MinCases: 20,
+})
+```
+
+Each `RecordedPlanRef` contains the plan ID and digest. You select the full job
+roster; Sentinel checks those stored jobs against their frozen plans and rejects
+overlapping cases, repeated jobs, or duplicate input/context pairs under different
+case IDs. Repetitions are averaged within each case before the paired bootstrap.
+The minimum applies across all groups, so extra repetitions cannot increase your
+sample size.
+
+The report retains every plan reference and job digest. `PlanDigest` is empty
+when you compare multiple plans. Pending evaluations leave the report
+inconclusive, required failures remain visible, and unknown costs stay unknown.
+Comparison reads captured evidence without running a target or scoring it again.
+Your application owns the acceptance thresholds and any deployment decision.
+
 ## Evals in go test
 
 Run a suite inside an ordinary test and let `sentineltest` fail it:

@@ -54,7 +54,9 @@ type ConfidenceInterval struct {
 }
 
 // RecordedComparison reports evidence without deciding production activation.
+// Plans preserves every frozen identity. PlanDigest is empty for multiple plans.
 type RecordedComparison struct {
+	Plans                  []RecordedPlanRef   `json:"plans,omitempty"`
 	BaselineJobs           []RecordedJobRef    `json:"baseline_jobs"`
 	CandidateJobs          []RecordedJobRef    `json:"candidate_jobs"`
 	BaselineID             id.ID               `json:"baseline_id"`
@@ -98,46 +100,65 @@ func CompareRecordedSets(ctx context.Context, req RecordedSetComparisonRequest) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if req.Store == nil || req.MinCases < 0 || len(req.BaselineIDs) == 0 || len(req.CandidateIDs) == 0 {
-		return nil, fmt.Errorf("%w: invalid recorded comparison", sentinel.ErrInvalidInput)
+	if req.MinCases < 0 {
+		return nil, fmt.Errorf("%w: negative comparison minimum", sentinel.ErrInvalidInput)
 	}
-	seen := make(map[id.ID]bool)
-	for _, ids := range [][]id.ID{req.BaselineIDs, req.CandidateIDs} {
-		for _, jobID := range ids {
-			if jobID.IsNil() || seen[jobID] {
-				return nil, fmt.Errorf("%w: repeated or missing comparison job identity", sentinel.ErrInvalidInput)
-			}
-			seen[jobID] = true
-		}
-	}
-	baseline, err := loadRecordedArm(ctx, req.Store, req.BaselineIDs)
+	baseline, candidate, plan, err := loadRecordedPair(ctx, req.Store, req.BaselineIDs, req.CandidateIDs)
 	if err != nil {
 		return nil, err
-	}
-	candidate, err := loadRecordedArm(ctx, req.Store, req.CandidateIDs)
-	if err != nil {
-		return nil, err
-	}
-	if baseline.planID != candidate.planID || baseline.planDigest != candidate.planDigest {
-		return nil, fmt.Errorf("%w: comparison plans differ", sentinel.ErrInvalidInput)
-	}
-	plan, err := req.Store.GetEvaluationPlan(ctx, baseline.planID)
-	if err != nil {
-		return nil, err
-	}
-	if planErr := plan.Validate(ctx); planErr != nil {
-		return nil, planErr
-	}
-	if plan.ID != baseline.planID || plan.Digest != baseline.planDigest {
-		return nil, fmt.Errorf("%w: stored comparison plan changed", recorded.ErrConflict)
-	}
-	baseInputs, candidateInputs := baseline.cases, candidate.cases
-	if len(baseInputs) != len(candidateInputs) {
-		return nil, fmt.Errorf("%w: comparison trial sets differ", sentinel.ErrInvalidInput)
 	}
 	definitions := make(map[id.CaseID]evalplan.Case, len(plan.Cases))
 	for _, c := range plan.Cases {
 		definitions[c.Case.ID] = c
+	}
+	report := &RecordedComparison{PlanDigest: plan.Digest, Plans: []RecordedPlanRef{{ID: plan.ID, Digest: plan.Digest}}}
+	return compareRecordedArms(ctx, baseline, candidate, definitions, report, req.Seed, req.MinCases)
+}
+
+func loadRecordedPair(ctx context.Context, store RecordedStore, baselineIDs, candidateIDs []id.ID) (baseline, candidate *recordedArm, plan *evalplan.Plan, err error) {
+	if contextErr := ctx.Err(); contextErr != nil {
+		return nil, nil, nil, contextErr
+	}
+	if store == nil || len(baselineIDs) == 0 || len(candidateIDs) == 0 {
+		return nil, nil, nil, fmt.Errorf("%w: invalid recorded comparison", sentinel.ErrInvalidInput)
+	}
+	seen := make(map[id.ID]bool)
+	for _, ids := range [][]id.ID{baselineIDs, candidateIDs} {
+		for _, jobID := range ids {
+			if jobID.IsNil() || seen[jobID] {
+				return nil, nil, nil, fmt.Errorf("%w: repeated or missing comparison job identity", sentinel.ErrInvalidInput)
+			}
+			seen[jobID] = true
+		}
+	}
+	baseline, err = loadRecordedArm(ctx, store, baselineIDs)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	candidate, err = loadRecordedArm(ctx, store, candidateIDs)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if baseline.planID != candidate.planID || baseline.planDigest != candidate.planDigest {
+		return nil, nil, nil, fmt.Errorf("%w: comparison plans differ", sentinel.ErrInvalidInput)
+	}
+	plan, err = store.GetEvaluationPlan(ctx, baseline.planID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if planErr := plan.Validate(ctx); planErr != nil {
+		return nil, nil, nil, planErr
+	}
+	if plan.ID != baseline.planID || plan.Digest != baseline.planDigest {
+		return nil, nil, nil, fmt.Errorf("%w: stored comparison plan changed", recorded.ErrConflict)
+	}
+	return baseline, candidate, plan, nil
+}
+
+func compareRecordedArms(ctx context.Context, baseline, candidate *recordedArm, definitions map[id.CaseID]evalplan.Case, report *RecordedComparison, seed uint64, minCases int) (*RecordedComparison, error) {
+	baseInputs, candidateInputs := baseline.cases, candidate.cases
+	if len(baseInputs) != len(candidateInputs) {
+		return nil, fmt.Errorf("%w: comparison trial sets differ", sentinel.ErrInvalidInput)
 	}
 	keys := make([]string, 0, len(baseInputs))
 	inputOwners := make(map[string]id.CaseID)
@@ -162,7 +183,10 @@ func CompareRecordedSets(ctx context.Context, req RecordedSetComparisonRequest) 
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	report := &RecordedComparison{BaselineJobs: baseline.refs, CandidateJobs: candidate.refs, PlanDigest: plan.Digest, Seed: req.Seed, Method: "paired-case-bootstrap-pcg-v1", BootstrapSamples: 2000, RequiredCriteriaPassed: true, CostComparable: true, DimensionDeltas: make(map[string]float64), PairCount: len(keys)}
+	report.BaselineJobs, report.CandidateJobs = baseline.refs, candidate.refs
+	report.Seed, report.Method, report.BootstrapSamples = seed, "paired-case-bootstrap-pcg-v1", 2000
+	report.RequiredCriteriaPassed, report.CostComparable = true, true
+	report.DimensionDeltas, report.PairCount = make(map[string]float64), len(keys)
 	if len(baseline.refs) == 1 {
 		report.BaselineID = baseline.refs[0].ID
 		report.BaselineDigest = baseline.refs[0].RequestDigest
@@ -245,7 +269,7 @@ func CompareRecordedSets(ctx context.Context, req RecordedSetComparisonRequest) 
 	caseDeltas := caseMeans(groups)
 	mean := average(caseDeltas)
 	report.MeanDelta = &mean
-	report.Interval = bootstrap(ctx, caseDeltas, req.Seed)
+	report.Interval = bootstrap(ctx, caseDeltas, seed)
 	if contextErr := ctx.Err(); contextErr != nil {
 		return nil, contextErr
 	}
@@ -263,7 +287,7 @@ func CompareRecordedSets(ctx context.Context, req RecordedSetComparisonRequest) 
 		report.DimensionDeltas[dim] = average(caseMeans(values))
 	}
 	sort.Strings(report.UnavailableDimensions)
-	minimum := req.MinCases
+	minimum := minCases
 	if minimum == 0 {
 		minimum = 20
 	}
